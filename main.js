@@ -24,6 +24,7 @@ fileInput.addEventListener('change', async (event) => {
     updateTree();
 });
 
+
 // Заполняем select только верхними уровнями
 function populateDepartmentSelect() {
     departmentSelect.innerHTML = '<option value="">-- Выберите департамент --</option>';
