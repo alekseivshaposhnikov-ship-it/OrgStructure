@@ -36,26 +36,7 @@ function populateDepartmentSelect() {
     });
 }
 
-// Обновляем отображение дерева
-function updateTree() {
-    let nodesToRender = fullTree;
-
-    if (!showAllCheckbox.checked) {
-        nodesToRender = getTopLevelDepartments(fullTree);
-    }
-
-    const selectedGuid = departmentSelect.value;
-    if (selectedGuid) {
-        const selectedNode = findNodeByGuid(fullTree, selectedGuid);
-        if (selectedNode) {
-            nodesToRender = collectSubDepartments(selectedNode);
-        }
-    }
-
-    renderTree(nodesToRender, treeContainer);
-}
-
-// Находим узел по GUID
+// Находим узел по GUID в дереве
 function findNodeByGuid(nodes, guid) {
     for (const node of nodes) {
         if (node.department_guid === guid) return node;
@@ -67,15 +48,47 @@ function findNodeByGuid(nodes, guid) {
     return null;
 }
 
+// Обновляем отображение дерева
+function updateTree() {
+    let nodesToRender = fullTree;
+
+    const selectedGuid = departmentSelect.value;
+    if (selectedGuid) {
+        const selectedNode = findNodeByGuid(fullTree, selectedGuid);
+        if (selectedNode) {
+            nodesToRender = [selectedNode]; // для рендера берем один узел с вложенными children
+        }
+    } else if (!showAllCheckbox.checked) {
+        nodesToRender = getTopLevelDepartments(fullTree);
+    }
+
+    renderTree(nodesToRender, treeContainer);
+}
+
 // События
 departmentSelect.addEventListener('change', updateTree);
 showAllCheckbox.addEventListener('change', updateTree);
+
 exportBtn.addEventListener('click', () => {
     const selectedGuid = departmentSelect.value;
-    let nodesToExport = fullTree;
+    let nodesToExport = [];
+
     if (selectedGuid) {
         const selectedNode = findNodeByGuid(fullTree, selectedGuid);
-        nodesToExport = collectSubDepartments(selectedNode);
+        if (selectedNode) {
+            nodesToExport = collectSubDepartments(selectedNode);
+        }
+    } else if (!showAllCheckbox.checked) {
+        // экспорт только верхний уровень
+        getTopLevelDepartments(fullTree).forEach(node => {
+            nodesToExport = nodesToExport.concat(collectSubDepartments(node));
+        });
+    } else {
+        // экспорт всего дерева
+        fullTree.forEach(node => {
+            nodesToExport = nodesToExport.concat(collectSubDepartments(node));
+        });
     }
+
     exportToPptx(nodesToExport);
 });

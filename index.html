@@ -3,26 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <title>Org Structure Viewer</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>Организационная структура</h1>
+    <div class="container">
+        <h1>Организационная структура</h1>
 
-    <input type="file" id="fileInput" accept=".json">
-    <br><br>
+        <div class="controls">
+            <input type="file" id="fileInput" accept=".json">
+            
+            <label class="switch-label">
+                <input type="checkbox" id="showAll"> Показывать все уровни департаментов
+            </label>
 
-    <label>
-        <input type="checkbox" id="showAll"> Показывать все уровни департаментов
-    </label>
-    <br><br>
+            <label>
+                Выберите департамент:
+                <select id="departmentSelect">
+                    <option value="">-- Выберите департамент --</option>
+                </select>
+            </label>
 
-    <select id="departmentSelect">
-        <option value="">-- Выберите департамент --</option>
-    </select>
-    <br><br>
+            <button id="exportPptx">Экспорт в PPTX</button>
+        </div>
 
-    <button id="exportPptx">Экспорт в PPTX</button>
-
-    <div id="treeContainer" style="margin-top:20px;"></div>
+        <div id="treeContainer" class="tree-container"></div>
+    </div>
 
     <script type="module" src="main.js"></script>
 </body>
