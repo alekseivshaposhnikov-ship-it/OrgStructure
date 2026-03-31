@@ -1,32 +1,42 @@
-// Функция строит дерево DOM из массива отделов
-export function buildTree(data) {
-  const map = {};
-  const roots = [];
+// tree.js
 
-  // создаём объекты по guid
-  data.forEach(d => {
-    map[d.department_guid] = { ...d, children: [] };
-  });
+// Строим дерево из плоского массива departments
+export function buildTree(data, parentGuid = "00000000-0000-0000-0000-000000000000") {
+    const nodes = data.filter(d => d.parent_guid === parentGuid)
+                      .map(d => ({
+                          ...d,
+                          children: buildTree(data, d.department_guid)
+                      }));
+    return nodes;
+}
 
-  // связываем с родителями
-  data.forEach(d => {
-    if (d.parent_guid && d.parent_guid !== "00000000-0000-0000-0000-000000000000" && map[d.parent_guid]) {
-      map[d.parent_guid].children.push(map[d.department_guid]);
-    } else {
-      roots.push(map[d.department_guid]);
+// Рендерим дерево в HTML
+export function renderTree(nodes, container, level = 0) {
+    container.innerHTML = '';
+    function renderNode(node, indent = 0) {
+        const div = document.createElement('div');
+        div.style.marginLeft = `${indent * 20}px`;
+        div.textContent = `${node.department_name} (${node.user_count})`;
+        container.appendChild(div);
+        if (node.children && node.children.length > 0) {
+            node.children.forEach(child => renderNode(child, indent + 1));
+        }
     }
-  });
+    nodes.forEach(node => renderNode(node));
+}
 
-  // рекурсивно строим DOM
-  function createNode(dep) {
-    const div = document.createElement("div");
-    div.className = "department";
-    div.innerHTML = `<strong>${dep.department_name}</strong> (${dep.user_count} чел.)<br/>Руководитель: ${dep.department_manager || "-"}`;
-    dep.children.forEach(child => div.appendChild(createNode(child)));
-    return div;
-  }
+// Собираем все подчинённые департаменты рекурсивно
+export function collectSubDepartments(node) {
+    let result = [node];
+    if (node.children && node.children.length > 0) {
+        node.children.forEach(child => {
+            result = result.concat(collectSubDepartments(child));
+        });
+    }
+    return result;
+}
 
-  const container = document.createElement("div");
-  roots.forEach(root => container.appendChild(createNode(root)));
-  return container;
+// Получаем верхние уровни (без родителей)
+export function getTopLevelDepartments(tree) {
+    return tree;
 }

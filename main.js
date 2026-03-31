@@ -1,100 +1,81 @@
-import { buildTree } from "./src/tree.js";
-import PPTXGenJS from "pptxgenjs";
+import { buildTree, renderTree, collectSubDepartments, getTopLevelDepartments } from './src/tree.js';
+import { exportToPptx } from './src/pptx.js';
 
-let rawData = [];
-let filteredData = [];
+let treeData = [];
+let fullTree = [];
 
-const fileInput = document.getElementById("fileInput");
-const filterBtn = document.getElementById("filterBtn");
-const exportBtn = document.getElementById("exportBtn");
-const filterDept = document.getElementById("filterDept");
+const fileInput = document.getElementById('fileInput');
+const departmentSelect = document.getElementById('departmentSelect');
+const treeContainer = document.getElementById('treeContainer');
+const showAllCheckbox = document.getElementById('showAll');
+const exportBtn = document.getElementById('exportPptx');
 
-fileInput.addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  try {
+// Пользователь выбирает JSON файл
+fileInput.addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
     const text = await file.text();
-    const parsed = JSON.parse(text);
+    const json = JSON.parse(text);
 
-    rawData = parsed.departments || [];
-    console.log("Departments loaded:", rawData.length);
+    treeData = json.departments;
+    fullTree = buildTree(treeData);
 
-    populateFilterSelect(); // наполняем выпадающий список
-    filteredData = rawData;
-    renderTree();
-
-  } catch (err) {
-    console.error("Ошибка загрузки JSON:", err);
-    alert("Не удалось прочитать JSON");
-  }
+    populateDepartmentSelect();
+    updateTree();
 });
 
-// Наполняем select реальными департаментами
-function populateFilterSelect() {
-  const uniqueDepts = [...new Map(rawData.map(d => [d.department_guid, d.department_name])).values()];
-  filterDept.innerHTML = `<option value="">-- Все департаменты --</option>`;
-  rawData.forEach(d => {
-    const opt = document.createElement("option");
-    opt.value = d.department_guid;
-    opt.textContent = d.department_name;
-    filterDept.appendChild(opt);
-  });
+// Заполняем select только верхними уровнями
+function populateDepartmentSelect() {
+    departmentSelect.innerHTML = '<option value="">-- Выберите департамент --</option>';
+    const topLevel = getTopLevelDepartments(fullTree);
+    topLevel.forEach(d => {
+        const option = document.createElement('option');
+        option.value = d.department_guid;
+        option.textContent = d.department_name;
+        departmentSelect.appendChild(option);
+    });
 }
 
-// Фильтрация по выбранному департаменту и его подчиненным
-filterBtn.addEventListener("click", () => {
-  const selectedGuid = filterDept.value;
-  if (!selectedGuid) {
-    filteredData = rawData;
-  } else {
-    filteredData = getSubtree(rawData, selectedGuid);
-  }
-  renderTree();
-});
+// Обновляем отображение дерева
+function updateTree() {
+    let nodesToRender = fullTree;
 
-// Экспорт в PPTX
-exportBtn.addEventListener("click", () => {
-  if (!filteredData.length) return alert("Нет данных для экспорта");
-
-  const pptx = new PPTXGenJS();
-  const slide = pptx.addSlide();
-
-  let y = 0.5;
-  filteredData.forEach(d => {
-    const text = `${d.department_name} (${d.user_count} чел.)\nРуководитель: ${d.department_manager || "-"}`;
-    slide.addText(text, { x: 0.5, y, w: 9, h: 0.5, fontSize: 12 });
-    y += 0.7;
-  });
-
-  pptx.writeFile({ fileName: "OrgStructure.pptx" });
-});
-
-// Рендерим дерево
-function renderTree() {
-  const container = document.getElementById("tree");
-  container.innerHTML = "";
-  const tree = buildTree(filteredData);
-  container.appendChild(tree);
-}
-
-// Получаем выбранный департамент и все его подчиненные (рекурсивно)
-function getSubtree(data, rootGuid) {
-  const map = {};
-  data.forEach(d => map[d.department_guid] = { ...d, children: [] });
-
-  data.forEach(d => {
-    if (d.parent_guid && map[d.parent_guid]) {
-      map[d.parent_guid].children.push(map[d.department_guid]);
+    if (!showAllCheckbox.checked) {
+        nodesToRender = getTopLevelDepartments(fullTree);
     }
-  });
 
-  function collect(dep) {
-    let res = [dep];
-    dep.children.forEach(c => res = res.concat(collect(c)));
-    return res;
-  }
+    const selectedGuid = departmentSelect.value;
+    if (selectedGuid) {
+        const selectedNode = findNodeByGuid(fullTree, selectedGuid);
+        if (selectedNode) {
+            nodesToRender = collectSubDepartments(selectedNode);
+        }
+    }
 
-  if (!map[rootGuid]) return [];
-  return collect(map[rootGuid]);
+    renderTree(nodesToRender, treeContainer);
 }
+
+// Находим узел по GUID
+function findNodeByGuid(nodes, guid) {
+    for (const node of nodes) {
+        if (node.department_guid === guid) return node;
+        if (node.children && node.children.length > 0) {
+            const found = findNodeByGuid(node.children, guid);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+// События
+departmentSelect.addEventListener('change', updateTree);
+showAllCheckbox.addEventListener('change', updateTree);
+exportBtn.addEventListener('click', () => {
+    const selectedGuid = departmentSelect.value;
+    let nodesToExport = fullTree;
+    if (selectedGuid) {
+        const selectedNode = findNodeByGuid(fullTree, selectedGuid);
+        nodesToExport = collectSubDepartments(selectedNode);
+    }
+    exportToPptx(nodesToExport);
+});
