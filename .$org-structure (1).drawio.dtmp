@@ -1,0 +1,55 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.3.0 Chrome/140.0.7339.249 Electron/38.7.2 Safari/537.36" version="29.3.0">
+  <diagram name="OrgStructure" id="0">
+    <mxGraphModel dx="1426" dy="849" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="shape=rectangle;whiteSpace=wrap;html=1;rounded=0;strokeColor=#000000;fillColor=#FFFFFF;" value="&lt;b&gt;Дирекция по информационным технологиям (43)&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Руководитель: Быковский Роман Вадимович&lt;/b&gt;" vertex="1">
+          <mxGeometry height="80" width="200" x="500" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="2" style="shape=rectangle;whiteSpace=wrap;html=1;rounded=0;strokeColor=#000000;fillColor=#FFFFFF;" value="&lt;b&gt;Отдел инфраструктурных решений (16)&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Руководитель: Быковский Роман Вадимович&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Сотрудники:&lt;br/&gt;A Shmelev&lt;br/&gt;S Puhalskii&lt;br/&gt;L Tashlykov&lt;br/&gt;Pa Petrov&lt;br/&gt;M Shusharin&lt;br/&gt;A Sus&lt;br/&gt;S Loznevaya&lt;br/&gt;R Bykovskii&lt;br/&gt;M Siretskii" vertex="1">
+          <mxGeometry height="254" width="200" x="500" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="9" parent="7" style="shape=rectangle;whiteSpace=wrap;html=1;rounded=0;strokeColor=#000000;fillColor=#FFFFFF;" value="&lt;b&gt;Группа технической поддержки (7)&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Руководитель: Ануфриев Игорь Николаевич&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Сотрудники:&lt;br/&gt;E Isaev&lt;br/&gt;I Anufriev&lt;br/&gt;G Krimchuk&lt;br/&gt;Y Kuklina&lt;br/&gt;R Solovyov&lt;br/&gt;K Belorukov&lt;br/&gt;E Surina" vertex="1">
+          <mxGeometry height="218" width="200" x="500" y="444" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="2" style="shape=rectangle;whiteSpace=wrap;html=1;rounded=0;strokeColor=#000000;fillColor=#FFFFFF;" value="&lt;b&gt;Отдел программирования (11)&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Сотрудники:&lt;br/&gt;O Yakovleva&lt;br/&gt;D Yarchihin&lt;br/&gt;N Semikin&lt;br/&gt;F Kopylov&lt;br/&gt;A Orlov&lt;br/&gt;K Pak&lt;br/&gt;P Utkin&lt;br/&gt;M Gavrilova&lt;br/&gt;N Voronkov&lt;br/&gt;A Semenov&lt;br/&gt;I Samsonov" vertex="1">
+          <mxGeometry height="272" width="200" x="740" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="2" style="shape=rectangle;whiteSpace=wrap;html=1;rounded=0;strokeColor=#000000;fillColor=#FFFFFF;" value="&lt;b&gt;Отдел развития цифровых платформ (2)&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Руководитель: Рубан Федор Олегович&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Сотрудники:&lt;br/&gt;V Movchan&lt;br/&gt;F Ruban" vertex="1">
+          <mxGeometry height="128" width="200" x="980" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="15" parent="2" style="shape=rectangle;whiteSpace=wrap;html=1;rounded=0;strokeColor=#000000;fillColor=#FFFFFF;" value="&lt;b&gt;Отдел разработки веб-решений (5)&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Руководитель: Горев Андрей Юрьевич&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Сотрудники:&lt;br/&gt;A Gorev&lt;br/&gt;V Gordeyko&lt;br/&gt;D Belyaev&lt;br/&gt;S Bobrinev&lt;br/&gt;M Sychev" vertex="1">
+          <mxGeometry height="182" width="200" x="1220" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="4" edge="1" parent="1" source="2" target="3" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="6" edge="1" parent="1" source="2" target="5" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="8" edge="1" parent="1" source="2" target="7" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="10" edge="1" parent="1" source="7" target="9" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="12" edge="1" parent="1" source="2" target="11" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="14" edge="1" parent="1" source="2" target="13" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="16" edge="1" parent="1" source="2" target="15" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="shape=rectangle;whiteSpace=wrap;html=1;rounded=0;strokeColor=#000000;fillColor=#FFFFFF;" value="&lt;b&gt;Отдел аналитики (5)&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Руководитель: Шапошников Алексей Викторович&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Сотрудники:&lt;br/&gt;A Shaposhnikov&lt;br/&gt;M Salnev&lt;br/&gt;I Sirkovskii&lt;br/&gt;N Ermolaeva&lt;br/&gt;E Hudzinskaya" vertex="1">
+          <mxGeometry height="182" width="200" x="380" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="shape=rectangle;whiteSpace=wrap;html=1;rounded=0;strokeColor=#000000;fillColor=#FFFFFF;" value="&lt;b&gt;Отдел информационных технологий в г. Москве (4)&lt;/b&gt;&lt;br/&gt;&lt;b&gt;Руководитель: Толкаев Евгений Юрьевич&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Сотрудники:&lt;br/&gt;P Bugaev&lt;br/&gt;S Bekirov&lt;br/&gt;A Cesak&lt;br/&gt;E Tolkaev" vertex="1">
+          <mxGeometry height="164" width="200" x="600" y="235" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
