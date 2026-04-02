@@ -1,16 +1,19 @@
-import { buildTree, renderTree, collectSubDepartments, getTopLevelDepartments } from './src/tree.js';
+import { buildTree, collectSubDepartments, getTopLevelDepartments, attachUsersToDepartments } from './src/tree.js';
+import { renderTree } from './src/render.js';
 import { exportToPptx } from './src/pptx.js';
 
 let treeData = [];
 let fullTree = [];
+let usersData = [];
 
 const fileInput = document.getElementById('fileInput');
+const usersInput = document.getElementById('usersInput');
 const departmentSelect = document.getElementById('departmentSelect');
 const treeContainer = document.getElementById('treeContainer');
 const showAllCheckbox = document.getElementById('showAll');
 const exportBtn = document.getElementById('exportPptx');
 
-// Пользователь выбирает JSON файл
+// Загрузка дерева департаментов
 fileInput.addEventListener('change', async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -20,10 +23,29 @@ fileInput.addEventListener('change', async (event) => {
     treeData = json.departments;
     fullTree = buildTree(treeData);
 
+    // Если уже есть пользователи — прикрепляем
+    if (usersData.length > 0) {
+        attachUsersToDepartments(fullTree, usersData);
+    }
+
     populateDepartmentSelect();
     updateTree();
 });
 
+// Загрузка пользователей
+usersInput.addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    const json = JSON.parse(text);
+
+    usersData = json.users || [];
+
+    if (fullTree.length > 0) {
+        attachUsersToDepartments(fullTree, usersData);
+        updateTree();
+    }
+});
 
 // Заполняем select только верхними уровнями
 function populateDepartmentSelect() {
@@ -37,7 +59,7 @@ function populateDepartmentSelect() {
     });
 }
 
-// Находим узел по GUID в дереве
+// Находим узел по GUID
 function findNodeByGuid(nodes, guid) {
     for (const node of nodes) {
         if (node.department_guid === guid) return node;
@@ -57,7 +79,7 @@ function updateTree() {
     if (selectedGuid) {
         const selectedNode = findNodeByGuid(fullTree, selectedGuid);
         if (selectedNode) {
-            nodesToRender = [selectedNode]; // для рендера берем один узел с вложенными children
+            nodesToRender = [selectedNode];
         }
     } else if (!showAllCheckbox.checked) {
         nodesToRender = getTopLevelDepartments(fullTree);
@@ -70,6 +92,7 @@ function updateTree() {
 departmentSelect.addEventListener('change', updateTree);
 showAllCheckbox.addEventListener('change', updateTree);
 
+// Экспорт
 exportBtn.addEventListener('click', () => {
     const selectedGuid = departmentSelect.value;
     let nodesToExport = [];
@@ -80,12 +103,10 @@ exportBtn.addEventListener('click', () => {
             nodesToExport = collectSubDepartments(selectedNode);
         }
     } else if (!showAllCheckbox.checked) {
-        // экспорт только верхний уровень
         getTopLevelDepartments(fullTree).forEach(node => {
             nodesToExport = nodesToExport.concat(collectSubDepartments(node));
         });
     } else {
-        // экспорт всего дерева
         fullTree.forEach(node => {
             nodesToExport = nodesToExport.concat(collectSubDepartments(node));
         });

@@ -31,7 +31,14 @@ export function exportToPptx(nodes) {
 
     let yPos = 1.0;
 
+     // Keep track of already rendered department GUIDs to avoid duplicates
+     const rendered = new Set();
+
     function renderNode(node, level = 0, xOffset = 0.5) {
+         // Skip if this department has already been rendered (duplicate prevention)
+         if (rendered.has(node.department_guid)) return;
+         rendered.add(node.department_guid);
+
         const xPos = xOffset + level * (boxWidth + horizontalSpacing);
 
         // Отображаем только название и руководителя

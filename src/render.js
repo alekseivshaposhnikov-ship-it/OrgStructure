@@ -1,19 +1,40 @@
+// Render tree nodes with optional user list display (full name preferred)
 export function renderTree(nodes, container) {
-  nodes.forEach(n => {
-    const el = document.createElement("div");
+  // Clear container before rendering
+  container.innerHTML = '';
 
-    el.style.marginLeft = n.level * 20 + "px";
+  function renderNode(node, indent = 0) {
+    const el = document.createElement("div");
+    el.style.marginLeft = `${indent * 20}px`;
     el.style.padding = "4px";
 
-    el.innerHTML = `
-      <b>${n.department_name}</b><br/>
-      ${n.department_manager || ""}
-    `;
+    // Base info: department name
+    let html = `<b>${node.department_name}</b>`;
 
+    // Manager info if available
+    if (node.department_manager) {
+      html += `<br/>${node.department_manager}`;
+    }
+
+    // Users list if attached to the node
+    if (node.users && node.users.length > 0) {
+      // Build users HTML: display full name if present, otherwise fall back to email
+      const usersHtml = node.users
+        .map(u => u.full_name || u.email || "")
+        .filter(txt => txt !== "")
+        .join("<br/>");
+      html += `<div style="margin-left:20px;font-size:12px;color:#555;">${usersHtml}</div>`;
+    }
+
+    el.innerHTML = html;
     container.appendChild(el);
 
-    if (n.children) {
-      renderTree(n.children, container);
+    // Recursively render children if any
+    if (node.children && node.children.length > 0) {
+      node.children.forEach(child => renderNode(child, indent + 1));
     }
-  });
+  }
+
+  nodes.forEach(rootNode => renderNode(rootNode, rootNode.level || 0));
 }
+
