@@ -84,4 +84,25 @@ export function attachUsersToDepartments(tree, users) {
     if (node.children) node.children.forEach(attach);
         }
     tree.forEach(attach);
+
+  // После привязки пользователей пересчитываем численность персонала
+  computeStaffCounts(tree);
+}
+
+// Рекурсивный подсчёт численности (включая дочерние подразделения)
+export function computeStaffCounts(nodes) {
+    // nodes может быть массивом корневых узлов или одиночным узлом
+    if (Array.isArray(nodes)) {
+        nodes.forEach(n => computeStaffCounts(n));
+        return;
+    }
+    const node = nodes;
+    let count = (node.users ? node.users.length : 0);
+    if (node.children && node.children.length > 0) {
+        node.children.forEach(child => {
+            count += computeStaffCounts(child);
+        });
+    }
+    node.staffCount = count;
+    return count;
 }

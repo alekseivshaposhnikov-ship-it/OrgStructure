@@ -8,8 +8,8 @@ export function renderTree(nodes, container) {
     el.style.marginLeft = `${indent * 20}px`;
     el.style.padding = "4px";
 
-    // Base info: department name
-    let html = `<b>${node.department_name}</b>`;
+     // Base info: department name with staff count in brackets
+     let html = `<b>${node.department_name} (${node.staffCount || 0})</b>`;
 
     // Manager info if available
     if (node.department_manager) {
@@ -18,7 +18,7 @@ export function renderTree(nodes, container) {
 
     // Users list if attached to the node
     if (node.users && node.users.length > 0) {
-      // Build users HTML: display full name if present, otherwise fall back to email
+       // Build users HTML: display full name if present, otherwise email
       const usersHtml = node.users
         .map(u => u.full_name || u.email || "")
         .filter(txt => txt !== "")
