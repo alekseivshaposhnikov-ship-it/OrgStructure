@@ -1,6 +1,8 @@
 import { buildTree, collectSubDepartments, getTopLevelDepartments, attachUsersToDepartments } from './src/tree.js';
 import { renderTree } from './src/render.js';
 import { exportToPptx } from './src/pptx.js';
+import { exportToDrawio } from './src/drawio.js';   // <-- новая строка
+
 
 let treeData = [];
 let fullTree = [];
@@ -12,6 +14,34 @@ const departmentSelect = document.getElementById('departmentSelect');
 const treeContainer = document.getElementById('treeContainer');
 const showAllCheckbox = document.getElementById('showAll');
 const exportBtn = document.getElementById('exportPptx');
+const exportDrawioBtn = document.getElementById('exportDrawio'); // <-- новая строка
+
+/* … остальной код без изменений … */
+
+// *** Удалён устаревший обработчик exportPptxBtn (был дублирующим) ***
+// Экспорт в PPTX теперь обрабатывается единственным обработчиком ниже (exportBtn).
+// **Новый обработчик – экспорт в draw.io**
+exportDrawioBtn.addEventListener('click', () => {
+    const selectedGuid = departmentSelect.value;
+    let nodesToExport = [];
+
+    if (selectedGuid) {
+        const selectedNode = findNodeByGuid(fullTree, selectedGuid);
+        if (selectedNode) {
+            nodesToExport = collectSubDepartments(selectedNode);
+        }
+    } else if (!showAllCheckbox.checked) {
+        getTopLevelDepartments(fullTree).forEach(node => {
+            nodesToExport = nodesToExport.concat(collectSubDepartments(node));
+        });
+    } else {
+        fullTree.forEach(node => {
+            nodesToExport = nodesToExport.concat(collectSubDepartments(node));
+        });
+    }
+
+    exportToDrawio(nodesToExport);   // <-- единственная строка, вызывающая наш модуль
+});
 
 // Загрузка дерева департаментов
 fileInput.addEventListener('change', async (event) => {
@@ -92,7 +122,7 @@ function updateTree() {
 departmentSelect.addEventListener('change', updateTree);
 showAllCheckbox.addEventListener('change', updateTree);
 
-// Экспорт
+// Экспорт PPTX – единственный обработчик
 exportBtn.addEventListener('click', () => {
     const selectedGuid = departmentSelect.value;
     let nodesToExport = [];
