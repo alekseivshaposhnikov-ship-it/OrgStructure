@@ -1,4 +1,6 @@
 getDepartmentHierarchy.json
 node_modules/ 
+data/ 
+dist/
 package-lock.json
 OrgStructure.pptx
