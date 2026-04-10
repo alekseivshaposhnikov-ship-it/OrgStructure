@@ -30,11 +30,12 @@ const treeContainer = document.getElementById('treeContainer');
 const showAllCheckbox = document.getElementById('showAll');
 const exportBtn = document.getElementById('exportPptx');
 const exportDrawioBtn = document.getElementById('exportDrawio');
-const exportPdfBtn = document.getElementById('exportPdf'); // НОВАЯ КНОПКА
+const exportPdfBtn = document.getElementById('exportPdf');
 
 // -------------------- Расчёт статистики (руководитель + численность) для департаментов --------------------
 function enhanceNodeStats(node) {
-  let directCount = parseInt(node.user_count) || 0;
+  // Прямая численность — это количество сотрудников в node.users
+  let directCount = (node.users && Array.isArray(node.users)) ? node.users.length : 0;
   let totalCount = directCount;
 
   for (let child of (node.children || [])) {
@@ -42,7 +43,7 @@ function enhanceNodeStats(node) {
     totalCount += child.totalCount;
   }
 
-  // Руководитель из department_manager
+  // Руководитель из department_manager (если есть)
   let headName = (node.department_manager && node.department_manager.trim() !== '')
     ? node.department_manager
     : 'Нет руководителя';
@@ -55,11 +56,10 @@ function enhanceTreeStats(tree) {
   tree.forEach(node => enhanceNodeStats(node));
 }
 
-// -------------------- Преобразование в плоский массив для d3-org-chart (с автоматической обёрткой при нескольких корнях) --------------------
+// -------------------- Преобразование в плоский массив для d3-org-chart --------------------
 function convertToFlatData(rootNodes) {
   if (!rootNodes || rootNodes.length === 0) return [];
 
-  // Если несколько корневых узлов, оборачиваем их в синтетический корень "Компания"
   let nodesToProcess = rootNodes;
   let syntheticRoot = null;
   if (rootNodes.length > 1) {
@@ -79,7 +79,6 @@ function convertToFlatData(rootNodes) {
 
   function walk(node, parentId = null) {
     const currentId = idCounter++;
-    // Узел департамента
     result.push({
       id: currentId,
       parentId: parentId,
@@ -89,11 +88,10 @@ function convertToFlatData(rootNodes) {
       isDepartment: true
     });
 
-    // Дочерние департаменты
     (node.children || []).forEach(child => walk(child, currentId));
 
-    // Сотрудники как отдельные узлы (листья)
-    (node.users || []).forEach(user => {
+    const users = node.users || [];
+    users.forEach(user => {
       result.push({
         id: idCounter++,
         parentId: currentId,
@@ -107,7 +105,7 @@ function convertToFlatData(rootNodes) {
   return result;
 }
 
-// -------------------- Рендеринг орг. диаграммы --------------------
+// -------------------- Рендеринг орг. диаграммы (полное пересоздание) --------------------
 function renderOrgChart(nodes) {
   if (!nodes || nodes.length === 0) {
     console.warn('⚠️ Нет данных для графа');
@@ -120,58 +118,39 @@ function renderOrgChart(nodes) {
     return;
   }
 
-  if (!chart) {
-    chart = new OrgChart()
-      .container('#orgChart')
-      .nodeHeight((d) => d.data.isDepartment ? 90 : 60)  // сотрудникам — меньшая высота
-      .nodeWidth(() => 220)
-      .childrenMargin(() => 40)
-      .compactMarginBetween(() => 20)
-      .compactMarginPair(() => 60)
-      .nodeContent(d => {
-        if (d.data.isDepartment) {
-          // Карточка департамента
-          return `
-            <div style="
-              padding:10px;
-              border:1px solid #ddd;
-              border-radius:8px;
-              background:#fff;
-              font-family: Inter;
-              text-align:center;
-              box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-            ">
-              <div style="font-weight:600; font-size:14px; margin-bottom:6px;">
-                ${d.data.name}
-              </div>
-              <div style="font-size:12px; color:#555; margin-bottom:4px;">
-                👤 ${d.data.headName || 'Нет руководителя'}
-              </div>
-              <div style="font-size:11px; color:#777;">
-                👥 ${d.data.totalCount || 0} чел.
-              </div>
-            </div>
-          `;
-        } else {
-          // Карточка сотрудника (только имя)
-          return `
-            <div style="
-              padding:8px;
-              border:1px solid #ddd;
-              border-radius:8px;
-              background:#f9f9f9;
-              font-family: Inter;
-              text-align:center;
-              box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            ">
-              <div style="font-weight:500; font-size:13px;">
-                ${d.data.name}
-              </div>
-            </div>
-          `;
-        }
-      });
+  console.log('📊 flatData для org-диаграммы:', flatData);
+
+  // Удаляем старую диаграмму, если она существует
+  const container = document.getElementById('orgChart');
+  if (container) {
+    container.innerHTML = '';
   }
+
+  // Создаём новую диаграмму
+  chart = new OrgChart()
+    .container('#orgChart')
+    .nodeHeight((d) => d.data.isDepartment ? 90 : 60)
+    .nodeWidth(() => 270)
+    .childrenMargin(() => 40)
+    .compactMarginBetween(() => 20)
+    .compactMarginPair(() => 60)
+    .nodeContent(d => {
+      if (d.data.isDepartment) {
+        return `
+          <div style="position: relative; padding: 10px 10px 25px 10px; border:1px solid #ddd; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
+            <div style="font-weight:600; font-size:14px; margin-bottom:6px;">${d.data.name}</div>
+            <div style="font-size:12px; color:#555; margin-bottom:4px;">👤 ${d.data.headName || 'Нет руководителя'}</div>
+            <div style="position: absolute; bottom: 8px; right: 10px; font-size: 14px; font-weight: bold; color: #333;">${d.data.totalCount || 0}</div>
+          </div>
+        `;
+      } else {
+        return `
+          <div style="padding:8px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-weight:500; font-size:13px;">${d.data.name}</div>
+          </div>
+        `;
+      }
+    });
 
   chart.data(flatData).render().fit();
 }
@@ -296,7 +275,7 @@ exportDrawioBtn.addEventListener('click', () => {
   exportToDrawio(nodesToExport);
 });
 
-// -------------------- Экспорт в PDF (НОВЫЙ КОД) --------------------
+// -------------------- Экспорт в PDF --------------------
 async function exportToPdf() {
   const element = document.getElementById('orgChart');
   if (!element || !chart) {
@@ -304,12 +283,10 @@ async function exportToPdf() {
     return;
   }
 
-  // Сохраняем оригинальный курсор
   const originalCursor = element.style.cursor;
   element.style.cursor = 'wait';
 
   try {
-    // Проверяем доступность библиотек
     if (typeof html2canvas === 'undefined' || typeof jspdf === 'undefined') {
       throw new Error('Библиотеки html2canvas и jspdf не загружены');
     }
@@ -340,7 +317,9 @@ async function exportToPdf() {
   }
 }
 
-exportPdfBtn.addEventListener('click', exportToPdf);
+if (exportPdfBtn) {
+  exportPdfBtn.addEventListener('click', exportToPdf);
+}
 
 // -------------------- Обработчики событий --------------------
 departmentSelect.addEventListener('change', updateTree);

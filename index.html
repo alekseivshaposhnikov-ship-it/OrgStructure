@@ -5,16 +5,15 @@
     <title>Org Structure Viewer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- Modern Google Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
-          rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 
     <!-- CDN для экспорта в PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-    <!-- Ваши стили и скрипт (предполагается сборка) -->
-    <link rel="stylesheet" href="index-DUjrhxO4.css">
-    <script type="module" src="index-2Ze18qS3.js"></script>
+    <!-- Прямое подключение стилей и основного скрипта (без хешей) -->
+    <link rel="stylesheet" href="./style.css">
+    <script type="module" src="./main.js"></script>
 </head>
 <body>
     <div class="container">
@@ -45,15 +44,12 @@
 
             <button id="exportPptx">Экспорт в PPTX</button>
             <button id="exportDrawio">Экспорт в draw.io</button>
-            <!-- НОВАЯ КНОПКА -->
             <button id="exportPdf">Экспорт в PDF</button>
         </div>
 
-        <!-- Текстовое представление дерева (опционально) -->
         <div id="treeContainer" class="tree-container"></div>
     </div>
 
-    <!-- Контейнер для d3-org-chart -->
     <div id="orgChartContainer" style="flex:1; height:100vh; overflow:hidden;">
         <div id="orgChart" style="width:100%; height:100%;"></div>
     </div>
