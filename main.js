@@ -32,9 +32,49 @@ const showAllCheckbox = document.getElementById('showAll');
 const exportBtn = document.getElementById('exportPptx');
 const exportDrawioBtn = document.getElementById('exportDrawio');
 
+// -------------------- Расчёт статистики по дереву (руководитель + численность) --------------------
+/**
+ * Рекурсивно вычисляет для узла:
+ * - totalCount: общее количество сотрудников в этом отделе и всех подчинённых (сумма user_count)
+ * - headName: имя руководителя из department_manager (если есть), иначе fallback на пользователей
+ */
+function enhanceNodeStats(node) {
+  // Считаем прямых сотрудников (user_count из JSON)
+  let directCount = parseInt(node.user_count) || 0;
+  let totalCount = directCount;
+
+  // Рекурсивно обрабатываем детей и суммируем их totalCount
+  for (let child of (node.children || [])) {
+    enhanceNodeStats(child);
+    totalCount += child.totalCount;
+  }
+
+  // Определяем руководителя: приоритет – department_manager из JSON
+  let headName = null;
+  if (node.department_manager && node.department_manager.trim() !== '') {
+    headName = node.department_manager;
+  } else {
+    // Fallback: ищем среди пользователей, привязанных к этому отделу (если есть)
+    const directUsers = node.users || [];
+    let headUser = directUsers.find(u => u.role === 'head') || directUsers[0];
+    headName = headUser ? (headUser.name || headUser.full_name || 'Сотрудник') : 'Нет руководителя';
+  }
+
+  node.totalCount = totalCount;
+  node.headName = headName;
+}
+
+/**
+ * Применяет enhanceNodeStats ко всем корневым узлам дерева
+ */
+function enhanceTreeStats(tree) {
+  tree.forEach(node => enhanceNodeStats(node));
+}
+
 // -------------------- Утилиты преобразования данных --------------------
 /**
  * Преобразует иерархическое дерево в плоский массив для d3-org-chart
+ * Теперь включает totalCount и headName
  */
 function convertToFlatData(nodes) {
   const result = [];
@@ -45,13 +85,13 @@ function convertToFlatData(nodes) {
     result.push({
       id: currentId,
       parentId: parentId,
-      name: node.department_name || 'Без названия'
+      name: node.department_name || 'Без названия',
+      totalCount: node.totalCount || 0,
+      headName: node.headName || 'Нет руководителя'
     });
 
-    // Рекурсивно обходим дочерние департаменты
     (node.children || []).forEach(child => walk(child, currentId));
 
-    // Добавляем пользователей как листья
     (node.users || []).forEach(user => {
       result.push({
         id: idCounter++,
@@ -61,7 +101,6 @@ function convertToFlatData(nodes) {
     });
   }
 
-  // Создаём единый корень "Company"
   const rootId = idCounter++;
   result.push({
     id: rootId,
@@ -71,34 +110,6 @@ function convertToFlatData(nodes) {
 
   nodes.forEach(node => walk(node, rootId));
   return result;
-}
-
-/**
- * Преобразование в иерархический формат (не используется, оставлен для совместимости)
- */
-function convertToD3Format(nodes) {
-  const children = (nodes || [])
-    .map(mapNode)
-    .filter(Boolean);
-
-  return {
-    name: 'Company',
-    children: children.length ? children : [{ name: 'Нет данных' }]
-  };
-}
-
-function mapNode(node) {
-  if (!node) return null;
-
-  return {
-    name: node.department_name || 'Без названия',
-    children: [
-      ...(node.children || []).map(mapNode),
-      ...((node.users || []).map(u => ({
-        name: u.name || u.full_name || 'Сотрудник'
-      })))
-    ]
-  };
 }
 
 // -------------------- Рендеринг организационной диаграммы --------------------
@@ -115,11 +126,10 @@ function renderOrgChart(nodes) {
     return;
   }
 
-  // Инициализация d3-org-chart при первом вызове
   if (!chart) {
     chart = new OrgChart()
       .container('#orgChart')
-      .nodeHeight(() => 70)
+      .nodeHeight(() => 90)
       .nodeWidth(() => 220)
       .childrenMargin(() => 40)
       .compactMarginBetween(() => 20)
@@ -134,8 +144,14 @@ function renderOrgChart(nodes) {
           text-align:center;
           box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         ">
-          <div style="font-weight:600;">
+          <div style="font-weight:600; font-size:14px; margin-bottom:6px;">
             ${d.data.name}
+          </div>
+          <div style="font-size:12px; color:#555; margin-bottom:4px;">
+            👤 ${d.data.headName}
+          </div>
+          <div style="font-size:11px; color:#777;">
+            👥 ${d.data.totalCount} чел.
           </div>
         </div>
       `);
@@ -159,10 +175,7 @@ function updateTree() {
 
   console.log('nodesToRender →', nodesToRender);
 
-  // Рендер в HTML (если требуется дополнительный вывод)
   renderTree(nodesToRender, treeContainer);
-
-  // Рендер d3-графа
   renderOrgChart(nodesToRender);
 }
 
@@ -181,6 +194,9 @@ fileInput.addEventListener('change', async (event) => {
     attachUsersToDepartments(fullTree, usersData);
   }
 
+  // Пересчитываем статистику после построения дерева
+  enhanceTreeStats(fullTree);
+
   populateDepartmentSelect();
   updateTree();
 });
@@ -196,6 +212,8 @@ usersInput.addEventListener('change', async (event) => {
 
   if (fullTree.length > 0) {
     attachUsersToDepartments(fullTree, usersData);
+    // После прикрепления пользователей пересчитываем статистику (на случай fallback)
+    enhanceTreeStats(fullTree);
     updateTree();
   }
 });
