@@ -1,173 +1,209 @@
-/* style.css */
+/* style.css – Refactored & Clean */
 
 /* ---------------------------------
-   1️⃣  CSS Variables – easy theming
+   1️⃣  CSS Variables (Theming)
    --------------------------------- */
 :root {
-    --font-base: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    --color-bg: #f5f5f5;
-    --color-surface: #ffffff;
-    --color-primary: #3498db;
-    --color-primary-dark: #2980b9;
-    --color-text: #333333;
-    --color-muted: #2c3e50;
-    --radius: 8px;
-    --shadow-elev: 0 4px 12px rgba(0,0,0,0.08);
-    --gap: 1rem;
+  --font-base: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --color-bg: #f5f5f5;
+  --color-surface: #ffffff;
+  --color-primary: #4f46e5;
+  --color-primary-dark: #4338ca;
+  --color-text: #333333;
+  --color-muted: #2c3e50;
+  --color-border: #ddd;
+  --radius: 8px;
+  --shadow-elev: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --gap: 1rem;
+  --transition: 0.2s ease;
 }
 
 /* ---------------------------------
-   2️⃣  Global styles
+   2️⃣  Global Reset & Base
    --------------------------------- */
-html {
-    box-sizing: border-box;
-    font-size: 16px;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
-*, *::before, *::after {
-    box-sizing: inherit;
-}
+
+html,
 body {
-    font-family: var(--font-base);
-    margin: 0;
-    background: var(--color-bg);
-    color: var(--color-text);
-    line-height: 1.5;
+  height: 100%;
+  margin: 0;
+  font-family: var(--font-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+body {
+  display: flex;
 }
 
 /* ---------------------------------
-   3️⃣  Layout container
+   3️⃣  Layout: Sidebar + Chart Area
    --------------------------------- */
 .container {
-    max-width: 960px;
-    margin: 2rem auto;
-    padding: var(--gap);
-    background: var(--color-surface);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-elev);
+  width: 520px;
+  padding: 16px;
+  border-right: 1px solid var(--color-border);
+  overflow-y: auto;
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+
+#orgChartContainer {
+  flex: 1;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#orgChart {
+  width: 100%;
+  height: 100%;
 }
 
 /* ---------------------------------
-   4️⃣  Header
+   4️⃣  Typography
    --------------------------------- */
 h1 {
-    text-align: center;
-    color: var(--color-muted);
-    margin-bottom: 1.5rem;
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  font-size: 20px;
+  text-align: center;
+  color: var(--color-muted);
 }
 
 /* ---------------------------------
-   5️⃣  Controls – modern flex + grid fallback
+   5️⃣  Controls Panel
    --------------------------------- */
 .controls {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--gap);
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.5rem;
 }
 
-/* File‑button style */
 .file-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.4rem 0.8rem;
-    background: var(--color-primary);
-    color: #fff;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.8rem;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--transition);
 }
+
 .file-label:hover {
-    background: var(--color-primary-dark);
+  background: var(--color-primary-dark);
 }
+
 .file-label input[type="file"] {
-    display: none;   /* hide native file input */
+  display: none;
 }
 
-/* Select styling */
 .select-label select {
-    padding: 0.4rem 0.6rem;
-    min-width: 250px;
-    border: 1px solid #ccc;
-    border-radius: var(--radius);
-    font-family: var(--font-base);
+  padding: 0.4rem 0.6rem;
+  min-width: 250px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-family: var(--font-base);
 }
 
-/* Switch label already has flex layout – keep it */
 .switch-label {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
-/* Buttons */
-.controls button {
-    padding: 0.5rem 1rem;
-    background: var(--color-primary);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: background 0.2s, transform 0.1s;
+button {
+  padding: 0.5rem 1rem;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--transition), transform 0.1s;
 }
-.controls button:hover {
-    background: var(--color-primary-dark);
+
+button:hover {
+  background: var(--color-primary-dark);
 }
-.controls button:active {
-    transform: translateY(1px);
+
+button:active {
+  transform: translateY(1px);
 }
 
 /* ---------------------------------
-   6️⃣  Tree container – card‑like feel
+   6️⃣  Tree Container (text representation)
    --------------------------------- */
 .tree-container {
-    padding: 1rem 1.5rem;
-    border: 1px solid #ddd;
-    border-radius: var(--radius);
-    background: #fafafa;
-    max-height: 600px;
-    overflow-y: auto;
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.04);
+  padding: 1rem 1.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: #fafafa;
+  max-height: 600px;
+  overflow-y: auto;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
 }
+
 .tree-container div {
-    padding: 0.25rem 0;
-    font-size: 0.95rem;
-    cursor: default;
-    transition: background-color 0.2s;
+  padding: 0.25rem 0;
+  font-size: 0.95rem;
+  cursor: default;
+  transition: background-color var(--transition);
 }
+
 .tree-container div:hover {
-    background: #ecf0f1;
+  background: #ecf0f1;
 }
+
 .tree-container div.selected {
-    background: var(--color-primary);
-    color: #fff;
+  background: var(--color-primary);
+  color: #fff;
 }
 
 /* ---------------------------------
-   7️⃣  Focus styles – accessibility
+   7️⃣  Accessibility: Focus Styles
    --------------------------------- */
 button:focus-visible,
 .file-label:focus-visible,
 .select-label select:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 /* ---------------------------------
-   8️⃣  Responsive tweaks
+   8️⃣  Responsive Design
    --------------------------------- */
 @media (max-width: 600px) {
-    .container {
-        margin: 1rem;
-        padding: 0.8rem;
-    }
-    .controls {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    .select-label select, .controls button, .file-label {
-        width: 100%;
-    }
+  body {
+    flex-direction: column;
+  }
+
+  .container {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  #orgChartContainer {
+    height: 60vh;
+  }
+
+  .controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .select-label select,
+  .controls button,
+  .file-label {
+    width: 100%;
+  }
 }
