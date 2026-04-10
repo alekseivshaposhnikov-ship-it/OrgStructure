@@ -10,8 +10,6 @@ import {
 } from './src/tree.js';
 
 import { renderTree } from './src/render.js';
-import { exportToPptx } from './src/pptx.js';
-import { exportToDrawio } from './src/drawio.js';
 
 // -------------------- Глобальный d3 для d3-org-chart --------------------
 window.d3 = { ...d3, flextree };
@@ -28,13 +26,10 @@ const usersInput = document.getElementById('usersInput');
 const departmentSelect = document.getElementById('departmentSelect');
 const treeContainer = document.getElementById('treeContainer');
 const showAllCheckbox = document.getElementById('showAll');
-const exportBtn = document.getElementById('exportPptx');
-const exportDrawioBtn = document.getElementById('exportDrawio');
 const exportPdfBtn = document.getElementById('exportPdf');
 
 // -------------------- Расчёт статистики (руководитель + численность) для департаментов --------------------
 function enhanceNodeStats(node) {
-  // Прямая численность — это количество сотрудников в node.users
   let directCount = (node.users && Array.isArray(node.users)) ? node.users.length : 0;
   let totalCount = directCount;
 
@@ -43,7 +38,6 @@ function enhanceNodeStats(node) {
     totalCount += child.totalCount;
   }
 
-  // Руководитель из department_manager (если есть)
   let headName = (node.department_manager && node.department_manager.trim() !== '')
     ? node.department_manager
     : 'Нет руководителя';
@@ -120,13 +114,11 @@ function renderOrgChart(nodes) {
 
   console.log('📊 flatData для org-диаграммы:', flatData);
 
-  // Удаляем старую диаграмму, если она существует
   const container = document.getElementById('orgChart');
   if (container) {
     container.innerHTML = '';
   }
 
-  // Создаём новую диаграмму
   chart = new OrgChart()
     .container('#orgChart')
     .nodeHeight((d) => d.data.isDepartment ? 90 : 60)
@@ -172,6 +164,67 @@ function updateTree() {
   renderOrgChart(nodesToRender);
 }
 
+// -------------------- Сбор всех департаментов с сохранением уровня вложенности --------------------
+function collectDepartmentsWithLevel(nodes, level = 0, result = []) {
+  for (const node of nodes) {
+    result.push({
+      guid: node.department_guid,
+      name: node.department_name,
+      level: level
+    });
+    if (node.children && node.children.length) {
+      collectDepartmentsWithLevel(node.children, level + 1, result);
+    }
+  }
+  return result;
+}
+
+// -------------------- Формирование отображаемого имени с отступами --------------------
+function getDisplayNameWithIndent(name, level) {
+  if (level === 0) return name;
+  // Используем неразрывные пробелы &nbsp; и символы — для наглядности
+  const indent = '&nbsp;&nbsp;&nbsp;'.repeat(level) + '— ';
+  return indent + name;
+}
+
+// -------------------- Заполнение выпадающего списка с иерархическими отступами --------------------
+function populateDepartmentSelect() {
+  departmentSelect.innerHTML = '<option value="">-- Выберите департамент --</option>';
+  
+  if (showAllCheckbox.checked) {
+    // Получаем все департаменты с уровнями
+    const departmentsWithLevel = collectDepartmentsWithLevel(fullTree);
+    departmentsWithLevel.forEach(d => {
+      const option = document.createElement('option');
+      option.value = d.guid;
+      // HTML-содержимое option поддерживает &nbsp;, поэтому используем innerHTML
+      option.innerHTML = getDisplayNameWithIndent(d.name, d.level);
+      departmentSelect.appendChild(option);
+    });
+  } else {
+    // Только верхний уровень (без отступов)
+    const topLevel = getTopLevelDepartments(fullTree);
+    topLevel.forEach(d => {
+      const option = document.createElement('option');
+      option.value = d.department_guid;
+      option.textContent = d.department_name;
+      departmentSelect.appendChild(option);
+    });
+  }
+}
+
+// -------------------- Поиск узла по GUID --------------------
+function findNodeByGuid(nodes, guid) {
+  for (const node of nodes) {
+    if (node.department_guid === guid) return node;
+    if (node.children?.length) {
+      const found = findNodeByGuid(node.children, guid);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 // -------------------- Загрузка департаментов --------------------
 fileInput.addEventListener('change', async (event) => {
   const file = event.target.files[0];
@@ -207,72 +260,6 @@ usersInput.addEventListener('change', async (event) => {
     enhanceTreeStats(fullTree);
     updateTree();
   }
-});
-
-// -------------------- Заполнение выпадающего списка --------------------
-function populateDepartmentSelect() {
-  departmentSelect.innerHTML = '<option value="">-- Выберите департамент --</option>';
-  const topLevel = getTopLevelDepartments(fullTree);
-  topLevel.forEach(d => {
-    const option = document.createElement('option');
-    option.value = d.department_guid;
-    option.textContent = d.department_name;
-    departmentSelect.appendChild(option);
-  });
-}
-
-// -------------------- Поиск узла по GUID --------------------
-function findNodeByGuid(nodes, guid) {
-  for (const node of nodes) {
-    if (node.department_guid === guid) return node;
-    if (node.children?.length) {
-      const found = findNodeByGuid(node.children, guid);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-// -------------------- Экспорт в PPTX --------------------
-exportBtn.addEventListener('click', () => {
-  const selectedGuid = departmentSelect.value;
-  let nodesToExport = [];
-
-  if (selectedGuid) {
-    const selectedNode = findNodeByGuid(fullTree, selectedGuid);
-    if (selectedNode) nodesToExport = collectSubDepartments(selectedNode);
-  } else if (!showAllCheckbox.checked) {
-    getTopLevelDepartments(fullTree).forEach(node => {
-      nodesToExport = nodesToExport.concat(collectSubDepartments(node));
-    });
-  } else {
-    fullTree.forEach(node => {
-      nodesToExport = nodesToExport.concat(collectSubDepartments(node));
-    });
-  }
-
-  exportToPptx(nodesToExport);
-});
-
-// -------------------- Экспорт в draw.io --------------------
-exportDrawioBtn.addEventListener('click', () => {
-  const selectedGuid = departmentSelect.value;
-  let nodesToExport = [];
-
-  if (selectedGuid) {
-    const selectedNode = findNodeByGuid(fullTree, selectedGuid);
-    if (selectedNode) nodesToExport = collectSubDepartments(selectedNode);
-  } else if (!showAllCheckbox.checked) {
-    getTopLevelDepartments(fullTree).forEach(node => {
-      nodesToExport = nodesToExport.concat(collectSubDepartments(node));
-    });
-  } else {
-    fullTree.forEach(node => {
-      nodesToExport = nodesToExport.concat(collectSubDepartments(node));
-    });
-  }
-
-  exportToDrawio(nodesToExport);
 });
 
 // -------------------- Экспорт в PDF --------------------
@@ -323,4 +310,7 @@ if (exportPdfBtn) {
 
 // -------------------- Обработчики событий --------------------
 departmentSelect.addEventListener('change', updateTree);
-showAllCheckbox.addEventListener('change', updateTree);
+showAllCheckbox.addEventListener('change', () => {
+  populateDepartmentSelect();
+  updateTree();
+});
