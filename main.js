@@ -30,6 +30,7 @@ const treeContainer = document.getElementById('treeContainer');
 const showAllCheckbox = document.getElementById('showAll');
 const exportBtn = document.getElementById('exportPptx');
 const exportDrawioBtn = document.getElementById('exportDrawio');
+const exportPdfBtn = document.getElementById('exportPdf'); // НОВАЯ КНОПКА
 
 // -------------------- Расчёт статистики (руководитель + численность) для департаментов --------------------
 function enhanceNodeStats(node) {
@@ -54,8 +55,25 @@ function enhanceTreeStats(tree) {
   tree.forEach(node => enhanceNodeStats(node));
 }
 
-// -------------------- Преобразование в плоский массив для d3-org-chart (департаменты + сотрудники, без корня Company) --------------------
-function convertToFlatData(nodes) {
+// -------------------- Преобразование в плоский массив для d3-org-chart (с автоматической обёрткой при нескольких корнях) --------------------
+function convertToFlatData(rootNodes) {
+  if (!rootNodes || rootNodes.length === 0) return [];
+
+  // Если несколько корневых узлов, оборачиваем их в синтетический корень "Компания"
+  let nodesToProcess = rootNodes;
+  let syntheticRoot = null;
+  if (rootNodes.length > 1) {
+    syntheticRoot = {
+      department_name: 'Компания',
+      department_guid: 'synthetic-root',
+      children: rootNodes,
+      totalCount: rootNodes.reduce((sum, n) => sum + (n.totalCount || 0), 0),
+      headName: 'Генеральный директор',
+      isDepartment: true,
+    };
+    nodesToProcess = [syntheticRoot];
+  }
+
   const result = [];
   let idCounter = 1;
 
@@ -85,7 +103,7 @@ function convertToFlatData(nodes) {
     });
   }
 
-  nodes.forEach(node => walk(node, null));
+  nodesToProcess.forEach(node => walk(node, null));
   return result;
 }
 
@@ -277,6 +295,52 @@ exportDrawioBtn.addEventListener('click', () => {
 
   exportToDrawio(nodesToExport);
 });
+
+// -------------------- Экспорт в PDF (НОВЫЙ КОД) --------------------
+async function exportToPdf() {
+  const element = document.getElementById('orgChart');
+  if (!element || !chart) {
+    alert('Нет диаграммы для экспорта');
+    return;
+  }
+
+  // Сохраняем оригинальный курсор
+  const originalCursor = element.style.cursor;
+  element.style.cursor = 'wait';
+
+  try {
+    // Проверяем доступность библиотек
+    if (typeof html2canvas === 'undefined' || typeof jspdf === 'undefined') {
+      throw new Error('Библиотеки html2canvas и jspdf не загружены');
+    }
+
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      logging: false,
+      allowTaint: false,
+      useCORS: true
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const { jsPDF } = jspdf;
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'px',
+      format: [canvas.width, canvas.height]
+    });
+
+    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+    pdf.save('orgchart.pdf');
+  } catch (error) {
+    console.error('Ошибка экспорта PDF:', error);
+    alert('Не удалось экспортировать PDF. ' + error.message);
+  } finally {
+    element.style.cursor = originalCursor;
+  }
+}
+
+exportPdfBtn.addEventListener('click', exportToPdf);
 
 // -------------------- Обработчики событий --------------------
 departmentSelect.addEventListener('change', updateTree);

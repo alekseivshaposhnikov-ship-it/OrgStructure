@@ -1,67 +1,61 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Org-Chart</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-   
+<head>
+    <meta charset="UTF-8">
+    <title>Org Structure Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Modern Google Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+          rel="stylesheet">
 
-    <!-- Font -->
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
-      rel="stylesheet"
-    />
+    <!-- CDN для экспорта в PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-    <link rel="stylesheet" href="style.css" />
-
-    <!-- Сначала d3 -->
-    <script src="https://d3js.org/d3.v5.min.js"></script>
-    <!-- Затем d3-flextree -->
-    <script src="https://cdn.jsdelivr.net/npm/d3-flextree@2.1.2/build/d3-flextree.min.js"></script>
-    <!-- И в конце сама библиотека org-chart -->
-    <script src="https://cdn.jsdelivr.net/npm/d3-org-chart@2.6.0/build/d3-org-chart.min.js"></script>
-  </head>
-
-  <body>
+    <!-- Ваши стили и скрипт (предполагается сборка) -->
+    <link rel="stylesheet" href="index-DUjrhxO4.css">
+    <script type="module" src="index-2Ze18qS3.js"></script>
+</head>
+<body>
     <div class="container">
-      <h1>Организационная структура</h1>
+        <h1>Организационная структура</h1>
 
-      <div class="controls">
-        <label class="file-label">
-          <input type="file" id="fileInput" accept=".json" />
-          <span>📂 Загрузить департаменты</span>
-        </label>
+        <div class="controls">
+            <label class="file-label">
+                <input type="file" id="fileInput" accept=".json" title="Загрузите JSON с департаментами">
+                <span>📂 Загрузить департаменты</span>
+            </label>
 
-        <label class="file-label">
-          <input type="file" id="usersInput" accept=".json" />
-          <span>👥 Загрузить пользователей</span>
-        </label>
+            <label class="file-label">
+                <input type="file" id="usersInput" accept=".json" title="Загрузите JSON с пользователями">
+                <span>👥 Загрузить пользователей</span>
+            </label>
 
-        <label class="switch-label">
-          <input type="checkbox" id="showAll" />
-          Показывать все уровни департаментов
-        </label>
+            <label class="switch-label">
+                <input type="checkbox" id="showAll">
+                Показывать все уровни департаментов
+            </label>
 
-        <label class="select-label">
-          Выберите департамент:
-          <select id="departmentSelect">
-            <option value="">-- Выберите департамент --</option>
-          </select>
-        </label>
+            <label class="select-label">
+                Выберите департамент:
+                <select id="departmentSelect">
+                    <option value="">-- Выберите департамент --</option>
+                </select>
+            </label>
 
-        <button id="exportPptx">Экспорт в PPTX</button>
-        <button id="exportDrawio">Экспорт в draw.io</button>
-      </div>
+            <button id="exportPptx">Экспорт в PPTX</button>
+            <button id="exportDrawio">Экспорт в draw.io</button>
+            <!-- НОВАЯ КНОПКА -->
+            <button id="exportPdf">Экспорт в PDF</button>
+        </div>
 
-      <div id="treeContainer" class="tree-container"></div>
+        <!-- Текстовое представление дерева (опционально) -->
+        <div id="treeContainer" class="tree-container"></div>
     </div>
 
-    <!-- 🔥 ВАЖНО: div, а не svg -->
-    <div id="orgChartContainer">
-      <div id="orgChart"></div>
+    <!-- Контейнер для d3-org-chart -->
+    <div id="orgChartContainer" style="flex:1; height:100vh; overflow:hidden;">
+        <div id="orgChart" style="width:100%; height:100%;"></div>
     </div>
-
-    <!-- 🔥 Только модуль -->
-    <script type="module" src="/main.js"></script>
-  </body>
+</body>
 </html>
