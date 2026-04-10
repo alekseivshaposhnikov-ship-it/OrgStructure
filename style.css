@@ -110,6 +110,7 @@ h1 {
 .select-label select {
   padding: 0.4rem 0.6rem;
   min-width: 250px;
+  max-width: 470px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   font-family: var(--font-base);
