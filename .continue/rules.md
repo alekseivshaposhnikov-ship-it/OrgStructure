@@ -7,6 +7,3 @@
   - `src/file.ts`
   - `components/Button.tsx`
   - NEVER wrap tool calls in markdown or code blocks
-- NEVER use ``` around tool calls
-- Tool calls must be plain text
-- Use strict tool format without formatting
