@@ -1,0 +1,9 @@
+- Always use relative paths from workspace root
+- Never use absolute Windows paths like D:\ or C:\
+- Always use forward slashes `/`, not backslashes `\`
+- Assume workspace root is the current project folder
+- When creating files, prefer paths like:
+  - `test.txt`
+  - `src/file.ts`
+  - `components/Button.tsx`
+  - NEVER wrap tool calls in markdown or code blocks

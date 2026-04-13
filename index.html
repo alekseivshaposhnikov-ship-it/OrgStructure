@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Org Structure Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Modern Google Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+          rel="stylesheet">
+  <script src="index-2Ze18qS3.js"></script>
+  <link rel="stylesheet" href="index-DUjrhxO4.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Организационная структура</h1>
+
+        <div class="controls">
+            <label class="file-label">
+                <input type="file" id="fileInput" accept=".json" title="Загрузите JSON с департаментами">
+                <span>📂 Загрузить департаменты</span>
+            </label>
+
+            <label class="file-label">
+                <input type="file" id="usersInput" accept=".json" title="Загрузите JSON с пользователями">
+                <span>👥 Загрузить пользователей</span>
+            </label>
+
+            <label class="switch-label">
+                <input type="checkbox" id="showAll">
+                Показывать все уровни департаментов
+            </label>
+
+            <label class="select-label">
+                Выберите департамент:
+                <select id="departmentSelect">
+                    <option value="">-- Выберите департамент --</option>
+                </select>
+            </label>
+
+            <button id="exportPptx">Экспорт в PPTX</button>
+            <button id="exportDrawio">Экспорт в draw.io</button>
+        </div>
+
+        <div id="treeContainer" class="tree-container"></div>
+    </div>
+
+</body>
+</html>
