@@ -129,7 +129,7 @@ function renderOrgChart(nodes) {
     .nodeContent(d => {
       if (d.data.isDepartment) {
         return `
-          <div style="position: relative; padding: 10px 10px 25px 10px; border:1px solid #ddd; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
+          <div style="position: relative; padding: 10px 10px 25px 10px; border:1px solid #4d8ce9; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
             <div style="font-weight:600; font-size:14px; margin-bottom:6px;">${d.data.name}</div>
             <div style="font-size:12px; color:#555; margin-bottom:4px;">👤 ${d.data.headName || 'Нет руководителя'}</div>
             <div style="position: absolute; bottom: 8px; right: 10px; font-size: 14px; font-weight: bold; color: #333;">${d.data.totalCount || 0}</div>
