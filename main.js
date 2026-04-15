@@ -28,6 +28,72 @@ const treeContainer = document.getElementById('treeContainer');
 const showAllCheckbox = document.getElementById('showAll');
 const exportPdfBtn = document.getElementById('exportPdf');
 
+// -------------------- Создание панели инструментов с кнопками компоновки --------------------
+const toolbar = document.createElement('div');
+toolbar.style.position = 'fixed';
+toolbar.style.top = '20px';
+toolbar.style.right = '20px';
+toolbar.style.zIndex = '1000';
+toolbar.style.display = 'flex';
+toolbar.style.gap = '10px';
+toolbar.style.backgroundColor = '#ffffff';
+toolbar.style.padding = '8px 12px';
+toolbar.style.borderRadius = '8px';
+toolbar.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+toolbar.style.border = '1px solid #e0e0e0';
+
+const buttonStyle = {
+  padding: '8px 16px',
+  fontSize: '14px',
+  fontWeight: '500',
+  border: '1px solid #ccc',
+  borderRadius: '6px',
+  backgroundColor: '#f8f9fa',
+  cursor: 'pointer',
+  transition: 'all 0.2s',
+  color: '#333',
+  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+  outline: 'none'
+};
+
+const topButton = document.createElement('button');
+topButton.textContent = '⬆️ Top';
+Object.assign(topButton.style, buttonStyle);
+topButton.onmouseover = () => {
+  topButton.style.backgroundColor = '#e9ecef';
+  topButton.style.borderColor = '#aaa';
+};
+topButton.onmouseout = () => {
+  topButton.style.backgroundColor = '#f8f9fa';
+  topButton.style.borderColor = '#ccc';
+};
+topButton.onclick = () => {
+  if (chart) {
+    chart.layout('top').render().fit();
+  }
+};
+
+const leftButton = document.createElement('button');
+leftButton.textContent = '⬅️ Left';
+Object.assign(leftButton.style, buttonStyle);
+leftButton.onmouseover = () => {
+  leftButton.style.backgroundColor = '#e9ecef';
+  leftButton.style.borderColor = '#aaa';
+};
+leftButton.onmouseout = () => {
+  leftButton.style.backgroundColor = '#f8f9fa';
+  leftButton.style.borderColor = '#ccc';
+};
+leftButton.onclick = () => {
+  if (chart) {
+    chart.layout('left').render().fit();
+  }
+};
+
+toolbar.appendChild(topButton);
+toolbar.appendChild(leftButton);
+document.body.appendChild(toolbar);
+
 // -------------------- Расчёт статистики (руководитель + численность) для департаментов --------------------
 function enhanceNodeStats(node) {
   let directCount = (node.users && Array.isArray(node.users)) ? node.users.length : 0;
