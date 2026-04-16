@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Org Structure Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Modern Google Font -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- CDN для экспорта в PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- Прямое подключение стилей и основного скрипта -->
+    <script type="module" crossorigin src="./assets/index-vXXO9N4s.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-kmyt0yS3.css">
+  </head>
+  <body>
+    <!-- Модальное окно для добавления узла -->
+    <div
+      id="addNodeModal"
+      style="
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        z-index: 1002;
+        display: none;
+        font-family: sans-serif;
+        min-width: 300px;
+      "
+    >
+      <h3 id="modalTitle">Добавить новый узел</h3>
+      <form id="nodeForm">
+        <label for="nodeType">Тип узла:</label>
+        <select
+          id="nodeType"
+          name="nodeType"
+          style="
+            width: 100%;
+            padding: 8px;
+            margin: 8px 0;
+            box-sizing: border-box;
+          "
+        >
+          <option value="department">Департамент</option>
+          <option value="user">Сотрудник</option>
+        </select>
+        <div id="deptFields">
+          <label for="deptName">Название департамента:</label>
+          <input
+            type="text"
+            id="deptName"
+            name="deptName"
+            style="
+              width: 100%;
+              padding: 8px;
+              margin: 8px 0;
+              box-sizing: border-box;
+            "
+          />
+          <label for="deptManager">Руководитель:</label>
+          <input
+            type="text"
+            id="deptManager"
+            name="deptManager"
+            style="
+              width: 100%;
+              padding: 8px;
+              margin: 8px 0;
+              box-sizing: border-box;
+            "
+          />
+        </div>
+        <div id="userFields" style="display: none">
+          <label for="userName">Имя сотрудника:</label>
+          <input
+            type="text"
+            id="userName"
+            name="userName"
+            style="
+              width: 100%;
+              padding: 8px;
+              margin: 8px 0;
+              box-sizing: border-box;
+            "
+          />
+        </div>
+        <div
+          style="
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 15px;
+          "
+        >
+          <button
+            type="button"
+            id="cancelModalBtn"
+            style="
+              padding: 8px 16px;
+              border: 1px solid #ccc;
+              border-radius: 4px;
+              background: #f8f9fa;
+              cursor: pointer;
+            "
+          >
+            Отмена
+          </button>
+          <button
+            type="submit"
+            id="saveNodeBtn"
+            style="
+              padding: 8px 16px;
+              border: none;
+              border-radius: 4px;
+              background: #007bff;
+              color: white;
+              cursor: pointer;
+            "
+          >
+            Сохранить
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div class="container">
+      <h1>Организационная структура</h1>
+
+      <!-- Подсказка о двойном клике -->
+      <div style="background: #f0f7ff; padding: 8px 16px; border-radius: 6px; margin-bottom: 15px; color: #0066cc; font-size: 14px; border-left: 4px solid #0066cc;">
+        💡 <strong>Управление узлами:</strong> дважды кликните по любому элементу на диаграмме справа.<br>
+        • Департамент — появится меню добавления / удаления.<br>
+        • Сотрудник — сразу запрос на удаление.
+      </div>
+
+      <div class="controls">
+        <label class="file-label">
+          <input
+            type="file"
+            id="fileInput"
+            accept=".json"
+            title="Загрузите JSON с департаментами"
+          />
+          <span>📂 Загрузить департаменты</span>
+        </label>
+
+        <label class="file-label">
+          <input
+            type="file"
+            id="usersInput"
+            accept=".json"
+            title="Загрузите JSON с пользователями"
+          />
+          <span>👥 Загрузить пользователей</span>
+        </label>
+
+        <label class="switch-label">
+          <input type="checkbox" id="showAll" />
+          Показывать все уровни департаментов
+        </label>
+
+        <label class="select-label">
+          Выберите департамент:
+          <select id="departmentSelect">
+            <option value="">-- Выберите департамент --</option>
+          </select>
+        </label>
+
+        <button id="exportPdf">Экспорт в PDF</button>
+      </div>
+
+      <div id="treeContainer" class="tree-container"></div>
+    </div>
+
+    <div
+      id="orgChartContainer"
+      style="flex: 1; height: 100vh; overflow: hidden"
+    >
+      <div id="orgChart" style="width: 100%; height: 100%"></div>
+    </div>
+  </body>
+</html>
