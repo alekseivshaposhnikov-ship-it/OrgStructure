@@ -134,7 +134,7 @@ function deleteNode(nodeToDelete) {
 
   if (removed) {
     enhanceTreeStats(fullTree);
-    populateDepartmentSelect();
+    // populateDepartmentSelect();
     updateTree();
     console.log(`Узел с GUID ${guidToDelete} удален.`);
   } else {
@@ -188,7 +188,7 @@ function addNewNodeToTarget(parentNode, newNodeData, type) {
   }
 
   enhanceTreeStats(fullTree);
-  populateDepartmentSelect();
+  // populateDepartmentSelect();
   updateTree();
   console.log(`Новый ${type} добавлен.`);
 }
@@ -628,6 +628,6 @@ if (exportPdfBtn) {
 // -------------------- Обработчики событий --------------------
 departmentSelect.addEventListener("change", updateTree);
 showAllCheckbox.addEventListener("change", () => {
-  populateDepartmentSelect();
+  // populateDepartmentSelect();
   updateTree();
 });
