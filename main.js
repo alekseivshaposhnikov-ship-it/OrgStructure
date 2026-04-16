@@ -628,6 +628,6 @@ if (exportPdfBtn) {
 // -------------------- Обработчики событий --------------------
 departmentSelect.addEventListener("change", updateTree);
 showAllCheckbox.addEventListener("change", () => {
-  // populateDepartmentSelect();
+  populateDepartmentSelect();
   updateTree();
 });
