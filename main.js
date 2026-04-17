@@ -72,7 +72,8 @@ nodeForm.addEventListener("submit", (e) => {
 
   if (nodeType === "department") {
     newNodeData.department_name = document.getElementById("deptName").value;
-    newNodeData.department_manager = document.getElementById("deptManager").value;
+    newNodeData.department_manager =
+      document.getElementById("deptManager").value;
     newNodeData.department_guid = generateGuid();
     newNodeData.children = [];
     newNodeData.users = [];
@@ -210,14 +211,14 @@ function handleNodeDoubleClick(nodeData) {
 function showActionMenu(nodeData) {
   const action = prompt(
     `Выберите действие для департамента "${nodeData.name}":\n` +
-    `1 - Добавить подразделение\n` +
-    `2 - Добавить сотрудника\n` +
-    `3 - Удалить${nodeData.id === 'synthetic-root' ? ' (недоступно для корня)' : ''}\n` +
-    `Введите номер:`
+      `1 - Добавить подразделение\n` +
+      `2 - Добавить сотрудника\n` +
+      `3 - Удалить${nodeData.id === "synthetic-root" ? " (недоступно для корня)" : ""}\n` +
+      `Введите номер:`,
   );
 
-  if (action === '1') {
-    if (nodeData.id === 'synthetic-root' || nodeData.isDepartment) {
+  if (action === "1") {
+    if (nodeData.id === "synthetic-root" || nodeData.isDepartment) {
       modalTitle.textContent = "Добавить департамент";
       nodeTypeSelect.value = "department";
       deptFields.style.display = "block";
@@ -227,8 +228,8 @@ function showActionMenu(nodeData) {
       alert("Нельзя добавить департамент к сотруднику");
       targetNodeForAction = null;
     }
-  } else if (action === '2') {
-    if (nodeData.isDepartment && nodeData.id !== 'synthetic-root') {
+  } else if (action === "2") {
+    if (nodeData.isDepartment && nodeData.id !== "synthetic-root") {
       modalTitle.textContent = "Добавить сотрудника";
       nodeTypeSelect.value = "user";
       deptFields.style.display = "none";
@@ -238,9 +239,11 @@ function showActionMenu(nodeData) {
       alert("Сотрудника можно добавить только в обычный департамент");
       targetNodeForAction = null;
     }
-  } else if (action === '3') {
-    if (nodeData.id !== 'synthetic-root') {
-      if (confirm(`Удалить департамент "${nodeData.name}" и всё его содержимое?`)) {
+  } else if (action === "3") {
+    if (nodeData.id !== "synthetic-root") {
+      if (
+        confirm(`Удалить департамент "${nodeData.name}" и всё его содержимое?`)
+      ) {
         deleteNode(nodeData);
       }
     } else {
@@ -320,7 +323,8 @@ document.body.appendChild(toolbar);
 
 // -------------------- Статистика --------------------
 function enhanceNodeStats(node) {
-  let directCount = node.users && Array.isArray(node.users) ? node.users.length : 0;
+  let directCount =
+    node.users && Array.isArray(node.users) ? node.users.length : 0;
   let totalCount = directCount;
 
   for (let child of node.children || []) {
@@ -328,9 +332,10 @@ function enhanceNodeStats(node) {
     totalCount += child.totalCount;
   }
 
-  let headName = node.department_manager && node.department_manager.trim() !== ""
-    ? node.department_manager
-    : "Нет руководителя";
+  let headName =
+    node.department_manager && node.department_manager.trim() !== ""
+      ? node.department_manager
+      : "Нет руководителя";
 
   node.totalCount = totalCount;
   node.headName = headName;
@@ -380,15 +385,17 @@ function convertToFlatData(rootNodes) {
 
     const users = node.users || [];
     users.forEach((user) => {
-      const userId = user.id || "user_" + generateGuid();
+      if (!user.id) {
+        user.id = "user_" + generateGuid(); // ← ВАЖНО: сохраняем в исходные данные
+      }
       const userFlatNode = {
-        id: userId,
+        id: user.id,
         parentId: nodeId,
         name: user.name || user.full_name || "Сотрудник",
         isDepartment: false,
       };
       result.push(userFlatNode);
-      nodeDataMap.set(userId, userFlatNode);
+      nodeDataMap.set(user.id, userFlatNode);
     });
   }
 
@@ -509,7 +516,8 @@ function getDisplayNameWithIndent(name, level) {
 
 // -------------------- Заполнение выпадающего списка --------------------
 function populateDepartmentSelect() {
-  departmentSelect.innerHTML = '<option value="">-- Выберите департамент --</option>';
+  departmentSelect.innerHTML =
+    '<option value="">-- Выберите департамент --</option>';
 
   if (showAllCheckbox.checked) {
     const departmentsWithLevel = collectDepartmentsWithLevel(fullTree);
