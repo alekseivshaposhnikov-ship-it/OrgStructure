@@ -4,16 +4,8 @@
 // и преобразование ответа во внутренний формат дерева.
 // ----------------------------------------------------------------
 
-/**
- * Основная точка входа: возвращает массив корневых узлов.
- * @returns {Promise<Array>} Промис с массивом корневых департаментов,
- *          каждый узел имеет поля:
- *          department_guid, department_name, department_manager,
- *          staffCount, users, children.
- */
 export async function fetchOrganizationStructure() {
   const url = '/api/getDepartmentVacancy';
-
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -33,7 +25,7 @@ function transformApiResponse(apiNodes) {
 }
 
 function transformNode(apiNode, parentId = null) {
-  // --- Сотрудники с count >= 1 ---
+  // Сотрудники с count >= 1
   const allEmployees = apiNode.employees || [];
   const validEmployees = allEmployees.filter(emp => {
     const countStr = emp.count ? String(emp.count).replace(',', '.') : '0';
@@ -41,7 +33,6 @@ function transformNode(apiNode, parentId = null) {
     return countNum >= 1;
   });
 
-  // Функция обрезки должности до первого '/'
   const shortPosition = pos => {
     if (!pos) return '';
     const idx = pos.indexOf('/');
@@ -58,7 +49,7 @@ function transformNode(apiNode, parentId = null) {
     isVacancy: false,
   }));
 
-  // --- Вакансии ---
+  // Вакансии
   const vacancies = (apiNode.vacancy_list || []).map(vac => ({
     id: vac.id,
     full_name: "Вакансия",
@@ -69,6 +60,9 @@ function transformNode(apiNode, parentId = null) {
     isVacancy: true,
   }));
 
+  // Количество вакансий именно этого узла (без учёта детей)
+  const vacancyCount = vacancies.length;
+
   // Добавляем вакансии в общий список
   users.push(...vacancies);
 
@@ -77,16 +71,24 @@ function transformNode(apiNode, parentId = null) {
     transformNode(child, apiNode.id)
   );
 
-  // Численность — только реальные сотрудники (без вакансий)
+  // Фактическая численность (только сотрудники)
   const staffCount =
     validEmployees.length + children.reduce((sum, child) => sum + child.staffCount, 0);
+
+  // Общая численность с учётом вакансий (рекурсивно)
+  const totalWithVacancies =
+    staffCount +
+    vacancyCount +
+    children.reduce((sum, child) => sum + (child.vacancyCount || 0), 0);
 
   return {
     department_guid: apiNode.id,
     department_name: apiNode.name,
     department_manager: apiNode.manager?.full_name || '',
     parent_guid: parentId,
-    staffCount,
+    staffCount,               // фактическая численность
+    vacancyCount,             // число вакансий в этом узле и его потомках (для отображения)
+    totalWithVacancies,       // сумма фактической + вакансий
     users,
     children,
   };

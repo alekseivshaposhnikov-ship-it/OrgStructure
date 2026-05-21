@@ -27,25 +27,29 @@ async function initApp() {
     addLevels(fullTree, 0);
     buildTreeView(fullTree, container);
 
+    // Синтетический корень (вся компания) – суммируем факт и вакансии
+    const totalStaff = fullTree.reduce((sum, n) => sum + (n.staffCount || 0), 0);
+    const totalVacancies = fullTree.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
     selectedNode = {
       department_name: "Компания",
       department_guid: "synthetic-root",
       children: fullTree,
-      staffCount: fullTree.reduce((sum, n) => sum + (n.staffCount || 0), 0),
+      staffCount: totalStaff,
+      vacancyCount: totalVacancies,
+      totalWithVacancies: totalStaff + totalVacancies,
       department_manager: "",
       users: [],
     };
     renderOrgChart([selectedNode]);
 
     document.getElementById('exportPdf')?.addEventListener('click', exportToPdf);
-
   } catch (error) {
     console.error('Ошибка инициализации:', error);
     container.innerHTML = '<p>Произошла ошибка. Обновите страницу.</p>';
   }
 }
 
-// -------------------- Дерево слева (без изменений) --------------------
+// -------------------- Дерево слева --------------------
 function buildTreeView(nodes, container) {
   container.innerHTML = '';
   const rootUl = document.createElement('ul');
@@ -71,7 +75,6 @@ function buildTreeView(nodes, container) {
 
     const childUl = document.createElement('ul');
     childUl.style.display = 'none';
-
     if (node.children) {
       node.children.forEach(child => createNodeElement(child, childUl));
     }
@@ -119,15 +122,20 @@ function renderOrgChart(rootNodes) {
     .nodeContent(d => {
       const nd = d.data;
       if (nd.isDepartment) {
+        const total = nd.totalCount || 0;
+        const withVac = nd.totalWithVacancies != null ? nd.totalWithVacancies : total;
+        const showVacTotal = (withVac !== total);
         return `
           <div style="position: relative; padding: 10px 10px 25px 10px; border:1px solid #4d8ce9; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
             <div style="font-weight:600; font-size:14px; margin-bottom:6px;">${nd.name}</div>
             <div style="font-size:12px; color:#555; margin-bottom:4px;">👤 ${nd.headName || "Нет руководителя"}</div>
-            <div style="position: absolute; bottom: 8px; right: 10px; font-size: 14px; font-weight: bold; color: #333;">${nd.totalCount || 0}</div>
+            <div style="position: absolute; bottom: 8px; right: 10px; font-size: 14px; font-weight: bold;">
+              <span style="color: #333;">${total}</span>
+              ${showVacTotal ? `<span style="color: #0066cc; margin-left: 4px;">(${withVac})</span>` : ''}
+            </div>
           </div>
         `;
       } else if (nd.isVacancy) {
-        // Карточка вакансии
         return `
           <div style="padding:8px; border:1px solid #b0c4de; border-radius:8px; background:#e0f0ff; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
             <div style="font-weight:600; font-size:13px; color:#004080;">Вакансия</div>
@@ -135,9 +143,8 @@ function renderOrgChart(rootNodes) {
           </div>
         `;
       } else {
-        // Обычный сотрудник
         return `
-          <div style="padding:8px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="padding:8px; border:1px solid #ddd; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
             <div style="font-weight:500; font-size:13px;">${nd.name}</div>
             ${nd.position ? `<div style="font-size:11px; color:#777; margin-top:2px;">${nd.position}</div>` : ''}
           </div>
@@ -165,6 +172,7 @@ function convertToFlatData(nodes) {
       parentId: parentId,
       name: node.department_name || node.name || "Без названия",
       totalCount: node.staffCount || 0,
+      totalWithVacancies: node.totalWithVacancies ?? (node.staffCount || 0),
       headName: node.department_manager || "",
       isDepartment: !!node.department_guid,
     };
@@ -181,7 +189,7 @@ function convertToFlatData(nodes) {
         name: user.full_name || user.name || "Сотрудник",
         position: user.position || "",
         isDepartment: false,
-        isVacancy: !!user.isVacancy,   // <-- флаг вакансии
+        isVacancy: !!user.isVacancy,
       };
       result.push(userFlat);
       nodeDataMap.set(userId, userFlat);
