@@ -24,64 +24,62 @@ export async function fetchOrganizationStructure() {
   } catch (error) {
     console.error('Не удалось загрузить данные структуры:', error);
     alert('Не удалось загрузить организационную структуру. Проверьте доступность сервера.');
-    return []; // чтобы приложение не упало, возвращаем пустой массив
+    return [];
   }
 }
 
-/**
- * Рекурсивно преобразует ответ API (дерево) в формат,
- * используемый в renderTree, drawio, pptx и пр.
- *
- * @param {Array} apiNodes - массив узлов верхнего уровня от API
- * @returns {Array} Массив корневых узлов во внутреннем формате
- */
 function transformApiResponse(apiNodes) {
   return apiNodes.map(node => transformNode(node));
 }
 
-/**
- * Обработка одного узла (департамента) из ответа API.
- * @param {Object} apiNode - узел API: id, name, manager, employees, children и т.д.
- * @param {string|null} parentId - идентификатор родительского департамента (для корней null)
- * @returns {Object} Узел во внутреннем представлении
- */
 function transformNode(apiNode, parentId = null) {
-  // --- Фильтрация сотрудников ---
+  // --- Сотрудники с count >= 1 ---
   const allEmployees = apiNode.employees || [];
   const validEmployees = allEmployees.filter(emp => {
-    // count может быть строкой с запятой или точкой, например "0,01" или "1"
     const countStr = emp.count ? String(emp.count).replace(',', '.') : '0';
     const countNum = parseFloat(countStr);
-    return countNum >= 1;   // исключаем < 1
+    return countNum >= 1;
   });
 
-  // Преобразуем оставшихся сотрудников
-  const users = validEmployees.map(emp => {
-    // Обрезаем должность до первого '/'
-    let position = '';
-    if (emp.position) {
-      const idx = emp.position.indexOf('/');
-      position = idx !== -1 ? emp.position.substring(0, idx).trim() : emp.position.trim();
-    }
+  // Функция обрезки должности до первого '/'
+  const shortPosition = pos => {
+    if (!pos) return '';
+    const idx = pos.indexOf('/');
+    return idx !== -1 ? pos.substring(0, idx).trim() : pos.trim();
+  };
 
-    return {
-      full_name: emp.full_name,
-      email: emp.email,
-      name: emp.full_name,
-      fullName: emp.full_name,
-      id: emp.id,
-      position: position,
-    };
-  });
+  const users = validEmployees.map(emp => ({
+    full_name: emp.full_name,
+    email: emp.email,
+    name: emp.full_name,
+    fullName: emp.full_name,
+    id: emp.id,
+    position: shortPosition(emp.position),
+    isVacancy: false,
+  }));
 
-  // Рекурсивно обрабатываем дочерние департаменты
+  // --- Вакансии ---
+  const vacancies = (apiNode.vacancy_list || []).map(vac => ({
+    id: vac.id,
+    full_name: "Вакансия",
+    email: "",
+    name: "Вакансия",
+    fullName: "Вакансия",
+    position: shortPosition(vac.position),
+    isVacancy: true,
+  }));
+
+  // Добавляем вакансии в общий список
+  users.push(...vacancies);
+
+  // Дочерние департаменты
   const children = (apiNode.children || []).map(child =>
     transformNode(child, apiNode.id)
   );
 
-  // Численность = сотрудники самого департамента + сумма численностей всех потомков
+  // Численность — только реальные сотрудники (без вакансий)
   const staffCount =
-    users.length + children.reduce((sum, child) => sum + child.staffCount, 0);
+    validEmployees.length + children.reduce((sum, child) => sum + child.staffCount, 0);
 
   return {
     department_guid: apiNode.id,

@@ -4,16 +4,13 @@ import { OrgChart } from "d3-org-chart";
 import { fetchOrganizationStructure } from './src/api.js';
 import { addLevels, flattenTree } from './src/layout.js';
 
-// Глобальный d3 для d3-org-chart
 window.d3 = { ...d3, flextree };
 
-// Глобальные переменные
 let fullTree = [];
 let chart = null;
 let selectedNode = null;
 const nodeDataMap = new Map();
 
-// -------------------- Инициализация приложения --------------------
 async function initApp() {
   const container = document.getElementById('tree-container');
   if (!container) return;
@@ -48,7 +45,7 @@ async function initApp() {
   }
 }
 
-// -------------------- Построение интерактивного дерева (без изменений) --------------------
+// -------------------- Дерево слева (без изменений) --------------------
 function buildTreeView(nodes, container) {
   container.innerHTML = '';
   const rootUl = document.createElement('ul');
@@ -102,7 +99,7 @@ function buildTreeView(nodes, container) {
   container.appendChild(rootUl);
 }
 
-// -------------------- Рендеринг D3-оргчарта (с должностью) --------------------
+// -------------------- Рендеринг оргчарта --------------------
 function renderOrgChart(rootNodes) {
   if (!rootNodes || rootNodes.length === 0) return;
 
@@ -129,7 +126,16 @@ function renderOrgChart(rootNodes) {
             <div style="position: absolute; bottom: 8px; right: 10px; font-size: 14px; font-weight: bold; color: #333;">${nd.totalCount || 0}</div>
           </div>
         `;
+      } else if (nd.isVacancy) {
+        // Карточка вакансии
+        return `
+          <div style="padding:8px; border:1px solid #b0c4de; border-radius:8px; background:#e0f0ff; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-weight:600; font-size:13px; color:#004080;">Вакансия</div>
+            ${nd.position ? `<div style="font-size:11px; color:#555; margin-top:2px;">${nd.position}</div>` : ''}
+          </div>
+        `;
       } else {
+        // Обычный сотрудник
         return `
           <div style="padding:8px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
             <div style="font-weight:500; font-size:13px;">${nd.name}</div>
@@ -142,7 +148,7 @@ function renderOrgChart(rootNodes) {
   chart.data(flatData).render().fit();
 }
 
-// -------------------- Преобразование дерева в плоский массив --------------------
+// -------------------- Преобразование в плоский массив --------------------
 function convertToFlatData(nodes) {
   if (!nodes || nodes.length === 0) return [];
   nodeDataMap.clear();
@@ -154,15 +160,12 @@ function convertToFlatData(nodes) {
     const currentId = idCounter++;
     const nodeId = node.department_guid || node.id || currentId;
 
-    const totalCount = node.staffCount || 0;
-    const headName = node.department_manager || "";
-
     const flatNode = {
       id: nodeId,
       parentId: parentId,
       name: node.department_name || node.name || "Без названия",
-      totalCount,
-      headName,
+      totalCount: node.staffCount || 0,
+      headName: node.department_manager || "",
       isDepartment: !!node.department_guid,
     };
     result.push(flatNode);
@@ -176,8 +179,9 @@ function convertToFlatData(nodes) {
         id: userId,
         parentId: nodeId,
         name: user.full_name || user.name || "Сотрудник",
-        position: user.position || "",   // <-- должность сотрудника
+        position: user.position || "",
         isDepartment: false,
+        isVacancy: !!user.isVacancy,   // <-- флаг вакансии
       };
       result.push(userFlat);
       nodeDataMap.set(userId, userFlat);
@@ -222,5 +226,4 @@ async function exportToPdf() {
   }
 }
 
-// Стартуем после загрузки DOM
 document.addEventListener('DOMContentLoaded', initApp);
