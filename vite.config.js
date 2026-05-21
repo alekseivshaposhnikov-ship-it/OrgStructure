@@ -7,4 +7,13 @@ export default defineConfig({
       '@src': '/src',
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'https://wsisapi.legenda-dom.ru/corportal/hs/corportal',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
+  },
 });

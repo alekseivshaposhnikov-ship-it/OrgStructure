@@ -1,8 +1,5 @@
 /* style.css – Refactored & Clean */
 
-/* ---------------------------------
-   1️⃣  CSS Variables (Theming)
-   --------------------------------- */
 :root {
   --font-base: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   --color-bg: #f5f5f5;
@@ -18,9 +15,6 @@
   --transition: 0.2s ease;
 }
 
-/* ---------------------------------
-   2️⃣  Global Reset & Base
-   --------------------------------- */
 *,
 *::before,
 *::after {
@@ -41,19 +35,21 @@ body {
   display: flex;
 }
 
-/* ---------------------------------
-   3️⃣  Layout: Sidebar + Chart Area
-   --------------------------------- */
-.container {
-  width: 520px;
+/* Левая боковая панель */
+.sidebar {
+  width: 340px;
+  min-width: 280px;
   padding: 16px;
   border-right: 1px solid var(--color-border);
-  overflow-y: auto;
   background: var(--color-surface);
-  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
 }
 
-#orgChartContainer {
+/* Правая панель с диаграммой */
+#chartPanel {
   flex: 1;
   height: 100vh;
   overflow: hidden;
@@ -64,62 +60,19 @@ body {
   height: 100%;
 }
 
-/* ---------------------------------
-   4️⃣  Typography
-   --------------------------------- */
 h1 {
-  margin-top: 0;
-  margin-bottom: 1.5rem;
-  font-size: 20px;
+  margin: 0 0 1rem 0;
+  font-size: 18px;
   text-align: center;
   color: var(--color-muted);
 }
 
-/* ---------------------------------
-   5️⃣  Controls Panel
-   --------------------------------- */
 .controls {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gap);
-  align-items: center;
+  gap: 0.5rem;
   justify-content: center;
-  margin-bottom: 1.5rem;
-}
-
-.file-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.8rem;
-  background: var(--color-primary);
-  color: #fff;
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.file-label:hover {
-  background: var(--color-primary-dark);
-}
-
-.file-label input[type="file"] {
-  display: none;
-}
-
-.select-label select {
-  padding: 0.4rem 0.6rem;
-  min-width: 250px;
-  max-width: 470px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  font-family: var(--font-base);
-}
-
-.switch-label {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
+  margin-bottom: 1rem;
 }
 
 button {
@@ -129,82 +82,79 @@ button {
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
-  transition: background var(--transition), transform 0.1s;
+  font-size: 0.9rem;
+  transition: background var(--transition);
 }
 
 button:hover {
   background: var(--color-primary-dark);
 }
 
-button:active {
-  transform: translateY(1px);
-}
-
-/* ---------------------------------
-   6️⃣  Tree Container (text representation)
-   --------------------------------- */
+/* Интерактивное дерево */
 .tree-container {
-  padding: 1rem 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: #fafafa;
-  max-height: 600px;
+  flex: 1;
   overflow-y: auto;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
+  padding: 0;
 }
 
-.tree-container div {
-  padding: 0.25rem 0;
-  font-size: 0.95rem;
-  cursor: default;
-  transition: background-color var(--transition);
+.tree-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
 }
 
-.tree-container div:hover {
+.tree-list ul {
+  list-style: none;
+  padding-left: 20px;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 0;
+}
+
+.toggle {
+  cursor: pointer;
+  user-select: none;
+  width: 18px;
+  font-size: 12px;
+  color: #666;
+  display: inline-block;
+  text-align: center;
+}
+
+.dept-label {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.dept-label:hover {
   background: #ecf0f1;
 }
 
-.tree-container div.selected {
+.dept-label.selected {
   background: var(--color-primary);
   color: #fff;
 }
 
-/* ---------------------------------
-   7️⃣  Accessibility: Focus Styles
-   --------------------------------- */
-button:focus-visible,
-.file-label:focus-visible,
-.select-label select:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-/* ---------------------------------
-   8️⃣  Responsive Design
-   --------------------------------- */
-@media (max-width: 600px) {
+/* Адаптивность */
+@media (max-width: 700px) {
   body {
     flex-direction: column;
   }
 
-  .container {
+  .sidebar {
     width: 100%;
+    height: auto;
+    max-height: 40vh;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
   }
 
-  #orgChartContainer {
+  #chartPanel {
     height: 60vh;
-  }
-
-  .controls {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .select-label select,
-  .controls button,
-  .file-label {
-    width: 100%;
   }
 }
