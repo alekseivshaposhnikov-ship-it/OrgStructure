@@ -3,18 +3,14 @@ import { flextree } from "d3-flextree";
 import { OrgChart } from "d3-org-chart";
 import { fetchOrganizationStructure } from './src/api.js';
 import { addLevels, flattenTree } from './src/layout.js';
-import { exportToPptx } from './src/pptx.js';
-import { exportToDrawio } from './src/drawio.js';
 
 // Глобальный d3 для d3-org-chart
 window.d3 = { ...d3, flextree };
 
 // Глобальные переменные
-let fullTree = [];          // всё дерево (массив корневых узлов)
-let chart = null;           // экземпляр OrgChart
-let selectedNode = null;    // текущее выбранное подразделение
-
-// Сопоставление id → узел для быстрого поиска
+let fullTree = [];
+let chart = null;
+let selectedNode = null;
 const nodeDataMap = new Map();
 
 // -------------------- Инициализация приложения --------------------
@@ -34,7 +30,6 @@ async function initApp() {
     addLevels(fullTree, 0);
     buildTreeView(fullTree, container);
 
-    // По умолчанию показываем всю компанию (синтетический корень)
     selectedNode = {
       department_name: "Компания",
       department_guid: "synthetic-root",
@@ -45,12 +40,6 @@ async function initApp() {
     };
     renderOrgChart([selectedNode]);
 
-    // Кнопки экспорта
-    document.getElementById('exportPptx')?.addEventListener('click', () => exportToPptx(fullTree));
-    document.getElementById('exportDrawio')?.addEventListener('click', () => {
-      const allNodes = flattenTree(fullTree);
-      exportToDrawio(allNodes);
-    });
     document.getElementById('exportPdf')?.addEventListener('click', exportToPdf);
 
   } catch (error) {
@@ -59,7 +48,7 @@ async function initApp() {
   }
 }
 
-// -------------------- Построение интерактивного дерева --------------------
+// -------------------- Построение интерактивного дерева (без изменений) --------------------
 function buildTreeView(nodes, container) {
   container.innerHTML = '';
   const rootUl = document.createElement('ul');
@@ -70,27 +59,19 @@ function buildTreeView(nodes, container) {
     const row = document.createElement('div');
     row.className = 'tree-row';
 
-    // Кнопка раскрытия/скрытия дочерних элементов
     const toggle = document.createElement('span');
     toggle.className = 'toggle';
     toggle.textContent = '▶';
-    if (node.children && node.children.length > 0) {
-      toggle.style.visibility = 'visible';
-    } else {
-      toggle.style.visibility = 'hidden';
-    }
+    toggle.style.visibility = (node.children && node.children.length > 0) ? 'visible' : 'hidden';
 
-    // Название подразделения
     const label = document.createElement('span');
     label.className = 'dept-label';
     label.textContent = `${node.department_name} (${node.staffCount || 0})`;
 
-    // Сборка строки
     row.appendChild(toggle);
     row.appendChild(label);
     li.appendChild(row);
 
-    // Контейнер для дочерних элементов (изначально скрыт)
     const childUl = document.createElement('ul');
     childUl.style.display = 'none';
 
@@ -99,7 +80,6 @@ function buildTreeView(nodes, container) {
     }
     li.appendChild(childUl);
 
-    // Обработчики событий
     toggle.addEventListener('click', (e) => {
       e.stopPropagation();
       const isHidden = childUl.style.display === 'none';
@@ -111,7 +91,6 @@ function buildTreeView(nodes, container) {
       e.stopPropagation();
       selectedNode = node;
       renderOrgChart([node]);
-      // Визуально выделяем выбранный элемент
       document.querySelectorAll('.dept-label').forEach(el => el.classList.remove('selected'));
       label.classList.add('selected');
     });
@@ -123,7 +102,7 @@ function buildTreeView(nodes, container) {
   container.appendChild(rootUl);
 }
 
-// -------------------- Рендеринг D3-оргчарта --------------------
+// -------------------- Рендеринг D3-оргчарта (с должностью) --------------------
 function renderOrgChart(rootNodes) {
   if (!rootNodes || rootNodes.length === 0) return;
 
@@ -154,6 +133,7 @@ function renderOrgChart(rootNodes) {
         return `
           <div style="padding:8px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
             <div style="font-weight:500; font-size:13px;">${nd.name}</div>
+            ${nd.position ? `<div style="font-size:11px; color:#777; margin-top:2px;">${nd.position}</div>` : ''}
           </div>
         `;
       }
@@ -174,7 +154,6 @@ function convertToFlatData(nodes) {
     const currentId = idCounter++;
     const nodeId = node.department_guid || node.id || currentId;
 
-    // Подсчитываем общее количество сотрудников в поддереве
     const totalCount = node.staffCount || 0;
     const headName = node.department_manager || "";
 
@@ -189,16 +168,15 @@ function convertToFlatData(nodes) {
     result.push(flatNode);
     nodeDataMap.set(nodeId, flatNode);
 
-    // Рекурсия по дочерним отделам
     (node.children || []).forEach(child => walk(child, nodeId));
 
-    // Сотрудники
     (node.users || []).forEach(user => {
       const userId = user.id || `user_${idCounter++}`;
       const userFlat = {
         id: userId,
         parentId: nodeId,
         name: user.full_name || user.name || "Сотрудник",
+        position: user.position || "",   // <-- должность сотрудника
         isDepartment: false,
       };
       result.push(userFlat);

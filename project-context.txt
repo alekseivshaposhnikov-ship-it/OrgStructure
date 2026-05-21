@@ -8,97 +8,281 @@
     <meta charset="UTF-8" />
     <title>Org Structure Viewer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Modern Google Font -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
       rel="stylesheet"
     />
-
     <!-- CDN для экспорта в PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-    <!-- Прямое подключение стилей и основного скрипта -->
     <link rel="stylesheet" href="./style.css" />
     <script type="module" src="./main.js"></script>
   </head>
   <body>
-    <div class="container">
+    <div class="sidebar">
       <h1>Организационная структура</h1>
-
-      <!-- Подсказка -->
-      <div style="background: #f0f7ff; padding: 8px 16px; border-radius: 6px; margin-bottom: 15px; color: #0066cc; font-size: 14px; border-left: 4px solid #0066cc;">
-        💡 Структура загружается автоматически с сервера. Используйте кнопки ниже для экспорта.
-      </div>
-
       <div class="controls">
         <button id="exportPptx">📊 Экспорт в PPTX</button>
         <button id="exportDrawio">📐 Экспорт в Draw.io</button>
         <button id="exportPdf">📄 Экспорт в PDF</button>
       </div>
-
       <div id="tree-container" class="tree-container"></div>
+    </div>
+    <div id="chartPanel">
+      <div id="orgChart"></div>
     </div>
   </body>
 </html>
 
 # FILE: main.js
 
-// src/main.js
+import * as d3 from "d3";
+import { flextree } from "d3-flextree";
+import { OrgChart } from "d3-org-chart";
 import { fetchOrganizationStructure } from './src/api.js';
 import { addLevels, flattenTree } from './src/layout.js';
-import { renderTree } from './src/render.js';
 import { exportToPptx } from './src/pptx.js';
 import { exportToDrawio } from './src/drawio.js';
+
+// Глобальный d3 для d3-org-chart
+window.d3 = { ...d3, flextree };
+
+// Глобальные переменные
+let fullTree = [];          // всё дерево (массив корневых узлов)
+let chart = null;           // экземпляр OrgChart
+let selectedNode = null;    // текущее выбранное подразделение
+
+// Сопоставление id → узел для быстрого поиска
+const nodeDataMap = new Map();
+
+// -------------------- Инициализация приложения --------------------
 async function initApp() {
   const container = document.getElementById('tree-container');
-  if (!container) {
-    console.error('Контейнер #tree-container не найден');
-    return;
-  }
+  if (!container) return;
 
-  // Показываем индикатор загрузки, пока данные идут с сервера
   container.innerHTML = '<p>Загрузка организационной структуры...</p>';
 
   try {
-    const tree = await fetchOrganizationStructure();
-
-    // API не вернул данные — показываем сообщение
-    if (!tree.length) {
-      container.innerHTML = '<p>Не удалось загрузить организационную структуру.</p>';
+    fullTree = await fetchOrganizationStructure();
+    if (!fullTree.length) {
+      container.innerHTML = '<p>Не удалось загрузить структуру.</p>';
       return;
     }
 
-    // Добавляем служебное поле уровня (если нужно для визуального отступа)
-    addLevels(tree, 0);
+    addLevels(fullTree, 0);
+    buildTreeView(fullTree, container);
 
-    // Рендерим дерево в DOM
-    renderTree(tree, container);
+    // По умолчанию показываем всю компанию (синтетический корень)
+    selectedNode = {
+      department_name: "Компания",
+      department_guid: "synthetic-root",
+      children: fullTree,
+      staffCount: fullTree.reduce((sum, n) => sum + (n.staffCount || 0), 0),
+      department_manager: "",
+      users: [],
+    };
+    renderOrgChart([selectedNode]);
 
-    // --------------- Экспорт ---------------
-    const pptxBtn = document.getElementById('export-pptx');
-    const drawioBtn = document.getElementById('export-drawio');
+    // Кнопки экспорта
+    document.getElementById('exportPptx')?.addEventListener('click', () => exportToPptx(fullTree));
+    document.getElementById('exportDrawio')?.addEventListener('click', () => {
+      const allNodes = flattenTree(fullTree);
+      exportToDrawio(allNodes);
+    });
+    document.getElementById('exportPdf')?.addEventListener('click', exportToPdf);
 
-    if (pptxBtn) {
-      pptxBtn.addEventListener('click', () => {
-        exportToPptx(tree); // передаём корневой узел (ожидается массив)
-      });
-    }
-
-    if (drawioBtn) {
-      drawioBtn.addEventListener('click', () => {
-        // drawio.js строит дерево заново по parent_guid, поэтому нужен плоский список всех узлов
-        const allNodes = flattenTree(tree);
-        exportToDrawio(allNodes);
-      });
-    }
   } catch (error) {
-    console.error('Ошибка при инициализации приложения:', error);
-    container.innerHTML = '<p>Произошла ошибка. Обновите страницу или обратитесь к администратору.</p>';
+    console.error('Ошибка инициализации:', error);
+    container.innerHTML = '<p>Произошла ошибка. Обновите страницу.</p>';
   }
 }
 
-// Стартуем после полной загрузки DOM
+// -------------------- Построение интерактивного дерева --------------------
+function buildTreeView(nodes, container) {
+  container.innerHTML = '';
+  const rootUl = document.createElement('ul');
+  rootUl.className = 'tree-list';
+
+  function createNodeElement(node, parentUl) {
+    const li = document.createElement('li');
+    const row = document.createElement('div');
+    row.className = 'tree-row';
+
+    // Кнопка раскрытия/скрытия дочерних элементов
+    const toggle = document.createElement('span');
+    toggle.className = 'toggle';
+    toggle.textContent = '▶';
+    if (node.children && node.children.length > 0) {
+      toggle.style.visibility = 'visible';
+    } else {
+      toggle.style.visibility = 'hidden';
+    }
+
+    // Название подразделения
+    const label = document.createElement('span');
+    label.className = 'dept-label';
+    label.textContent = `${node.department_name} (${node.staffCount || 0})`;
+
+    // Сборка строки
+    row.appendChild(toggle);
+    row.appendChild(label);
+    li.appendChild(row);
+
+    // Контейнер для дочерних элементов (изначально скрыт)
+    const childUl = document.createElement('ul');
+    childUl.style.display = 'none';
+
+    if (node.children) {
+      node.children.forEach(child => createNodeElement(child, childUl));
+    }
+    li.appendChild(childUl);
+
+    // Обработчики событий
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isHidden = childUl.style.display === 'none';
+      childUl.style.display = isHidden ? 'block' : 'none';
+      toggle.textContent = isHidden ? '▼' : '▶';
+    });
+
+    label.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedNode = node;
+      renderOrgChart([node]);
+      // Визуально выделяем выбранный элемент
+      document.querySelectorAll('.dept-label').forEach(el => el.classList.remove('selected'));
+      label.classList.add('selected');
+    });
+
+    parentUl.appendChild(li);
+  }
+
+  nodes.forEach(node => createNodeElement(node, rootUl));
+  container.appendChild(rootUl);
+}
+
+// -------------------- Рендеринг D3-оргчарта --------------------
+function renderOrgChart(rootNodes) {
+  if (!rootNodes || rootNodes.length === 0) return;
+
+  const flatData = convertToFlatData(rootNodes);
+  if (!flatData.length) return;
+
+  const container = document.getElementById('orgChart');
+  if (container) container.innerHTML = '';
+
+  chart = new OrgChart()
+    .container('#orgChart')
+    .nodeHeight(d => (d.data.isDepartment ? 90 : 60))
+    .nodeWidth(() => 270)
+    .childrenMargin(() => 40)
+    .compactMarginBetween(() => 20)
+    .compactMarginPair(() => 60)
+    .nodeContent(d => {
+      const nd = d.data;
+      if (nd.isDepartment) {
+        return `
+          <div style="position: relative; padding: 10px 10px 25px 10px; border:1px solid #4d8ce9; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
+            <div style="font-weight:600; font-size:14px; margin-bottom:6px;">${nd.name}</div>
+            <div style="font-size:12px; color:#555; margin-bottom:4px;">👤 ${nd.headName || "Нет руководителя"}</div>
+            <div style="position: absolute; bottom: 8px; right: 10px; font-size: 14px; font-weight: bold; color: #333;">${nd.totalCount || 0}</div>
+          </div>
+        `;
+      } else {
+        return `
+          <div style="padding:8px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-weight:500; font-size:13px;">${nd.name}</div>
+          </div>
+        `;
+      }
+    });
+
+  chart.data(flatData).render().fit();
+}
+
+// -------------------- Преобразование дерева в плоский массив --------------------
+function convertToFlatData(nodes) {
+  if (!nodes || nodes.length === 0) return [];
+  nodeDataMap.clear();
+
+  let result = [];
+  let idCounter = 1;
+
+  function walk(node, parentId = null) {
+    const currentId = idCounter++;
+    const nodeId = node.department_guid || node.id || currentId;
+
+    // Подсчитываем общее количество сотрудников в поддереве
+    const totalCount = node.staffCount || 0;
+    const headName = node.department_manager || "";
+
+    const flatNode = {
+      id: nodeId,
+      parentId: parentId,
+      name: node.department_name || node.name || "Без названия",
+      totalCount,
+      headName,
+      isDepartment: !!node.department_guid,
+    };
+    result.push(flatNode);
+    nodeDataMap.set(nodeId, flatNode);
+
+    // Рекурсия по дочерним отделам
+    (node.children || []).forEach(child => walk(child, nodeId));
+
+    // Сотрудники
+    (node.users || []).forEach(user => {
+      const userId = user.id || `user_${idCounter++}`;
+      const userFlat = {
+        id: userId,
+        parentId: nodeId,
+        name: user.full_name || user.name || "Сотрудник",
+        isDepartment: false,
+      };
+      result.push(userFlat);
+      nodeDataMap.set(userId, userFlat);
+    });
+  }
+
+  nodes.forEach(node => walk(node, null));
+  return result;
+}
+
+// -------------------- Экспорт в PDF --------------------
+async function exportToPdf() {
+  const element = document.getElementById('orgChart');
+  if (!element || !chart) {
+    alert("Нет диаграммы для экспорта");
+    return;
+  }
+
+  const originalCursor = element.style.cursor;
+  element.style.cursor = 'wait';
+
+  try {
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      logging: false,
+    });
+    const imgData = canvas.toDataURL('image/png');
+    const { jsPDF } = jspdf;
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'px',
+      format: [canvas.width, canvas.height],
+    });
+    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+    pdf.save('orgchart.pdf');
+  } catch (error) {
+    console.error('Ошибка экспорта PDF:', error);
+    alert('Не удалось экспортировать PDF. ' + error.message);
+  } finally {
+    element.style.cursor = originalCursor;
+  }
+}
+
+// Стартуем после загрузки DOM
 document.addEventListener('DOMContentLoaded', initApp);
 
 # FILE: package-lock.json
@@ -3435,9 +3619,6 @@ console.log('Done');
 
 /* style.css – Refactored & Clean */
 
-/* ---------------------------------
-   1️⃣  CSS Variables (Theming)
-   --------------------------------- */
 :root {
   --font-base: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   --color-bg: #f5f5f5;
@@ -3453,9 +3634,6 @@ console.log('Done');
   --transition: 0.2s ease;
 }
 
-/* ---------------------------------
-   2️⃣  Global Reset & Base
-   --------------------------------- */
 *,
 *::before,
 *::after {
@@ -3476,19 +3654,21 @@ body {
   display: flex;
 }
 
-/* ---------------------------------
-   3️⃣  Layout: Sidebar + Chart Area
-   --------------------------------- */
-.container {
-  width: 520px;
+/* Левая боковая панель */
+.sidebar {
+  width: 340px;
+  min-width: 280px;
   padding: 16px;
   border-right: 1px solid var(--color-border);
-  overflow-y: auto;
   background: var(--color-surface);
-  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
 }
 
-#orgChartContainer {
+/* Правая панель с диаграммой */
+#chartPanel {
   flex: 1;
   height: 100vh;
   overflow: hidden;
@@ -3499,62 +3679,19 @@ body {
   height: 100%;
 }
 
-/* ---------------------------------
-   4️⃣  Typography
-   --------------------------------- */
 h1 {
-  margin-top: 0;
-  margin-bottom: 1.5rem;
-  font-size: 20px;
+  margin: 0 0 1rem 0;
+  font-size: 18px;
   text-align: center;
   color: var(--color-muted);
 }
 
-/* ---------------------------------
-   5️⃣  Controls Panel
-   --------------------------------- */
 .controls {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gap);
-  align-items: center;
+  gap: 0.5rem;
   justify-content: center;
-  margin-bottom: 1.5rem;
-}
-
-.file-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.8rem;
-  background: var(--color-primary);
-  color: #fff;
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.file-label:hover {
-  background: var(--color-primary-dark);
-}
-
-.file-label input[type="file"] {
-  display: none;
-}
-
-.select-label select {
-  padding: 0.4rem 0.6rem;
-  min-width: 250px;
-  max-width: 470px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  font-family: var(--font-base);
-}
-
-.switch-label {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
+  margin-bottom: 1rem;
 }
 
 button {
@@ -3564,83 +3701,80 @@ button {
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
-  transition: background var(--transition), transform 0.1s;
+  font-size: 0.9rem;
+  transition: background var(--transition);
 }
 
 button:hover {
   background: var(--color-primary-dark);
 }
 
-button:active {
-  transform: translateY(1px);
-}
-
-/* ---------------------------------
-   6️⃣  Tree Container (text representation)
-   --------------------------------- */
+/* Интерактивное дерево */
 .tree-container {
-  padding: 1rem 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: #fafafa;
-  max-height: 600px;
+  flex: 1;
   overflow-y: auto;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
+  padding: 0;
 }
 
-.tree-container div {
-  padding: 0.25rem 0;
-  font-size: 0.95rem;
-  cursor: default;
-  transition: background-color var(--transition);
+.tree-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
 }
 
-.tree-container div:hover {
+.tree-list ul {
+  list-style: none;
+  padding-left: 20px;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 0;
+}
+
+.toggle {
+  cursor: pointer;
+  user-select: none;
+  width: 18px;
+  font-size: 12px;
+  color: #666;
+  display: inline-block;
+  text-align: center;
+}
+
+.dept-label {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.dept-label:hover {
   background: #ecf0f1;
 }
 
-.tree-container div.selected {
+.dept-label.selected {
   background: var(--color-primary);
   color: #fff;
 }
 
-/* ---------------------------------
-   7️⃣  Accessibility: Focus Styles
-   --------------------------------- */
-button:focus-visible,
-.file-label:focus-visible,
-.select-label select:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-/* ---------------------------------
-   8️⃣  Responsive Design
-   --------------------------------- */
-@media (max-width: 600px) {
+/* Адаптивность */
+@media (max-width: 700px) {
   body {
     flex-direction: column;
   }
 
-  .container {
+  .sidebar {
     width: 100%;
+    height: auto;
+    max-height: 40vh;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
   }
 
-  #orgChartContainer {
+  #chartPanel {
     height: 60vh;
-  }
-
-  .controls {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .select-label select,
-  .controls button,
-  .file-label {
-    width: 100%;
   }
 }
 

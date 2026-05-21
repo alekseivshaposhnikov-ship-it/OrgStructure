@@ -46,17 +46,33 @@ function transformApiResponse(apiNodes) {
  * @returns {Object} Узел во внутреннем представлении
  */
 function transformNode(apiNode, parentId = null) {
-  // Список сотрудников преобразуем в объекты, понятные renderTree и экспортам
-  const users = (apiNode.employees || []).map(emp => ({
-    full_name: emp.full_name,
-    email: emp.email,
-    // Для совместимости с pptx.js, который ищет u.name или u.fullName
-    name: emp.full_name,
-    fullName: emp.full_name,
-    // Дополнительные поля могут быть полезны в будущем
-    id: emp.id,
-    position: emp.position,
-  }));
+  // --- Фильтрация сотрудников ---
+  const allEmployees = apiNode.employees || [];
+  const validEmployees = allEmployees.filter(emp => {
+    // count может быть строкой с запятой или точкой, например "0,01" или "1"
+    const countStr = emp.count ? String(emp.count).replace(',', '.') : '0';
+    const countNum = parseFloat(countStr);
+    return countNum >= 1;   // исключаем < 1
+  });
+
+  // Преобразуем оставшихся сотрудников
+  const users = validEmployees.map(emp => {
+    // Обрезаем должность до первого '/'
+    let position = '';
+    if (emp.position) {
+      const idx = emp.position.indexOf('/');
+      position = idx !== -1 ? emp.position.substring(0, idx).trim() : emp.position.trim();
+    }
+
+    return {
+      full_name: emp.full_name,
+      email: emp.email,
+      name: emp.full_name,
+      fullName: emp.full_name,
+      id: emp.id,
+      position: position,
+    };
+  });
 
   // Рекурсивно обрабатываем дочерние департаменты
   const children = (apiNode.children || []).map(child =>
@@ -70,9 +86,8 @@ function transformNode(apiNode, parentId = null) {
   return {
     department_guid: apiNode.id,
     department_name: apiNode.name,
-    // Руководитель – берём ФИО из объекта manager
     department_manager: apiNode.manager?.full_name || '',
-    parent_guid: parentId, // не обязательно для рендера, но может пригодиться
+    parent_guid: parentId,
     staffCount,
     users,
     children,
