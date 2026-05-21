@@ -27,17 +27,17 @@ async function initApp() {
     addLevels(fullTree, 0);
     buildTreeView(fullTree, container);
 
-    // Синтетический корень (вся компания) – суммируем факт и вакансии
+    // Корневой элемент (холдинг)
     const totalStaff = fullTree.reduce((sum, n) => sum + (n.staffCount || 0), 0);
-    const totalVacancies = fullTree.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
+    const totalVac = fullTree.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
     selectedNode = {
-      department_name: "Компания",
+      department_name: "Холдинг LEGENDA",
       department_guid: "synthetic-root",
       children: fullTree,
       staffCount: totalStaff,
-      vacancyCount: totalVacancies,
-      totalWithVacancies: totalStaff + totalVacancies,
-      department_manager: "",
+      vacancyCount: totalVac,
+      totalWithVacancies: totalStaff + totalVac,
+      department_manager: "Селиванов Василий Геннадьевич",
       users: [],
     };
     renderOrgChart([selectedNode]);
@@ -49,57 +49,79 @@ async function initApp() {
   }
 }
 
-// -------------------- Дерево слева --------------------
+// -------------------- Дерево слева (с корневым элементом) --------------------
 function buildTreeView(nodes, container) {
   container.innerHTML = '';
   const rootUl = document.createElement('ul');
   rootUl.className = 'tree-list';
 
-  function createNodeElement(node, parentUl) {
-    const li = document.createElement('li');
-    const row = document.createElement('div');
-    row.className = 'tree-row';
+  const totalStaff = nodes.reduce((sum, n) => sum + (n.staffCount || 0), 0);
+  const totalVac = nodes.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
+  const rootNode = {
+    department_name: "Холдинг LEGENDA",
+    department_guid: "synthetic-root",
+    children: nodes,
+    staffCount: totalStaff,
+    vacancyCount: totalVac,
+    totalWithVacancies: totalStaff + totalVac,
+    department_manager: "Селиванов Василий Геннадьевич",
+    users: [],
+  };
+  createNodeElement(rootNode, rootUl, true);
 
-    const toggle = document.createElement('span');
-    toggle.className = 'toggle';
-    toggle.textContent = '▶';
-    toggle.style.visibility = (node.children && node.children.length > 0) ? 'visible' : 'hidden';
-
-    const label = document.createElement('span');
-    label.className = 'dept-label';
-    label.textContent = `${node.department_name} (${node.staffCount || 0})`;
-
-    row.appendChild(toggle);
-    row.appendChild(label);
-    li.appendChild(row);
-
-    const childUl = document.createElement('ul');
-    childUl.style.display = 'none';
-    if (node.children) {
-      node.children.forEach(child => createNodeElement(child, childUl));
-    }
-    li.appendChild(childUl);
-
-    toggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isHidden = childUl.style.display === 'none';
-      childUl.style.display = isHidden ? 'block' : 'none';
-      toggle.textContent = isHidden ? '▼' : '▶';
-    });
-
-    label.addEventListener('click', (e) => {
-      e.stopPropagation();
-      selectedNode = node;
-      renderOrgChart([node]);
-      document.querySelectorAll('.dept-label').forEach(el => el.classList.remove('selected'));
-      label.classList.add('selected');
-    });
-
-    parentUl.appendChild(li);
-  }
-
-  nodes.forEach(node => createNodeElement(node, rootUl));
   container.appendChild(rootUl);
+}
+
+function createNodeElement(node, parentUl, isRoot = false) {
+  const li = document.createElement('li');
+  const row = document.createElement('div');
+  row.className = 'tree-row';
+
+  const toggle = document.createElement('span');
+  toggle.className = 'toggle';
+  toggle.textContent = '▶';
+  toggle.style.visibility = (node.children && node.children.length > 0) ? 'visible' : 'hidden';
+
+  const label = document.createElement('span');
+  label.className = 'dept-label';
+  label.textContent = `${node.department_name} (${node.staffCount || 0})`;
+
+  row.appendChild(toggle);
+  row.appendChild(label);
+  li.appendChild(row);
+
+  const childUl = document.createElement('ul');
+  childUl.style.display = isRoot ? 'block' : 'none';
+  if (isRoot) toggle.textContent = '▼';
+
+  if (node.children) {
+    node.children.forEach(child => createNodeElement(child, childUl, false));
+  }
+  li.appendChild(childUl);
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isHidden = childUl.style.display === 'none';
+    childUl.style.display = isHidden ? 'block' : 'none';
+    toggle.textContent = isHidden ? '▼' : '▶';
+  });
+
+  label.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectedNode = node;
+    renderOrgChart([node]);
+    document.querySelectorAll('.dept-label').forEach(el => el.classList.remove('selected'));
+    label.classList.add('selected');
+  });
+
+  label.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    if (node.children && node.children.length > 0) {
+      toggle.click();
+    }
+  });
+
+  parentUl.appendChild(li);
 }
 
 // -------------------- Рендеринг оргчарта --------------------
@@ -115,7 +137,7 @@ function renderOrgChart(rootNodes) {
   chart = new OrgChart()
     .container('#orgChart')
     .nodeHeight(d => (d.data.isDepartment ? 90 : 60))
-    .nodeWidth(() => 270)
+    .nodeWidth(() => 350)
     .childrenMargin(() => 40)
     .compactMarginBetween(() => 20)
     .compactMarginPair(() => 60)
@@ -127,9 +149,9 @@ function renderOrgChart(rootNodes) {
         const showVacTotal = (withVac !== total);
         return `
           <div style="position: relative; padding: 10px 10px 25px 10px; border:1px solid #4d8ce9; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
-            <div style="font-weight:600; font-size:14px; margin-bottom:6px;">${nd.name}</div>
-            <div style="font-size:12px; color:#555; margin-bottom:4px;">👤 ${nd.headName || "Нет руководителя"}</div>
-            <div style="position: absolute; bottom: 8px; right: 10px; font-size: 14px; font-weight: bold;">
+            <div style="font-weight:600; font-size:13px; margin-bottom:6px; word-break: break-word;">${nd.name}</div>
+            <div style="font-size:11px; color:#555; margin-bottom:4px;">👤 ${nd.headName || "Нет руководителя"}</div>
+            <div style="position: absolute; bottom: 8px; right: 10px; font-size: 13px; font-weight: bold;">
               <span style="color: #333;">${total}</span>
               ${showVacTotal ? `<span style="color: #0066cc; margin-left: 4px;">(${withVac})</span>` : ''}
             </div>
