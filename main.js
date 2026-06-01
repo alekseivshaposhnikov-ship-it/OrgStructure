@@ -108,16 +108,11 @@ function createNodeElement(node, parentUl, isRoot = false) {
   const toggle = document.createElement('span');
   toggle.className = 'toggle';
   toggle.textContent = '▶';
-  toggle.style.visibility = node.children?.length || node.users?.length ? 'visible' : 'hidden';
+  toggle.style.visibility = node.children?.length ? 'visible' : 'hidden';
 
   const label = document.createElement('span');
   label.className = 'dept-label';
-
-  const count = getDisplayCount(node);
-  label.innerHTML = `
-    ${escapeHtml(node.department_name)}
-    (<span class="${getCountClass()}">${count}</span>)
-  `;
+  label.textContent = node.department_name || 'Без названия';
 
   if (selectedNode?.department_guid === node.department_guid) {
     label.classList.add('selected');
@@ -135,9 +130,6 @@ function createNodeElement(node, parentUl, isRoot = false) {
   }
 
   (node.children || []).forEach(child => createNodeElement(child, childUl));
-
-  const visibleUsers = (node.users || []).filter(user => showVacancies || !user.isVacancy);
-  visibleUsers.forEach(user => createUserTreeElement(user, childUl));
 
   li.appendChild(childUl);
 
@@ -162,33 +154,11 @@ function createNodeElement(node, parentUl, isRoot = false) {
   label.addEventListener('dblclick', event => {
     event.stopPropagation();
 
-    if (node.children?.length || node.users?.length) {
+    if (node.children?.length) {
       toggle.click();
     }
   });
 
-  parentUl.appendChild(li);
-}
-
-function createUserTreeElement(user, parentUl) {
-  const li = document.createElement('li');
-
-  const row = document.createElement('div');
-  row.className = `tree-user ${user.isVacancy ? 'tree-user--vacancy' : ''}`;
-
-  row.textContent = user.isVacancy
-    ? `Вакансия — ${user.position || 'Без должности'}`
-    : `${user.full_name || user.name || 'Сотрудник'}${user.position ? ` — ${user.position}` : ''}`;
-
-  row.addEventListener('click', event => {
-    event.stopPropagation();
-
-    if (!user.isVacancy) {
-      openEmployeeDetails(user);
-    }
-  });
-
-  li.appendChild(row);
   parentUl.appendChild(li);
 }
 

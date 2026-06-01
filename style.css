@@ -35,7 +35,6 @@ body {
   display: flex;
 }
 
-/* Левая боковая панель */
 .sidebar {
   width: 340px;
   min-width: 280px;
@@ -48,7 +47,6 @@ body {
   overflow-y: auto;
 }
 
-/* Правая панель с диаграммой */
 #chartPanel {
   flex: 1;
   height: 100vh;
@@ -90,7 +88,6 @@ button:hover {
   background: var(--color-primary-dark);
 }
 
-/* Интерактивное дерево */
 .tree-container {
   flex: 1;
   overflow-y: auto;
@@ -107,27 +104,34 @@ button:hover {
   list-style: none;
   padding-left: 20px;
 }
-
 .tree-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  gap: 4px;
   padding: 3px 0;
 }
 
 .toggle {
   cursor: pointer;
   user-select: none;
-  width: 18px;
-  font-size: 12px;
+  width: 14px;
+  min-width: 14px;
+  flex: 0 0 14px;
+  padding-top: 2px;
+  font-size: 10px;
+  line-height: 18px;
   color: #666;
   display: inline-block;
   text-align: center;
 }
 
 .dept-label {
+  flex: 1;
+  min-width: 0;
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
+  line-height: 18px;
   transition: background 0.2s;
 }
 
@@ -140,24 +144,6 @@ button:hover {
   color: #fff;
 }
 
-/* Адаптивность */
-@media (max-width: 700px) {
-  body {
-    flex-direction: column;
-  }
-
-  .sidebar {
-    width: 100%;
-    height: auto;
-    max-height: 40vh;
-    border-right: none;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  #chartPanel {
-    height: 60vh;
-  }
-}
 .vacancy-toggle {
   display: flex;
   align-items: center;
@@ -165,27 +151,6 @@ button:hover {
   font-size: 13px;
   color: var(--color-text);
   cursor: pointer;
-}
-
-.count-with-vacancies {
-  color: #0066cc;
-}
-
-.tree-user {
-  margin-left: 38px;
-  padding: 2px 6px;
-  font-size: 12px;
-  color: #555;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.tree-user:hover {
-  background: #f1f5f9;
-}
-
-.tree-user--vacancy {
-  color: #0066cc;
 }
 
 .chart-card {
@@ -243,6 +208,10 @@ button:hover {
   font-size: 13px;
   font-weight: 700;
   color: #333;
+}
+
+.chart-card__count.count-with-vacancies {
+  color: #0066cc;
 }
 
 .employee-modal.hidden {
@@ -306,4 +275,22 @@ button:hover {
 .employee-details p {
   margin: 6px 0;
   font-size: 14px;
+}
+
+@media (max-width: 700px) {
+  body {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    max-height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  #chartPanel {
+    height: 60vh;
+  }
 }
