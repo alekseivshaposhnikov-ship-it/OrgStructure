@@ -1,15 +1,15 @@
-import * as d3 from "d3";
-import { flextree } from "d3-flextree";
-import { OrgChart } from "d3-org-chart";
+import * as d3 from 'd3';
+import { flextree } from 'd3-flextree';
+import { OrgChart } from 'd3-org-chart';
 import { fetchOrganizationStructure } from './src/api.js';
-import { addLevels, flattenTree } from './src/layout.js';
+import { addLevels } from './src/layout.js';
 
 window.d3 = { ...d3, flextree };
 
 let fullTree = [];
 let chart = null;
 let selectedNode = null;
-const nodeDataMap = new Map();
+let showVacancies = true;
 
 async function initApp() {
   const container = document.getElementById('tree-container');
@@ -19,72 +19,109 @@ async function initApp() {
 
   try {
     fullTree = await fetchOrganizationStructure();
+
     if (!fullTree.length) {
       container.innerHTML = '<p>Не удалось загрузить структуру.</p>';
       return;
     }
 
     addLevels(fullTree, 0);
-    buildTreeView(fullTree, container);
+    selectedNode = createSyntheticRoot(fullTree);
 
-    // Корневой элемент (холдинг)
-    const totalStaff = fullTree.reduce((sum, n) => sum + (n.staffCount || 0), 0);
-    const totalVac = fullTree.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
-    selectedNode = {
-      department_name: "Холдинг LEGENDA",
-      department_guid: "synthetic-root",
-      children: fullTree,
-      staffCount: totalStaff,
-      vacancyCount: totalVac,
-      totalWithVacancies: totalStaff + totalVac,
-      department_manager: "Селиванов Василий Геннадьевич",
-      users: [],
-    };
+    buildTreeView(fullTree, container);
     renderOrgChart([selectedNode]);
 
     document.getElementById('exportPdf')?.addEventListener('click', exportToPdf);
+
+    document.getElementById('showVacancies')?.addEventListener('change', event => {
+      showVacancies = event.target.checked;
+      buildTreeView(fullTree, container);
+      renderOrgChart([selectedNode]);
+    });
+
+    document.getElementById('closeEmployeeModal')?.addEventListener('click', closeEmployeeDetails);
+    document.querySelector('.employee-modal__backdrop')?.addEventListener('click', closeEmployeeDetails);
   } catch (error) {
     console.error('Ошибка инициализации:', error);
     container.innerHTML = '<p>Произошла ошибка. Обновите страницу.</p>';
   }
 }
 
-// -------------------- Дерево слева (с корневым элементом) --------------------
-function buildTreeView(nodes, container) {
-  container.innerHTML = '';
-  const rootUl = document.createElement('ul');
-  rootUl.className = 'tree-list';
-
+function createSyntheticRoot(nodes) {
   const totalStaff = nodes.reduce((sum, n) => sum + (n.staffCount || 0), 0);
   const totalVac = nodes.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
-  const rootNode = {
-    department_name: "Холдинг LEGENDA",
-    department_guid: "synthetic-root",
+
+  return {
+    department_name: 'Холдинг LEGENDA',
+    department_guid: 'synthetic-root',
     children: nodes,
     staffCount: totalStaff,
     vacancyCount: totalVac,
     totalWithVacancies: totalStaff + totalVac,
-    department_manager: "Селиванов Василий Геннадьевич",
+    department_manager: 'Селиванов Василий Геннадьевич',
+    department_manager_position: 'Генеральный директор',
     users: [],
   };
-  createNodeElement(rootNode, rootUl, true);
+}
 
+function getDisplayCount(node) {
+  return showVacancies
+    ? node.totalWithVacancies || node.staffCount || 0
+    : node.staffCount || 0;
+}
+
+function getCountClass() {
+  return showVacancies ? 'count-with-vacancies' : '';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function buildTreeView(nodes, container) {
+  container.innerHTML = '';
+
+  const rootUl = document.createElement('ul');
+  rootUl.className = 'tree-list';
+
+  const rootNode = createSyntheticRoot(nodes);
+
+  if (selectedNode?.department_guid === 'synthetic-root') {
+    selectedNode = rootNode;
+  }
+
+  createNodeElement(rootNode, rootUl, true);
   container.appendChild(rootUl);
 }
 
 function createNodeElement(node, parentUl, isRoot = false) {
   const li = document.createElement('li');
+
   const row = document.createElement('div');
   row.className = 'tree-row';
 
   const toggle = document.createElement('span');
   toggle.className = 'toggle';
   toggle.textContent = '▶';
-  toggle.style.visibility = (node.children && node.children.length > 0) ? 'visible' : 'hidden';
+  toggle.style.visibility = node.children?.length || node.users?.length ? 'visible' : 'hidden';
 
   const label = document.createElement('span');
   label.className = 'dept-label';
-  label.textContent = `${node.department_name} (${node.staffCount || 0})`;
+
+  const count = getDisplayCount(node);
+  label.innerHTML = `
+    ${escapeHtml(node.department_name)}
+    (<span class="${getCountClass()}">${count}</span>)
+  `;
+
+  if (selectedNode?.department_guid === node.department_guid) {
+    label.classList.add('selected');
+  }
 
   row.appendChild(toggle);
   row.appendChild(label);
@@ -92,31 +129,40 @@ function createNodeElement(node, parentUl, isRoot = false) {
 
   const childUl = document.createElement('ul');
   childUl.style.display = isRoot ? 'block' : 'none';
-  if (isRoot) toggle.textContent = '▼';
 
-  if (node.children) {
-    node.children.forEach(child => createNodeElement(child, childUl, false));
+  if (isRoot) {
+    toggle.textContent = '▼';
   }
+
+  (node.children || []).forEach(child => createNodeElement(child, childUl));
+
+  const visibleUsers = (node.users || []).filter(user => showVacancies || !user.isVacancy);
+  visibleUsers.forEach(user => createUserTreeElement(user, childUl));
+
   li.appendChild(childUl);
 
-  toggle.addEventListener('click', (e) => {
-    e.stopPropagation();
+  toggle.addEventListener('click', event => {
+    event.stopPropagation();
+
     const isHidden = childUl.style.display === 'none';
     childUl.style.display = isHidden ? 'block' : 'none';
     toggle.textContent = isHidden ? '▼' : '▶';
   });
 
-  label.addEventListener('click', (e) => {
-    e.stopPropagation();
+  label.addEventListener('click', event => {
+    event.stopPropagation();
+
     selectedNode = node;
     renderOrgChart([node]);
+
     document.querySelectorAll('.dept-label').forEach(el => el.classList.remove('selected'));
     label.classList.add('selected');
   });
 
-  label.addEventListener('dblclick', (e) => {
-    e.stopPropagation();
-    if (node.children && node.children.length > 0) {
+  label.addEventListener('dblclick', event => {
+    event.stopPropagation();
+
+    if (node.children?.length || node.users?.length) {
       toggle.click();
     }
   });
@@ -124,9 +170,30 @@ function createNodeElement(node, parentUl, isRoot = false) {
   parentUl.appendChild(li);
 }
 
-// -------------------- Рендеринг оргчарта --------------------
+function createUserTreeElement(user, parentUl) {
+  const li = document.createElement('li');
+
+  const row = document.createElement('div');
+  row.className = `tree-user ${user.isVacancy ? 'tree-user--vacancy' : ''}`;
+
+  row.textContent = user.isVacancy
+    ? `Вакансия — ${user.position || 'Без должности'}`
+    : `${user.full_name || user.name || 'Сотрудник'}${user.position ? ` — ${user.position}` : ''}`;
+
+  row.addEventListener('click', event => {
+    event.stopPropagation();
+
+    if (!user.isVacancy) {
+      openEmployeeDetails(user);
+    }
+  });
+
+  li.appendChild(row);
+  parentUl.appendChild(li);
+}
+
 function renderOrgChart(rootNodes) {
-  if (!rootNodes || rootNodes.length === 0) return;
+  if (!rootNodes?.length) return;
 
   const flatData = convertToFlatData(rootNodes);
   if (!flatData.length) return;
@@ -136,97 +203,153 @@ function renderOrgChart(rootNodes) {
 
   chart = new OrgChart()
     .container('#orgChart')
-    .nodeHeight(d => (d.data.isDepartment ? 90 : 60))
+    .nodeHeight(d => (d.data.isDepartment ? 108 : 72))
     .nodeWidth(() => 350)
     .childrenMargin(() => 40)
     .compactMarginBetween(() => 20)
     .compactMarginPair(() => 60)
-    .nodeContent(d => {
-      const nd = d.data;
-      if (nd.isDepartment) {
-        const total = nd.totalCount || 0;
-        const withVac = nd.totalWithVacancies != null ? nd.totalWithVacancies : total;
-        const showVacTotal = (withVac !== total);
-        return `
-          <div style="position: relative; padding: 10px 10px 25px 10px; border:1px solid #4d8ce9; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
-            <div style="font-weight:600; font-size:13px; margin-bottom:6px; word-break: break-word;">${nd.name}</div>
-            <div style="font-size:11px; color:#555; margin-bottom:4px;">👤 ${nd.headName || "Нет руководителя"}</div>
-            <div style="position: absolute; bottom: 8px; right: 10px; font-size: 13px; font-weight: bold;">
-              <span style="color: #333;">${total}</span>
-              ${showVacTotal ? `<span style="color: #0066cc; margin-left: 4px;">(${withVac})</span>` : ''}
-            </div>
-          </div>
-        `;
-      } else if (nd.isVacancy) {
-        return `
-          <div style="padding:8px; border:1px solid #b0c4de; border-radius:8px; background:#e0f0ff; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <div style="font-weight:600; font-size:13px; color:#004080;">Вакансия</div>
-            ${nd.position ? `<div style="font-size:11px; color:#555; margin-top:2px;">${nd.position}</div>` : ''}
-          </div>
-        `;
-      } else {
-        return `
-          <div style="padding:8px; border:1px solid #ddd; border-radius:8px; background:#fff; font-family: Inter; text-align:center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <div style="font-weight:500; font-size:13px;">${nd.name}</div>
-            ${nd.position ? `<div style="font-size:11px; color:#777; margin-top:2px;">${nd.position}</div>` : ''}
-          </div>
-        `;
-      }
-    });
+    .nodeContent(d => renderNodeContent(d.data));
 
   chart.data(flatData).render().fit();
+
+  setTimeout(() => {
+    document.querySelectorAll('[data-employee-id]').forEach(el => {
+      el.addEventListener('click', event => {
+        event.stopPropagation();
+
+        const employee = flatData.find(item => item.id === el.dataset.employeeId);
+
+        if (employee && !employee.isVacancy) {
+          openEmployeeDetails(employee);
+        }
+      });
+    });
+  }, 0);
 }
 
-// -------------------- Преобразование в плоский массив --------------------
-function convertToFlatData(nodes) {
-  if (!nodes || nodes.length === 0) return [];
-  nodeDataMap.clear();
+function renderNodeContent(nd) {
+  if (nd.isDepartment) {
+    return `
+      <div class="chart-card chart-card--department">
+        <div class="chart-card__title">${escapeHtml(nd.name)}</div>
 
-  let result = [];
-  let idCounter = 1;
+        <div class="chart-card__manager">
+          👤 ${escapeHtml(nd.headName || 'Нет руководителя')}
+        </div>
+
+        ${
+          nd.headPosition
+            ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>`
+            : ''
+        }
+
+        <div class="chart-card__count ${getCountClass()}">
+          ${getDisplayCount(nd)}
+        </div>
+      </div>
+    `;
+  }
+
+  if (nd.isVacancy) {
+    return `
+      <div class="chart-card chart-card--vacancy">
+        <div class="chart-card__title">Вакансия</div>
+        ${
+          nd.position
+            ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
+            : ''
+        }
+      </div>
+    `;
+  }
+
+  return `
+    <div class="chart-card chart-card--employee" data-employee-id="${escapeHtml(nd.id)}">
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      ${
+        nd.position
+          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
+          : ''
+      }
+    </div>
+  `;
+}
+
+function convertToFlatData(nodes) {
+  const result = [];
 
   function walk(node, parentId = null) {
-    const currentId = idCounter++;
-    const nodeId = node.department_guid || node.id || currentId;
+    const nodeId = node.department_guid || node.id;
 
-    const flatNode = {
+    result.push({
       id: nodeId,
-      parentId: parentId,
-      name: node.department_name || node.name || "Без названия",
-      totalCount: node.staffCount || 0,
-      totalWithVacancies: node.totalWithVacancies ?? (node.staffCount || 0),
-      headName: node.department_manager || "",
+      parentId,
+      name: node.department_name || node.name || 'Без названия',
+      staffCount: node.staffCount || 0,
+      totalWithVacancies: node.totalWithVacancies ?? node.staffCount ?? 0,
+      headName: node.department_manager || '',
+      headPosition: node.department_manager_position || '',
       isDepartment: !!node.department_guid,
-    };
-    result.push(flatNode);
-    nodeDataMap.set(nodeId, flatNode);
+    });
 
     (node.children || []).forEach(child => walk(child, nodeId));
 
-    (node.users || []).forEach(user => {
-      const userId = user.id || `user_${idCounter++}`;
-      const userFlat = {
-        id: userId,
-        parentId: nodeId,
-        name: user.full_name || user.name || "Сотрудник",
-        position: user.position || "",
-        isDepartment: false,
-        isVacancy: !!user.isVacancy,
-      };
-      result.push(userFlat);
-      nodeDataMap.set(userId, userFlat);
-    });
+    (node.users || [])
+      .filter(user => showVacancies || !user.isVacancy)
+      .forEach(user => {
+        result.push({
+          ...user,
+          id: user.id || `user_${result.length + 1}`,
+          parentId: nodeId,
+          name: user.full_name || user.name || 'Сотрудник',
+          position: user.position || '',
+          isDepartment: false,
+          isVacancy: !!user.isVacancy,
+        });
+      });
   }
 
-  nodes.forEach(node => walk(node, null));
+  nodes.forEach(node => walk(node));
   return result;
 }
 
-// -------------------- Экспорт в PDF --------------------
+function openEmployeeDetails(employee) {
+  const modal = document.getElementById('employeeModal');
+  const details = document.getElementById('employeeDetails');
+
+  if (!modal || !details) return;
+
+  details.innerHTML = `
+    <div class="employee-details">
+      ${
+        employee.photo
+          ? `<img class="employee-details__photo" src="${escapeHtml(employee.photo)}" alt="${escapeHtml(employee.name || '')}" />`
+          : `<div class="employee-details__photo employee-details__photo--empty">👤</div>`
+      }
+
+      <h2>${escapeHtml(employee.name || employee.full_name || 'Сотрудник')}</h2>
+
+      ${employee.position ? `<p><b>Должность:</b> ${escapeHtml(employee.position)}</p>` : ''}
+      ${employee.project ? `<p><b>Проект:</b> ${escapeHtml(employee.project)}</p>` : ''}
+      ${employee.phone ? `<p><b>Телефон:</b> ${escapeHtml(employee.phone)}</p>` : ''}
+      ${employee.email ? `<p><b>Email:</b> <a href="mailto:${escapeHtml(employee.email)}">${escapeHtml(employee.email)}</a></p>` : ''}
+      ${employee.typeEmployment ? `<p><b>Тип занятости:</b> ${escapeHtml(employee.typeEmployment)}</p>` : ''}
+      ${employee.state ? `<p><b>Статус:</b> ${escapeHtml(employee.state)}</p>` : ''}
+    </div>
+  `;
+
+  modal.classList.remove('hidden');
+}
+
+function closeEmployeeDetails() {
+  document.getElementById('employeeModal')?.classList.add('hidden');
+}
+
 async function exportToPdf() {
   const element = document.getElementById('orgChart');
+
   if (!element || !chart) {
-    alert("Нет диаграммы для экспорта");
+    alert('Нет диаграммы для экспорта');
     return;
   }
 
@@ -239,18 +362,21 @@ async function exportToPdf() {
       backgroundColor: '#ffffff',
       logging: false,
     });
+
     const imgData = canvas.toDataURL('image/png');
     const { jsPDF } = jspdf;
+
     const pdf = new jsPDF({
       orientation: 'landscape',
       unit: 'px',
       format: [canvas.width, canvas.height],
     });
+
     pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
     pdf.save('orgchart.pdf');
   } catch (error) {
     console.error('Ошибка экспорта PDF:', error);
-    alert('Не удалось экспортировать PDF. ' + error.message);
+    alert(`Не удалось экспортировать PDF. ${error.message}`);
   } finally {
     element.style.cursor = originalCursor;
   }

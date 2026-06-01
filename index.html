@@ -4,10 +4,7 @@
     <meta charset="UTF-8" />
     <title>Org Structure Viewer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link rel="stylesheet" href="./style.css" />
@@ -16,13 +13,29 @@
   <body>
     <div class="sidebar">
       <h1>Организационная структура</h1>
+
       <div class="controls">
         <button id="exportPdf">📄 Экспорт в PDF</button>
+
+        <label class="vacancy-toggle">
+          <input id="showVacancies" type="checkbox" checked />
+          Показывать вакансии
+        </label>
       </div>
+
       <div id="tree-container" class="tree-container"></div>
     </div>
+
     <div id="chartPanel">
       <div id="orgChart"></div>
+    </div>
+
+    <div id="employeeModal" class="employee-modal hidden">
+      <div class="employee-modal__backdrop"></div>
+      <div class="employee-modal__card">
+        <button id="closeEmployeeModal" class="employee-modal__close">×</button>
+        <div id="employeeDetails"></div>
+      </div>
     </div>
   </body>
 </html>

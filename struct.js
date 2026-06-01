@@ -28,7 +28,8 @@ const IGNORE = [
 
 const IGNORE_FILES = [
   'getDepartmentHierarchy.json',
-  'getUsersData.json'
+  'getUsersData.json',
+  'package-lock.json'
 ];
 
 let output = '';
