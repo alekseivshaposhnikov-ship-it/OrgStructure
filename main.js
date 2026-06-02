@@ -10,6 +10,7 @@ let fullTree = [];
 let chart = null;
 let selectedNode = null;
 let showVacancies = true;
+let cardDesign = localStorage.getItem('orgCardDesign') || 'classic';
 
 async function initApp() {
   const container = document.getElementById('tree-container');
@@ -28,6 +29,7 @@ async function initApp() {
     addLevels(fullTree, 0);
     selectedNode = createSyntheticRoot(fullTree);
 
+    initDesignSwitcher();
     buildTreeView(fullTree, container);
     renderOrgChart([selectedNode]);
 
@@ -45,6 +47,19 @@ async function initApp() {
     console.error('Ошибка инициализации:', error);
     container.innerHTML = '<p>Произошла ошибка. Обновите страницу.</p>';
   }
+}
+
+function initDesignSwitcher() {
+  const select = document.getElementById('cardDesign');
+  if (!select) return;
+
+  select.value = cardDesign;
+
+  select.addEventListener('change', event => {
+    cardDesign = event.target.value;
+    localStorage.setItem('orgCardDesign', cardDesign);
+    renderOrgChart([selectedNode]);
+  });
 }
 
 function createSyntheticRoot(nodes) {
@@ -81,6 +96,13 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function getInitials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '—';
+
+  return `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase();
 }
 
 function buildTreeView(nodes, container) {
@@ -162,6 +184,22 @@ function createNodeElement(node, parentUl, isRoot = false) {
   parentUl.appendChild(li);
 }
 
+function getDepartmentNodeHeight(data) {
+  if (!data.isDepartment) return 82;
+
+  if (cardDesign === 'variant2') return 154;
+  if (cardDesign === 'variant3') return 146;
+
+  return 118;
+}
+
+function getDepartmentNodeWidth() {
+  if (cardDesign === 'variant2') return 380;
+  if (cardDesign === 'variant3') return 400;
+
+  return 350;
+}
+
 function renderOrgChart(rootNodes) {
   if (!rootNodes?.length) return;
 
@@ -173,8 +211,8 @@ function renderOrgChart(rootNodes) {
 
   chart = new OrgChart()
     .container('#orgChart')
-    .nodeHeight(d => (d.data.isDepartment ? 108 : 72))
-    .nodeWidth(() => 350)
+    .nodeHeight(d => getDepartmentNodeHeight(d.data))
+    .nodeWidth(() => getDepartmentNodeWidth())
     .childrenMargin(() => 40)
     .compactMarginBetween(() => 20)
     .compactMarginPair(() => 60)
@@ -199,25 +237,15 @@ function renderOrgChart(rootNodes) {
 
 function renderNodeContent(nd) {
   if (nd.isDepartment) {
-    return `
-      <div class="chart-card chart-card--department">
-        <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+    if (cardDesign === 'variant2') {
+      return renderDepartmentVariant2(nd);
+    }
 
-        <div class="chart-card__manager">
-          👤 ${escapeHtml(nd.headName || 'Нет руководителя')}
-        </div>
+    if (cardDesign === 'variant3') {
+      return renderDepartmentVariant3(nd);
+    }
 
-        ${
-          nd.headPosition
-            ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>`
-            : ''
-        }
-
-        <div class="chart-card__count ${getCountClass()}">
-          ${getDisplayCount(nd)}
-        </div>
-      </div>
-    `;
+    return renderDepartmentClassic(nd);
   }
 
   if (nd.isVacancy) {
@@ -241,6 +269,73 @@ function renderNodeContent(nd) {
           ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
           : ''
       }
+    </div>
+  `;
+}
+
+function renderDepartmentClassic(nd) {
+  return `
+    <div class="chart-card chart-card--department">
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+
+      <div class="chart-card__manager">
+        👤 ${escapeHtml(nd.headName || 'Нет руководителя')}
+      </div>
+
+      ${
+        nd.headPosition
+          ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>`
+          : ''
+      }
+
+      <div class="chart-card__count ${getCountClass()}">
+        ${getDisplayCount(nd)}
+      </div>
+    </div>
+  `;
+}
+
+function renderDepartmentVariant2(nd) {
+  return `
+    <div class="chart-card chart-card--department-v2">
+      <div class="chart-card-v2__header">
+        <div class="chart-card-v2__title">${escapeHtml(nd.name)}</div>
+      </div>
+
+      <div class="chart-card-v2__body">
+        <div class="chart-card-v2__manager">${escapeHtml(nd.headName || 'Нет руководителя')}</div>
+        ${
+          nd.headPosition
+            ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>`
+            : ''
+        }
+      </div>
+
+      <div class="chart-card-v2__footer">
+        ${getDisplayCount(nd)} сотрудников
+      </div>
+    </div>
+  `;
+}
+
+function renderDepartmentVariant3(nd) {
+  return `
+    <div class="chart-card chart-card--department-v3">
+      <div class="chart-card-v3__avatar">${escapeHtml(getInitials(nd.headName))}</div>
+
+      <div class="chart-card-v3__content">
+        <div class="chart-card-v3__title">${escapeHtml(nd.name)}</div>
+        <div class="chart-card-v3__manager">${escapeHtml(nd.headName || 'Нет руководителя')}</div>
+        ${
+          nd.headPosition
+            ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>`
+            : ''
+        }
+
+        <div class="chart-card-v3__count">
+          ${getDisplayCount(nd)} сотрудников
+        </div>
+      </div>
     </div>
   `;
 }

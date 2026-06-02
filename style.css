@@ -1,5 +1,3 @@
-/* style.css – Refactored & Clean */
-
 :root {
   --font-base: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   --color-bg: #f5f5f5;
@@ -67,9 +65,8 @@ h1 {
 
 .controls {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: center;
+  flex-direction: column;
+  gap: 0.75rem;
   margin-bottom: 1rem;
 }
 
@@ -104,6 +101,7 @@ button:hover {
   list-style: none;
   padding-left: 20px;
 }
+
 .tree-row {
   display: flex;
   align-items: flex-start;
@@ -153,6 +151,24 @@ button:hover {
   cursor: pointer;
 }
 
+.design-switcher {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: #475467;
+}
+
+.design-switcher select {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #fff;
+  color: #101828;
+  font: inherit;
+}
+
 .chart-card {
   height: 100%;
   border-radius: 8px;
@@ -160,6 +176,8 @@ button:hover {
   text-align: center;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
+
+/* Текущий дизайн */
 
 .chart-card--department {
   position: relative;
@@ -213,6 +231,143 @@ button:hover {
 .chart-card__count.count-with-vacancies {
   color: #0066cc;
 }
+
+/* Вариант 2 — цветная шапка */
+
+.chart-card--department-v2 {
+  overflow: visible;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 146px;
+  text-align: left;
+  border: 1px solid rgba(16, 24, 40, 0.08);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 16px 40px rgba(16, 24, 40, 0.10);
+}
+
+.chart-card-v2__header {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding: 12px 20px;
+  color: #fff;
+  background: linear-gradient(135deg, #155eef 0%, #7a5af8 100%);
+}
+
+.chart-card-v2__title {
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.chart-card-v2__body {
+  display: grid;
+  align-content: center;
+  padding: 12px 22px 10px;
+}
+
+.chart-card-v2__manager {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+  color: #101828;
+}
+
+.chart-card-v2__position {
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #667085;
+}
+
+.chart-card-v2__footer {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 22px 10px;
+  border-top: 1px solid #eef2f6;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475467;
+}
+
+/* Вариант 3 — акцент на руководителя */
+
+.chart-card--department-v3 {
+  position: relative;
+  overflow: visible;
+  min-height: 138px;
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 14px;
+  padding: 18px 20px 16px;
+  text-align: left;
+  border: 1px solid rgba(16, 24, 40, 0.08);
+  border-left: 4px solid #155eef;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 16px 40px rgba(16, 24, 40, 0.10);
+}
+
+.chart-card-v3__avatar {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e0eaff 0%, #f2f4f7 100%);
+  border: 1px solid rgba(21, 94, 239, 0.14);
+  color: #155eef;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chart-card-v3__title {
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #101828;
+}
+
+.chart-card-v3__manager {
+  overflow-wrap: anywhere;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #182230;
+}
+
+.chart-card-v3__position {
+  overflow-wrap: anywhere;
+  margin-top: 3px;
+  font-size: 12px;
+  color: #667085;
+}
+
+.chart-card-v3__count {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 10px;
+  padding: 4px 10px;
+  line-height: 1.2;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Модальное окно сотрудника */
 
 .employee-modal.hidden {
   display: none;
