@@ -3,8 +3,7 @@ import { flextree } from "d3-flextree";
 import { OrgChart } from "d3-org-chart";
 import { fetchOrganizationStructure } from "./src/api.js";
 import { addLevels } from "./src/layout.js";
-import { exportOrgChartToPdf } from "./src/pdf-export.js";
-import "./src/pdf-export.css";
+import { exportOrgChartToPdf } from "./src/pdf-d3-export.js";
 
 window.d3 = { ...d3, flextree };
 
@@ -36,12 +35,7 @@ async function initApp() {
     renderScreenOrgChart([selectedNode]);
 
     document.getElementById("exportPdf")?.addEventListener("click", () => {
-      exportOrgChartToPdf({
-        selectedNode,
-        chart,
-        convertToFlatData,
-        createOrgChartInstance,
-      });
+      exportOrgChartToPdf({ chart });
     });
 
     document.getElementById("showVacancies")?.addEventListener("change", event => {
@@ -247,6 +241,8 @@ function renderScreenOrgChart(rootNodes) {
 
   chart = createOrgChartInstance("#orgChart", flatData);
   chart.fit();
+
+  window.orgChart = chart;
 
   bindEmployeeCardClicks(flatData);
 }

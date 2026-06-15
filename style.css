@@ -448,3 +448,6 @@ button:hover {
   }
 }
 
+.chart-card__export-border {
+  display: none;
+}
