@@ -8,8 +8,6 @@
   --color-muted: #2c3e50;
   --color-border: #ddd;
   --radius: 8px;
-  --shadow-elev: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --gap: 1rem;
   --transition: 0.2s ease;
 }
 
@@ -449,3 +447,4 @@ button:hover {
     height: 60vh;
   }
 }
+
