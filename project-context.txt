@@ -55,11 +55,23 @@
 
 # FILE: main.js
 
+// main.js
+
 import * as d3 from "d3";
 import { flextree } from "d3-flextree";
 import { OrgChart } from "d3-org-chart";
+
 import { fetchOrganizationStructure } from "./src/api.js";
 import { addLevels } from "./src/layout.js";
+import {
+  buildTreeView,
+  createSyntheticRoot,
+} from "./src/sidebar-tree.js";
+import { renderNodeContent } from "./src/chart-cards.js";
+import {
+  initEmployeeModal,
+  openEmployeeDetails,
+} from "./src/employee-modal.js";
 import { exportOrgChartToPdf } from "./src/pdf-d3-export.js";
 
 window.d3 = { ...d3, flextree };
@@ -85,10 +97,13 @@ async function initApp() {
     }
 
     addLevels(fullTree, 0);
+
     selectedNode = createSyntheticRoot(fullTree);
 
     initDesignSwitcher();
-    buildTreeView(fullTree, container);
+    initEmployeeModal();
+
+    renderSidebarTree(container);
     renderScreenOrgChart([selectedNode]);
 
     document.getElementById("exportPdf")?.addEventListener("click", () => {
@@ -97,17 +112,9 @@ async function initApp() {
 
     document.getElementById("showVacancies")?.addEventListener("change", event => {
       showVacancies = event.target.checked;
-      buildTreeView(fullTree, container);
+      renderSidebarTree(container);
       renderScreenOrgChart([selectedNode]);
     });
-
-    document
-      .getElementById("closeEmployeeModal")
-      ?.addEventListener("click", closeEmployeeDetails);
-
-    document
-      .querySelector(".employee-modal__backdrop")
-      ?.addEventListener("click", closeEmployeeDetails);
   } catch (error) {
     console.error("Ошибка инициализации:", error);
     container.innerHTML = "<p>Произошла ошибка. Обновите страницу.</p>";
@@ -127,133 +134,16 @@ function initDesignSwitcher() {
   });
 }
 
-function createSyntheticRoot(nodes) {
-  const totalStaff = nodes.reduce((sum, n) => sum + (n.staffCount || 0), 0);
-  const totalVac = nodes.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
-
-  return {
-    department_name: "Холдинг LEGENDA",
-    department_guid: "synthetic-root",
-    children: nodes,
-    staffCount: totalStaff,
-    vacancyCount: totalVac,
-    totalWithVacancies: totalStaff + totalVac,
-    department_manager: "Селиванов Василий Геннадьевич",
-    department_manager_position: "Генеральный директор",
-    users: [],
-  };
-}
-
-function getDisplayCount(node) {
-  return showVacancies
-    ? node.totalWithVacancies || node.staffCount || 0
-    : node.staffCount || 0;
-}
-
-function getCountClass() {
-  return showVacancies ? "count-with-vacancies" : "";
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function getInitials(name) {
-  const parts = String(name || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (!parts.length) return "—";
-
-  return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase();
-}
-
-function buildTreeView(nodes, container) {
-  container.innerHTML = "";
-
-  const rootUl = document.createElement("ul");
-  rootUl.className = "tree-list";
-
-  const rootNode = createSyntheticRoot(nodes);
-
-  if (selectedNode?.department_guid === "synthetic-root") {
-    selectedNode = rootNode;
-  }
-
-  createNodeElement(rootNode, rootUl, true);
-  container.appendChild(rootUl);
-}
-
-function createNodeElement(node, parentUl, isRoot = false) {
-  const li = document.createElement("li");
-
-  const row = document.createElement("div");
-  row.className = "tree-row";
-
-  const toggle = document.createElement("span");
-  toggle.className = "toggle";
-  toggle.textContent = "▶";
-  toggle.style.visibility = node.children?.length ? "visible" : "hidden";
-
-  const label = document.createElement("span");
-  label.className = "dept-label";
-  label.textContent = node.department_name || "Без названия";
-
-  if (selectedNode?.department_guid === node.department_guid) {
-    label.classList.add("selected");
-  }
-
-  row.appendChild(toggle);
-  row.appendChild(label);
-  li.appendChild(row);
-
-  const childUl = document.createElement("ul");
-  childUl.style.display = isRoot ? "block" : "none";
-
-  if (isRoot) {
-    toggle.textContent = "▼";
-  }
-
-  (node.children || []).forEach(child => createNodeElement(child, childUl));
-
-  li.appendChild(childUl);
-
-  toggle.addEventListener("click", event => {
-    event.stopPropagation();
-
-    const isHidden = childUl.style.display === "none";
-    childUl.style.display = isHidden ? "block" : "none";
-    toggle.textContent = isHidden ? "▼" : "▶";
+function renderSidebarTree(container) {
+  selectedNode = buildTreeView({
+    nodes: fullTree,
+    container,
+    selectedNode,
+    onSelect: node => {
+      selectedNode = node;
+      renderScreenOrgChart([node]);
+    },
   });
-
-  label.addEventListener("click", event => {
-    event.stopPropagation();
-
-    selectedNode = node;
-    renderScreenOrgChart([node]);
-
-    document
-      .querySelectorAll(".dept-label")
-      .forEach(el => el.classList.remove("selected"));
-
-    label.classList.add("selected");
-  });
-
-  label.addEventListener("dblclick", event => {
-    event.stopPropagation();
-
-    if (node.children?.length) {
-      toggle.click();
-    }
-  });
-
-  parentUl.appendChild(li);
 }
 
 function getDepartmentNodeHeight(data) {
@@ -280,7 +170,12 @@ function createOrgChartInstance(containerSelector, flatData) {
     .childrenMargin(() => 40)
     .compactMarginBetween(() => 20)
     .compactMarginPair(() => 60)
-    .nodeContent(d => renderNodeContent(d.data));
+    .nodeContent(d =>
+      renderNodeContent(d.data, {
+        cardDesign,
+        showVacancies,
+      }),
+    );
 
   orgChart.data(flatData).render();
 
@@ -320,111 +215,6 @@ function bindEmployeeCardClicks(flatData) {
   }, 0);
 }
 
-function renderNodeContent(nd) {
-  if (nd.isDepartment) {
-    if (cardDesign === "variant2") {
-      return renderDepartmentVariant2(nd);
-    }
-
-    if (cardDesign === "variant3") {
-      return renderDepartmentVariant3(nd);
-    }
-
-    return renderDepartmentClassic(nd);
-  }
-
-  if (nd.isVacancy) {
-    return `
-      <div class="chart-card chart-card--vacancy">
-        <div class="chart-card__title">Вакансия</div>
-        ${
-          nd.position
-            ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
-            : ""
-        }
-      </div>
-    `;
-  }
-
-  return `
-    <div class="chart-card chart-card--employee" data-employee-id="${escapeHtml(nd.id)}">
-      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
-      ${
-        nd.position
-          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
-          : ""
-      }
-    </div>
-  `;
-}
-
-function renderDepartmentClassic(nd) {
-  return `
-    <div class="chart-card chart-card--department">
-      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
-
-      <div class="chart-card__manager">
-        👤 ${escapeHtml(nd.headName || "Нет руководителя")}
-      </div>
-
-      ${
-        nd.headPosition
-          ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>`
-          : ""
-      }
-
-      <div class="chart-card__count ${getCountClass()}">
-        ${getDisplayCount(nd)}
-      </div>
-    </div>
-  `;
-}
-
-function renderDepartmentVariant2(nd) {
-  return `
-    <div class="chart-card chart-card--department-v2">
-      <div class="chart-card-v2__header">
-        <div class="chart-card-v2__title">${escapeHtml(nd.name)}</div>
-      </div>
-
-      <div class="chart-card-v2__body">
-        <div class="chart-card-v2__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
-        ${
-          nd.headPosition
-            ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>`
-            : ""
-        }
-      </div>
-
-      <div class="chart-card-v2__footer">
-        ${getDisplayCount(nd)} сотрудников
-      </div>
-    </div>
-  `;
-}
-
-function renderDepartmentVariant3(nd) {
-  return `
-    <div class="chart-card chart-card--department-v3">
-      <div class="chart-card-v3__avatar">${escapeHtml(getInitials(nd.headName))}</div>
-
-      <div class="chart-card-v3__content">
-        <div class="chart-card-v3__title">${escapeHtml(nd.name)}</div>
-        <div class="chart-card-v3__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
-        ${
-          nd.headPosition
-            ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>`
-            : ""
-        }
-
-        <div class="chart-card-v3__count">
-          ${getDisplayCount(nd)} сотрудников
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 function convertToFlatData(nodes) {
   const result = [];
 
@@ -460,39 +250,8 @@ function convertToFlatData(nodes) {
   }
 
   nodes.forEach(node => walk(node));
+
   return result;
-}
-
-function openEmployeeDetails(employee) {
-  const modal = document.getElementById("employeeModal");
-  const details = document.getElementById("employeeDetails");
-
-  if (!modal || !details) return;
-
-  details.innerHTML = `
-    <div class="employee-details">
-      ${
-        employee.photo
-          ? `<img class="employee-details__photo" src="${escapeHtml(employee.photo)}" alt="${escapeHtml(employee.name || "")}" />`
-          : `<div class="employee-details__photo employee-details__photo--empty">👤</div>`
-      }
-
-      <h2>${escapeHtml(employee.name || employee.full_name || "Сотрудник")}</h2>
-
-      ${employee.position ? `<p><b>Должность:</b> ${escapeHtml(employee.position)}</p>` : ""}
-      ${employee.project ? `<p><b>Проект:</b> ${escapeHtml(employee.project)}</p>` : ""}
-      ${employee.phone ? `<p><b>Телефон:</b> ${escapeHtml(employee.phone)}</p>` : ""}
-      ${employee.email ? `<p><b>Email:</b> <a href="mailto:${escapeHtml(employee.email)}">${escapeHtml(employee.email)}</a></p>` : ""}
-      ${employee.typeEmployment ? `<p><b>Тип занятости:</b> ${escapeHtml(employee.typeEmployment)}</p>` : ""}
-      ${employee.state ? `<p><b>Статус:</b> ${escapeHtml(employee.state)}</p>` : ""}
-    </div>
-  `;
-
-  modal.classList.remove("hidden");
-}
-
-function closeEmployeeDetails() {
-  document.getElementById("employeeModal")?.classList.add("hidden");
 }
 
 document.addEventListener("DOMContentLoaded", initApp);
@@ -684,9 +443,271 @@ function transformNode(apiNode, parentId = null) {
   };
 }
 
-# FILE: src\filter.js
+# FILE: src\chart-cards.js
 
+// src/chart-cards.js
 
+export function renderNodeContent(nd, options) {
+  const { cardDesign, showVacancies } = options;
+
+  if (nd.isDepartment) {
+    if (cardDesign === "variant2") {
+      return renderDepartmentVariant2(nd, showVacancies);
+    }
+
+    if (cardDesign === "variant3") {
+      return renderDepartmentVariant3(nd, showVacancies);
+    }
+
+    return renderDepartmentClassic(nd, showVacancies);
+  }
+
+  if (nd.isVacancy) {
+    return `
+      <div class="chart-card chart-card--vacancy">
+        <div class="chart-card__title">Вакансия</div>
+        ${
+          nd.position
+            ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
+            : ""
+        }
+      </div>
+    `;
+  }
+
+  return `
+    <div class="chart-card chart-card--employee"
+         data-employee-id="${escapeHtml(nd.id)}">
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      ${
+        nd.position
+          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderDepartmentClassic(nd, showVacancies) {
+  return `
+    <div class="chart-card chart-card--department">
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+
+      <div class="chart-card__manager">
+        👤 ${escapeHtml(nd.headName || "Нет руководителя")}
+      </div>
+
+      ${
+        nd.headPosition
+          ? `<div class="chart-card__manager-position">
+              ${escapeHtml(nd.headPosition)}
+            </div>`
+          : ""
+      }
+
+      <div class="chart-card__count ${showVacancies ? "count-with-vacancies" : ""}">
+        ${getDisplayCount(nd, showVacancies)}
+      </div>
+    </div>
+  `;
+}
+
+function renderDepartmentVariant2(nd, showVacancies) {
+  return `
+    <div class="chart-card chart-card--department-v2">
+      <div class="chart-card-v2__header">
+        <div class="chart-card-v2__title">
+          ${escapeHtml(nd.name)}
+        </div>
+      </div>
+
+      <div class="chart-card-v2__body">
+        <div class="chart-card-v2__manager">
+          ${escapeHtml(nd.headName || "Нет руководителя")}
+        </div>
+
+        ${
+          nd.headPosition
+            ? `<div class="chart-card-v2__position">
+                ${escapeHtml(nd.headPosition)}
+              </div>`
+            : ""
+        }
+      </div>
+
+      <div class="chart-card-v2__footer">
+        ${getDisplayCount(nd, showVacancies)} сотрудников
+      </div>
+    </div>
+  `;
+}
+
+function renderDepartmentVariant3(nd, showVacancies) {
+  return `
+    <div class="chart-card chart-card--department-v3">
+      <div class="chart-card-v3__avatar">
+        ${escapeHtml(getInitials(nd.headName))}
+      </div>
+
+      <div class="chart-card-v3__content">
+        <div class="chart-card-v3__title">
+          ${escapeHtml(nd.name)}
+        </div>
+
+        <div class="chart-card-v3__manager">
+          ${escapeHtml(nd.headName || "Нет руководителя")}
+        </div>
+
+        ${
+          nd.headPosition
+            ? `<div class="chart-card-v3__position">
+                ${escapeHtml(nd.headPosition)}
+              </div>`
+            : ""
+        }
+
+        <div class="chart-card-v3__count">
+          ${getDisplayCount(nd, showVacancies)} сотрудников
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getDisplayCount(node, showVacancies) {
+  return showVacancies
+    ? node.totalWithVacancies || node.staffCount || 0
+    : node.staffCount || 0;
+}
+
+function getInitials(name) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) return "—";
+
+  return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase();
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+# FILE: src\employee-modal.js
+
+// src/employee-modal.js
+
+export function initEmployeeModal() {
+  document
+    .getElementById("closeEmployeeModal")
+    ?.addEventListener("click", closeEmployeeDetails);
+
+  document
+    .querySelector(".employee-modal__backdrop")
+    ?.addEventListener("click", closeEmployeeDetails);
+}
+
+export function openEmployeeDetails(employee) {
+  const modal = document.getElementById("employeeModal");
+  const details = document.getElementById("employeeDetails");
+
+  if (!modal || !details) return;
+
+  details.innerHTML = `
+    <div class="employee-details">
+      ${
+        employee.photo
+          ? `
+            <img
+              class="employee-details__photo"
+              src="${escapeHtml(employee.photo)}"
+              alt="${escapeHtml(employee.name || "")}"
+            />
+          `
+          : `
+            <div class="employee-details__photo employee-details__photo--empty">
+              👤
+            </div>
+          `
+      }
+
+      <h2>
+        ${escapeHtml(
+          employee.name ||
+          employee.full_name ||
+          "Сотрудник"
+        )}
+      </h2>
+
+      ${
+        employee.position
+          ? `<p><b>Должность:</b> ${escapeHtml(employee.position)}</p>`
+          : ""
+      }
+
+      ${
+        employee.project
+          ? `<p><b>Проект:</b> ${escapeHtml(employee.project)}</p>`
+          : ""
+      }
+
+      ${
+        employee.phone
+          ? `<p><b>Телефон:</b> ${escapeHtml(employee.phone)}</p>`
+          : ""
+      }
+
+      ${
+        employee.email
+          ? `
+            <p>
+              <b>Email:</b>
+              <a href="mailto:${escapeHtml(employee.email)}">
+                ${escapeHtml(employee.email)}
+              </a>
+            </p>
+          `
+          : ""
+      }
+
+      ${
+        employee.typeEmployment
+          ? `<p><b>Тип занятости:</b> ${escapeHtml(employee.typeEmployment)}</p>`
+          : ""
+      }
+
+      ${
+        employee.state
+          ? `<p><b>Статус:</b> ${escapeHtml(employee.state)}</p>`
+          : ""
+      }
+    </div>
+  `;
+
+  modal.classList.remove("hidden");
+}
+
+export function closeEmployeeDetails() {
+  document
+    .getElementById("employeeModal")
+    ?.classList.add("hidden");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 # FILE: src\layout.js
 
@@ -881,494 +902,6 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-# FILE: src\pdf-svg-export.js
-
-import { toCanvas } from "html-to-image";
-import { jsPDF } from "jspdf";
-
-const SVG_NS = "http://www.w3.org/2000/svg";
-
-const CARD_WIDTH = 340;
-const CARD_HEIGHT_DEPARTMENT = 124;
-const CARD_HEIGHT_PERSON = 82;
-
-const H_GAP = 56;
-const V_GAP = 90;
-const PADDING = 60;
-
-const COLORS = {
-  departmentStroke: "#4d8ce9",
-  employeeStroke: "#d0d5dd",
-  vacancyStroke: "#b0c4de",
-  connector: "#98a2b3",
-  text: "#333333",
-  muted: "#667085",
-  vacancyBg: "#e0f0ff",
-  white: "#ffffff",
-  count: "#0066cc",
-};
-
-export async function exportOrgChartToPdf({ selectedNode, showVacancies }) {
-  if (!selectedNode) {
-    alert("Нет диаграммы для экспорта");
-    return;
-  }
-
-  const exportButton = document.getElementById("exportPdf");
-  const originalButtonText = exportButton?.textContent;
-
-  if (exportButton) {
-    exportButton.disabled = true;
-    exportButton.textContent = "Экспорт...";
-  }
-
-  const { exportRoot, exportArea } = createExportContainer();
-
-  try {
-    const exportTree = buildExportTree(selectedNode, showVacancies);
-    const layout = calculateLayout(exportTree);
-    const svg = renderSvg(layout);
-
-    exportArea.appendChild(svg);
-
-    await waitForPaint();
-    await wait(100);
-
-    const canvas = await toCanvas(exportArea, {
-      pixelRatio: 2,
-      backgroundColor: COLORS.white,
-      cacheBust: true,
-      fontEmbedCSS: "",
-      style: {
-        background: COLORS.white,
-        fontFamily: "Arial, sans-serif",
-      },
-    });
-
-    const imgData = canvas.toDataURL("image/png");
-
-    const pdf = new jsPDF({
-      orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
-      unit: "px",
-      format: [canvas.width, canvas.height],
-    });
-
-    pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
-    pdf.save("orgchart.pdf");
-  } catch (error) {
-    console.error("Ошибка экспорта PDF:", error);
-    alert(`Не удалось экспортировать PDF. ${error.message}`);
-  } finally {
-    exportRoot.remove();
-
-    if (exportButton) {
-      exportButton.disabled = false;
-      exportButton.textContent = originalButtonText || "📄 Экспорт в PDF";
-    }
-  }
-}
-
-function createExportContainer() {
-  const exportRoot = document.createElement("div");
-  exportRoot.style.position = "fixed";
-  exportRoot.style.left = "0";
-  exportRoot.style.top = "0";
-  exportRoot.style.zIndex = "99999";
-  exportRoot.style.background = COLORS.white;
-  exportRoot.style.overflow = "auto";
-  exportRoot.style.pointerEvents = "none";
-
-  const exportArea = document.createElement("div");
-  exportArea.style.display = "inline-block";
-  exportArea.style.background = COLORS.white;
-  exportArea.style.padding = "0";
-  exportArea.style.fontFamily = "Arial, sans-serif";
-
-  exportRoot.appendChild(exportArea);
-  document.body.appendChild(exportRoot);
-
-  return {
-    exportRoot,
-    exportArea,
-  };
-}
-
-function buildExportTree(node, showVacancies) {
-  const children = [];
-
-  (node.children || []).forEach(child => {
-    children.push(buildExportTree(child, showVacancies));
-  });
-
-  (node.users || [])
-    .filter(user => showVacancies || !user.isVacancy)
-    .forEach(user => {
-      children.push({
-        type: user.isVacancy ? "vacancy" : "employee",
-        title: user.isVacancy ? "Вакансия" : user.full_name || user.name || "Сотрудник",
-        subtitle: user.position || "",
-        count: null,
-        children: [],
-      });
-    });
-
-  return {
-    type: "department",
-    title: node.department_name || node.name || "Без названия",
-    manager: node.department_manager || "Нет руководителя",
-    position: node.department_manager_position || "",
-    count: showVacancies
-      ? node.totalWithVacancies || node.staffCount || 0
-      : node.staffCount || 0,
-    children,
-  };
-}
-
-function getNodeHeight(node) {
-  return node.type === "department" ? CARD_HEIGHT_DEPARTMENT : CARD_HEIGHT_PERSON;
-}
-
-function calculateLayout(root) {
-  calculateSubtreeWidth(root);
-  assignPositions(root, PADDING, PADDING);
-
-  const bounds = getBounds(root);
-
-  return {
-    root,
-    width: Math.ceil(bounds.right + PADDING),
-    height: Math.ceil(bounds.bottom + PADDING),
-  };
-}
-
-function calculateSubtreeWidth(node) {
-  const ownWidth = CARD_WIDTH;
-
-  if (!node.children.length) {
-    node.subtreeWidth = ownWidth;
-    return node.subtreeWidth;
-  }
-
-  const childrenWidth =
-    node.children.reduce((sum, child) => sum + calculateSubtreeWidth(child), 0) +
-    H_GAP * Math.max(0, node.children.length - 1);
-
-  node.subtreeWidth = Math.max(ownWidth, childrenWidth);
-  return node.subtreeWidth;
-}
-
-function assignPositions(node, left, top) {
-  node.x = left + node.subtreeWidth / 2 - CARD_WIDTH / 2;
-  node.y = top;
-
-  if (!node.children.length) return;
-
-  const childrenTotalWidth =
-    node.children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
-    H_GAP * Math.max(0, node.children.length - 1);
-
-  let childLeft = left + node.subtreeWidth / 2 - childrenTotalWidth / 2;
-  const childTop = top + getNodeHeight(node) + V_GAP;
-
-  node.children.forEach(child => {
-    assignPositions(child, childLeft, childTop);
-    childLeft += child.subtreeWidth + H_GAP;
-  });
-}
-
-function getBounds(root) {
-  const bounds = {
-    right: 0,
-    bottom: 0,
-  };
-
-  walkTree(root, node => {
-    bounds.right = Math.max(bounds.right, node.x + CARD_WIDTH);
-    bounds.bottom = Math.max(bounds.bottom, node.y + getNodeHeight(node));
-  });
-
-  return bounds;
-}
-
-function renderSvg(layout) {
-  const svg = createSvgElement("svg", {
-    width: layout.width,
-    height: layout.height,
-    viewBox: `0 0 ${layout.width} ${layout.height}`,
-    xmlns: SVG_NS,
-  });
-
-  svg.style.background = COLORS.white;
-
-  walkTree(layout.root, node => {
-    node.children.forEach(child => {
-      drawConnector(svg, node, child);
-    });
-  });
-
-  walkTree(layout.root, node => {
-    drawCard(svg, node);
-  });
-
-  return svg;
-}
-
-function drawConnector(svg, parent, child) {
-  const parentHeight = getNodeHeight(parent);
-
-  const fromX = parent.x + CARD_WIDTH / 2;
-  const fromY = parent.y + parentHeight;
-
-  const toX = child.x + CARD_WIDTH / 2;
-  const toY = child.y;
-
-  const middleY = fromY + (toY - fromY) / 2;
-
-  const path = createSvgElement("path", {
-    d: `M ${fromX} ${fromY} V ${middleY} H ${toX} V ${toY}`,
-    fill: "none",
-    stroke: COLORS.connector,
-    "stroke-width": 2,
-  });
-
-  svg.appendChild(path);
-}
-
-function drawCard(svg, node) {
-  if (node.type === "department") {
-    drawDepartmentCard(svg, node);
-    return;
-  }
-
-  drawPersonCard(svg, node);
-}
-
-function drawDepartmentCard(svg, node) {
-  const group = createSvgElement("g", {
-    transform: `translate(${node.x}, ${node.y})`,
-  });
-
-  const rect = createSvgElement("rect", {
-    x: 0,
-    y: 0,
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT_DEPARTMENT,
-    rx: 8,
-    ry: 8,
-    fill: COLORS.white,
-    stroke: COLORS.departmentStroke,
-    "stroke-width": 2,
-  });
-
-  group.appendChild(rect);
-
-  appendWrappedText(group, node.title, {
-    x: 16,
-    y: 26,
-    maxChars: 34,
-    maxLines: 2,
-    lineHeight: 16,
-    size: 13,
-    weight: 700,
-    fill: COLORS.text,
-  });
-
-  appendWrappedText(group, node.manager, {
-    x: 16,
-    y: 66,
-    maxChars: 38,
-    maxLines: 1,
-    lineHeight: 15,
-    size: 12,
-    fill: COLORS.muted,
-    prefix: "Руководитель: ",
-  });
-
-  if (node.position) {
-    appendWrappedText(group, node.position, {
-      x: 16,
-      y: 86,
-      maxChars: 42,
-      maxLines: 1,
-      lineHeight: 15,
-      size: 11,
-      fill: COLORS.muted,
-    });
-  }
-
-  appendText(group, String(node.count), {
-    x: CARD_WIDTH - 16,
-    y: CARD_HEIGHT_DEPARTMENT - 16,
-    size: 14,
-    weight: 700,
-    fill: COLORS.count,
-    anchor: "end",
-  });
-
-  svg.appendChild(group);
-}
-
-function drawPersonCard(svg, node) {
-  const group = createSvgElement("g", {
-    transform: `translate(${node.x}, ${node.y})`,
-  });
-
-  const isVacancy = node.type === "vacancy";
-
-  const rect = createSvgElement("rect", {
-    x: 0,
-    y: 0,
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT_PERSON,
-    rx: 8,
-    ry: 8,
-    fill: isVacancy ? COLORS.vacancyBg : COLORS.white,
-    stroke: isVacancy ? COLORS.vacancyStroke : COLORS.employeeStroke,
-    "stroke-width": 2,
-  });
-
-  group.appendChild(rect);
-
-  appendWrappedText(group, node.title, {
-    x: 16,
-    y: 28,
-    maxChars: 36,
-    maxLines: 2,
-    lineHeight: 16,
-    size: 13,
-    weight: 700,
-    fill: COLORS.text,
-  });
-
-  if (node.subtitle) {
-    appendWrappedText(group, node.subtitle, {
-      x: 16,
-      y: 60,
-      maxChars: 42,
-      maxLines: 1,
-      lineHeight: 15,
-      size: 11,
-      fill: COLORS.muted,
-    });
-  }
-
-  svg.appendChild(group);
-}
-
-function appendText(
-  group,
-  text,
-  {
-    x,
-    y,
-    size = 12,
-    weight = 400,
-    fill = COLORS.text,
-    anchor = "start",
-  },
-) {
-  const textEl = createSvgElement("text", {
-    x,
-    y,
-    "font-family": "Arial, sans-serif",
-    "font-size": size,
-    "font-weight": weight,
-    fill,
-    "text-anchor": anchor,
-  });
-
-  textEl.textContent = text || "";
-  group.appendChild(textEl);
-}
-
-function appendWrappedText(
-  group,
-  text,
-  {
-    x,
-    y,
-    maxChars,
-    maxLines,
-    lineHeight,
-    size = 12,
-    weight = 400,
-    fill = COLORS.text,
-    prefix = "",
-  },
-) {
-  const lines = wrapText(`${prefix}${text || ""}`, maxChars, maxLines);
-
-  lines.forEach((line, index) => {
-    appendText(group, line, {
-      x,
-      y: y + index * lineHeight,
-      size,
-      weight,
-      fill,
-    });
-  });
-}
-
-function wrapText(text, maxChars, maxLines) {
-  const words = String(text || "").split(/\s+/).filter(Boolean);
-  const lines = [];
-  let currentLine = "";
-
-  words.forEach(word => {
-    const candidate = currentLine ? `${currentLine} ${word}` : word;
-
-    if (candidate.length <= maxChars) {
-      currentLine = candidate;
-      return;
-    }
-
-    if (currentLine) {
-      lines.push(currentLine);
-    }
-
-    currentLine = word;
-  });
-
-  if (currentLine) {
-    lines.push(currentLine);
-  }
-
-  const result = lines.slice(0, maxLines);
-
-  if (lines.length > maxLines && result.length) {
-    result[result.length - 1] = `${result[result.length - 1].slice(0, maxChars - 1)}…`;
-  }
-
-  return result;
-}
-
-function walkTree(node, callback) {
-  callback(node);
-  node.children.forEach(child => walkTree(child, callback));
-}
-
-function createSvgElement(tagName, attrs = {}) {
-  const element = document.createElementNS(SVG_NS, tagName);
-
-  Object.entries(attrs).forEach(([key, value]) => {
-    element.setAttribute(key, String(value));
-  });
-
-  return element;
-}
-
-function waitForPaint() {
-  return new Promise(resolve => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(resolve);
-    });
-  });
-}
-
-function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 # FILE: src\render.js
 
 // Render tree nodes with optional user list display (full name preferred)
@@ -1413,117 +946,136 @@ export function renderTree(nodes, container) {
 
 
 
-# FILE: src\tree.js
+# FILE: src\sidebar-tree.js
 
-/**
- * Build a hierarchical tree from a flat array of department objects.
- *
- * Each department record is expected to contain at least the following fields:
- *   - `department_guid` – unique identifier of the department
- *   - `parent_guid` – GUID of the parent department (or the root GUID)
- *   - other department properties (name, manager, etc.)
- *
- * The function recursively groups children under a `children` array on each
- * node. The resulting structure matches the expectations of `renderTree`
- * (which expects a `children` property and optionally a `level`/`department_name`
- * etc.).
- */
-export function buildTree(data, parentGuid = "00000000-0000-0000-0000-000000000000") {
-  // Find all nodes whose parent matches the supplied GUID
-  const nodes = data
-    .filter(d => d.parent_guid === parentGuid)
-    .map(d => {
-      // Recursively attach children for this node
-      const children = buildTree(data, d.department_guid);
-      return { ...d, children };
+// src/sidebar-tree.js
+
+export function createSyntheticRoot(nodes) {
+  const totalStaff = nodes.reduce((sum, n) => sum + (n.staffCount || 0), 0);
+  const totalVac = nodes.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
+
+  return {
+    department_name: "Холдинг LEGENDA",
+    department_guid: "synthetic-root",
+    children: nodes,
+    staffCount: totalStaff,
+    vacancyCount: totalVac,
+    totalWithVacancies: totalStaff + totalVac,
+    department_manager: "Селиванов Василий Геннадьевич",
+    department_manager_position: "Генеральный директор",
+    users: [],
+  };
+}
+
+export function buildTreeView({
+  nodes,
+  container,
+  selectedNode,
+  onSelect,
+}) {
+  container.innerHTML = "";
+
+  const rootUl = document.createElement("ul");
+  rootUl.className = "tree-list";
+
+  const rootNode = createSyntheticRoot(nodes);
+
+  const actualSelectedNode =
+    selectedNode?.department_guid === "synthetic-root"
+      ? rootNode
+      : selectedNode;
+
+  createNodeElement({
+    node: rootNode,
+    parentUl: rootUl,
+    selectedNode: actualSelectedNode,
+    onSelect,
+    isRoot: true,
+  });
+
+  container.appendChild(rootUl);
+
+  return actualSelectedNode;
+}
+
+function createNodeElement({
+  node,
+  parentUl,
+  selectedNode,
+  onSelect,
+  isRoot = false,
+}) {
+  const li = document.createElement("li");
+
+  const row = document.createElement("div");
+  row.className = "tree-row";
+
+  const toggle = document.createElement("span");
+  toggle.className = "toggle";
+  toggle.textContent = "▶";
+  toggle.style.visibility = node.children?.length ? "visible" : "hidden";
+
+  const label = document.createElement("span");
+  label.className = "dept-label";
+  label.textContent = node.department_name || "Без названия";
+
+  if (selectedNode?.department_guid === node.department_guid) {
+    label.classList.add("selected");
+  }
+
+  row.appendChild(toggle);
+  row.appendChild(label);
+  li.appendChild(row);
+
+  const childUl = document.createElement("ul");
+  childUl.style.display = isRoot ? "block" : "none";
+
+  if (isRoot) {
+    toggle.textContent = "▼";
+  }
+
+  (node.children || []).forEach(child => {
+    createNodeElement({
+      node: child,
+      parentUl: childUl,
+      selectedNode,
+      onSelect,
     });
-  return nodes;
-}
+  });
 
-// Собираем все подчинённые департаменты рекурсивно
-export function collectSubDepartments(node) {
-    let result = [node];
-    if (node.children && node.children.length > 0) {
-        node.children.forEach(child => {
-            result = result.concat(collectSubDepartments(child));
-        });
+  li.appendChild(childUl);
+
+  toggle.addEventListener("click", event => {
+    event.stopPropagation();
+
+    const isHidden = childUl.style.display === "none";
+
+    childUl.style.display = isHidden ? "block" : "none";
+    toggle.textContent = isHidden ? "▼" : "▶";
+  });
+
+  label.addEventListener("click", event => {
+    event.stopPropagation();
+
+    document
+      .querySelectorAll(".dept-label")
+      .forEach(el => el.classList.remove("selected"));
+
+    label.classList.add("selected");
+
+    onSelect?.(node);
+  });
+
+  label.addEventListener("dblclick", event => {
+    event.stopPropagation();
+
+    if (node.children?.length) {
+      toggle.click();
     }
-    return result;
+  });
+
+  parentUl.appendChild(li);
 }
-
-// Получаем верхние уровни (без родителей)
-export function getTopLevelDepartments(tree) {
-    return tree;
-}
-
-// Присваиваем пользователям к департаментам
-// Добавлен fallback: если в объекте нет ФИО, пытаемся построить его из email
-export function attachUsersToDepartments(tree, users) {
-  const usersByDept = {};
-  users.forEach(u => {
-    // Формируем ФИО
-    let fullName = u.user_fio || '';
-                if (!fullName) {
-      // Пытаемся собрать из отдельных полей имени (если они есть)
-                    const parts = [];
-                    if (u.user_last_name) parts.push(u.user_last_name);
-                    if (u.user_first_name) parts.push(u.user_first_name);
-                    if (u.user_middle_name) parts.push(u.user_middle_name);
-      if (parts.length) fullName = parts.join(' ');
-                }
-    if (!fullName) {
-      // Если и так не удалось — делаем простую реконструкцию из email (часть до @)
-      const emailLocal = (u.user_email || '').split('@')[0];
-      if (emailLocal) {
-        // заменяем точки и подчеркивания на пробелы, потом делаем каждое слово с заглавной буквы
-        fullName = emailLocal
-          .replace(/[._]/g, ' ')
-          .split(' ')
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(' ');
-      }
-    }
-
-    const userObj = {
-                    email: u.user_email,
-                    full_name: fullName,
-      hiring_date: u.user_hiring_date,
-                };
-    const deptGuid = u.user_dept_guid;
-    if (!usersByDept[deptGuid]) usersByDept[deptGuid] = [];
-    usersByDept[deptGuid].push(userObj);
-            });
-
-  // Прикрепляем к каждому департаменту список пользователей
-  function attach(node) {
-    const deptGuid = node.department_guid;
-    node.users = usersByDept[deptGuid] || [];
-    if (node.children) node.children.forEach(attach);
-        }
-    tree.forEach(attach);
-
-  // После привязки пользователей пересчитываем численность персонала
-  computeStaffCounts(tree);
-}
-
-// Рекурсивный подсчёт численности (включая дочерние подразделения)
-export function computeStaffCounts(nodes) {
-    // nodes может быть массивом корневых узлов или одиночным узлом
-    if (Array.isArray(nodes)) {
-        nodes.forEach(n => computeStaffCounts(n));
-        return;
-    }
-    const node = nodes;
-    let count = (node.users ? node.users.length : 0);
-    if (node.children && node.children.length > 0) {
-        node.children.forEach(child => {
-            count += computeStaffCounts(child);
-        });
-    }
-    node.staffCount = count;
-    return count;
-}
-
 
 # FILE: struct.js
 
