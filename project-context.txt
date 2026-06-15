@@ -60,8 +60,7 @@ import { flextree } from "d3-flextree";
 import { OrgChart } from "d3-org-chart";
 import { fetchOrganizationStructure } from "./src/api.js";
 import { addLevels } from "./src/layout.js";
-import { exportOrgChartToPdf } from "./src/pdf-export.js";
-import "./src/pdf-export.css";
+import { exportOrgChartToPdf } from "./src/pdf-d3-export.js";
 
 window.d3 = { ...d3, flextree };
 
@@ -93,25 +92,19 @@ async function initApp() {
     renderScreenOrgChart([selectedNode]);
 
     document.getElementById("exportPdf")?.addEventListener("click", () => {
-      exportOrgChartToPdf({
-        selectedNode,
-        chart,
-        convertToFlatData,
-        createOrgChartInstance,
-      });
+      exportOrgChartToPdf({ chart });
     });
 
-    document
-      .getElementById("showVacancies")
-      ?.addEventListener("change", (event) => {
-        showVacancies = event.target.checked;
-        buildTreeView(fullTree, container);
-        renderScreenOrgChart([selectedNode]);
-      });
+    document.getElementById("showVacancies")?.addEventListener("change", event => {
+      showVacancies = event.target.checked;
+      buildTreeView(fullTree, container);
+      renderScreenOrgChart([selectedNode]);
+    });
 
     document
       .getElementById("closeEmployeeModal")
       ?.addEventListener("click", closeEmployeeDetails);
+
     document
       .querySelector(".employee-modal__backdrop")
       ?.addEventListener("click", closeEmployeeDetails);
@@ -127,7 +120,7 @@ function initDesignSwitcher() {
 
   select.value = cardDesign;
 
-  select.addEventListener("change", (event) => {
+  select.addEventListener("change", event => {
     cardDesign = event.target.value;
     localStorage.setItem("orgCardDesign", cardDesign);
     renderScreenOrgChart([selectedNode]);
@@ -175,6 +168,7 @@ function getInitials(name) {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
+
   if (!parts.length) return "—";
 
   return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase();
@@ -226,11 +220,11 @@ function createNodeElement(node, parentUl, isRoot = false) {
     toggle.textContent = "▼";
   }
 
-  (node.children || []).forEach((child) => createNodeElement(child, childUl));
+  (node.children || []).forEach(child => createNodeElement(child, childUl));
 
   li.appendChild(childUl);
 
-  toggle.addEventListener("click", (event) => {
+  toggle.addEventListener("click", event => {
     event.stopPropagation();
 
     const isHidden = childUl.style.display === "none";
@@ -238,7 +232,7 @@ function createNodeElement(node, parentUl, isRoot = false) {
     toggle.textContent = isHidden ? "▼" : "▶";
   });
 
-  label.addEventListener("click", (event) => {
+  label.addEventListener("click", event => {
     event.stopPropagation();
 
     selectedNode = node;
@@ -246,11 +240,12 @@ function createNodeElement(node, parentUl, isRoot = false) {
 
     document
       .querySelectorAll(".dept-label")
-      .forEach((el) => el.classList.remove("selected"));
+      .forEach(el => el.classList.remove("selected"));
+
     label.classList.add("selected");
   });
 
-  label.addEventListener("dblclick", (event) => {
+  label.addEventListener("dblclick", event => {
     event.stopPropagation();
 
     if (node.children?.length) {
@@ -280,12 +275,12 @@ function getDepartmentNodeWidth() {
 function createOrgChartInstance(containerSelector, flatData) {
   const orgChart = new OrgChart()
     .container(containerSelector)
-    .nodeHeight((d) => getDepartmentNodeHeight(d.data))
+    .nodeHeight(d => getDepartmentNodeHeight(d.data))
     .nodeWidth(() => getDepartmentNodeWidth())
     .childrenMargin(() => 40)
     .compactMarginBetween(() => 20)
     .compactMarginPair(() => 60)
-    .nodeContent((d) => renderNodeContent(d.data));
+    .nodeContent(d => renderNodeContent(d.data));
 
   orgChart.data(flatData).render();
 
@@ -304,18 +299,18 @@ function renderScreenOrgChart(rootNodes) {
   chart = createOrgChartInstance("#orgChart", flatData);
   chart.fit();
 
+  window.orgChart = chart;
+
   bindEmployeeCardClicks(flatData);
 }
 
 function bindEmployeeCardClicks(flatData) {
   setTimeout(() => {
-    document.querySelectorAll("#orgChart [data-employee-id]").forEach((el) => {
-      el.addEventListener("click", (event) => {
+    document.querySelectorAll("#orgChart [data-employee-id]").forEach(el => {
+      el.addEventListener("click", event => {
         event.stopPropagation();
 
-        const employee = flatData.find(
-          (item) => item.id === el.dataset.employeeId,
-        );
+        const employee = flatData.find(item => item.id === el.dataset.employeeId);
 
         if (employee && !employee.isVacancy) {
           openEmployeeDetails(employee);
@@ -447,11 +442,11 @@ function convertToFlatData(nodes) {
       isDepartment: !!node.department_guid,
     });
 
-    (node.children || []).forEach((child) => walk(child, nodeId));
+    (node.children || []).forEach(child => walk(child, nodeId));
 
     (node.users || [])
-      .filter((user) => showVacancies || !user.isVacancy)
-      .forEach((user) => {
+      .filter(user => showVacancies || !user.isVacancy)
+      .forEach(user => {
         result.push({
           ...user,
           id: user.id || `user_${result.length + 1}`,
@@ -464,7 +459,7 @@ function convertToFlatData(nodes) {
       });
   }
 
-  nodes.forEach((node) => walk(node));
+  nodes.forEach(node => walk(node));
   return result;
 }
 
@@ -500,75 +495,7 @@ function closeEmployeeDetails() {
   document.getElementById("employeeModal")?.classList.add("hidden");
 }
 
-function waitForPaint() {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(resolve);
-    });
-  });
-}
-
-function createExportContainer() {
-  const exportRoot = document.createElement("div");
-  exportRoot.className = "org-chart-export-root";
-
-  const exportSurface = document.createElement("div");
-  exportSurface.className = "org-chart-export-surface";
-
-  const exportChartEl = document.createElement("div");
-  exportChartEl.id = `orgChartExport-${Date.now()}`;
-  exportChartEl.className = "org-chart-export";
-
-  exportSurface.appendChild(exportChartEl);
-  exportRoot.appendChild(exportSurface);
-  document.body.appendChild(exportRoot);
-
-  return {
-    exportRoot,
-    exportSurface,
-    exportChartEl,
-    containerSelector: `#${exportChartEl.id}`,
-  };
-}
-
-function normalizeExportSvg(exportChartEl, padding = 80) {
-  const svg = exportChartEl.querySelector("svg");
-
-  if (!svg) {
-    throw new Error("SVG диаграммы не найден");
-  }
-
-  const bbox = svg.getBBox();
-
-  if (!bbox.width || !bbox.height) {
-    throw new Error("Не удалось определить размеры диаграммы");
-  }
-
-  const width = Math.ceil(bbox.width + padding * 2);
-  const height = Math.ceil(bbox.height + padding * 2);
-
-  svg.setAttribute(
-    "viewBox",
-    `${bbox.x - padding} ${bbox.y - padding} ${width} ${height}`,
-  );
-
-  svg.setAttribute("width", String(width));
-  svg.setAttribute("height", String(height));
-
-  svg.style.width = `${width}px`;
-  svg.style.height = `${height}px`;
-  svg.style.maxWidth = "none";
-  svg.style.maxHeight = "none";
-  svg.style.overflow = "visible";
-
-  exportChartEl.style.width = `${width}px`;
-  exportChartEl.style.height = `${height}px`;
-
-  return { width, height };
-}
-
 document.addEventListener("DOMContentLoaded", initApp);
-
 
 # FILE: package.json
 
@@ -586,6 +513,7 @@ document.addEventListener("DOMContentLoaded", initApp);
     "d3": "^5.16.0",
     "d3-flextree": "^2.1.2",
     "d3-org-chart": "^2.7.0",
+    "html-to-image": "^1.11.13",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "pptxgenjs": "^4.0.1"
@@ -779,193 +707,166 @@ export function flattenTree(nodes, result = []) {
   return result;
 }
 
-# FILE: src\pdf-export.css
+# FILE: src\pdf-d3-export.js
 
-.org-chart-export-root {
-  position: fixed;
-  inset: 0;
-  z-index: 99999;
-  background: #ffffff;
-  overflow: auto;
-  pointer-events: none;
-}
+import { toCanvas } from "html-to-image";
+import { jsPDF } from "jspdf";
 
-.org-chart-export-surface {
-  position: relative;
-  width: 5000px;
-  height: 3500px;
-  background: #ffffff;
-  overflow: visible;
-}
+const SVG_NS = "http://www.w3.org/2000/svg";
 
-.org-chart-export {
-  width: 5000px;
-  height: 3500px;
-  background: #ffffff;
-  overflow: visible;
-}
+const EXPORT_FRAME_CLASS = "pdf-export-frame-layer";
 
-.org-chart-export svg {
-  overflow: visible;
-  background: #ffffff;
-}
+const COLORS = {
+  department: "#4d8ce9",
+  employee: "#d0d5dd",
+  vacancy: "#b0c4de",
+};
 
-.org-chart-export .chart-card {
-  box-shadow: none;
-}
-
-.org-chart-export .chart-card--department {
-  border: 1px solid #4d8ce9;
-  background: #ffffff;
-}
-
-.org-chart-export .chart-card--employee {
-  border: 1px solid #dddddd;
-  background: #ffffff;
-}
-
-.org-chart-export .chart-card--vacancy {
-  border: 1px solid #b0c4de;
-  background: #e0f0ff;
-}
-
-.org-chart-export .chart-card--department-v2,
-.org-chart-export .chart-card--department-v3 {
-  box-shadow: none;
-}
-
-# FILE: src\pdf-export.js
-
-export async function exportOrgChartToPdf({
-  selectedNode,
-  chart,
-  convertToFlatData,
-  createOrgChartInstance,
-}) {
-  if (!selectedNode || !chart) {
-    alert('Нет диаграммы для экспорта');
+export async function exportOrgChartToPdf({ chart }) {
+  if (!chart) {
+    alert("Нет диаграммы для экспорта");
     return;
   }
 
-  const exportButton = document.getElementById('exportPdf');
+  const exportButton = document.getElementById("exportPdf");
   const originalButtonText = exportButton?.textContent;
 
   if (exportButton) {
     exportButton.disabled = true;
-    exportButton.textContent = 'Экспорт...';
+    exportButton.textContent = "Экспорт...";
   }
 
-  const {
-    exportRoot,
-    exportSurface,
-    containerSelector,
-  } = createExportContainer();
-
   try {
-    const flatData = convertToFlatData([selectedNode]);
-    const exportChart = createOrgChartInstance(containerSelector, flatData);
+    const state = chart.getChartState();
+
+    removeExportFrames();
+
+    const frameGroup = drawSvgFrames(state);
 
     await waitForPaint();
+    await wait(100);
 
-    exportChart.fit();
+    const container = getContainerElement(state);
 
-    await waitForPaint();
-
-    const bounds = getExportBounds(exportSurface);
-
-    const canvas = await html2canvas(exportSurface, {
-      scale: 2,
-      backgroundColor: '#ffffff',
-      logging: false,
-      useCORS: true,
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-      windowWidth: exportSurface.scrollWidth,
-      windowHeight: exportSurface.scrollHeight,
-      scrollX: 0,
-      scrollY: 0,
+    const canvas = await toCanvas(container, {
+      pixelRatio: 2,
+      backgroundColor: "#ffffff",
+      cacheBust: true,
+      fontEmbedCSS: "",
+      style: {
+        background: "#ffffff",
+        fontFamily: "Arial, sans-serif",
+      },
     });
 
-    const imgData = canvas.toDataURL('image/png');
-    const { jsPDF } = jspdf;
+    const imgData = canvas.toDataURL("image/png");
+
+    const { width, height } = canvas;
 
     const pdf = new jsPDF({
-      orientation: canvas.width >= canvas.height ? 'landscape' : 'portrait',
-      unit: 'px',
-      format: [canvas.width, canvas.height],
+      orientation: width >= height ? "landscape" : "portrait",
+      unit: "px",
+      format: [width, height],
     });
 
-    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
-    pdf.save('orgchart.pdf');
+    pdf.addImage(imgData, "PNG", 0, 0, width, height);
+    pdf.save("orgchart.pdf");
+
+    frameGroup?.remove();
   } catch (error) {
-    console.error('Ошибка экспорта PDF:', error);
+    console.error("Ошибка экспорта PDF:", error);
     alert(`Не удалось экспортировать PDF. ${error.message}`);
   } finally {
-    exportRoot.remove();
+    removeExportFrames();
 
     if (exportButton) {
       exportButton.disabled = false;
-      exportButton.textContent = originalButtonText || '📄 Экспорт в PDF';
+      exportButton.textContent = originalButtonText || "📄 Экспорт в PDF";
     }
   }
 }
 
-function createExportContainer() {
-  const exportRoot = document.createElement('div');
-  exportRoot.className = 'org-chart-export-root';
+function drawSvgFrames(state) {
+  const nodesWrapper = getD3ElementNode(state.nodesWrapper);
 
-  const exportSurface = document.createElement('div');
-  exportSurface.className = 'org-chart-export-surface';
-
-  const exportChartEl = document.createElement('div');
-  exportChartEl.id = `orgChartExport-${Date.now()}`;
-  exportChartEl.className = 'org-chart-export';
-
-  exportSurface.appendChild(exportChartEl);
-  exportRoot.appendChild(exportSurface);
-  document.body.appendChild(exportRoot);
-
-  return {
-    exportRoot,
-    exportSurface,
-    exportChartEl,
-    containerSelector: `#${exportChartEl.id}`,
-  };
-}
-
-function getExportBounds(exportSurface) {
-  const cards = Array.from(exportSurface.querySelectorAll('.chart-card'));
-
-  if (!cards.length) {
-    throw new Error('Карточки диаграммы не найдены');
+  if (!nodesWrapper) {
+    throw new Error("Не найден слой узлов диаграммы");
   }
 
-  const surfaceRect = exportSurface.getBoundingClientRect();
+  const frameGroup = document.createElementNS(SVG_NS, "g");
+  frameGroup.setAttribute("class", EXPORT_FRAME_CLASS);
 
-  let left = Infinity;
-  let top = Infinity;
-  let right = -Infinity;
-  let bottom = -Infinity;
+  const visibleNodes = state.allNodes.filter(
+    node => Number.isFinite(node.x) && Number.isFinite(node.y),
+  );
 
-  cards.forEach(card => {
-    const rect = card.getBoundingClientRect();
+  visibleNodes.forEach(node => {
+    const width = state.nodeWidth(node);
+    const height = state.nodeHeight(node);
 
-    left = Math.min(left, rect.left - surfaceRect.left);
-    top = Math.min(top, rect.top - surfaceRect.top);
-    right = Math.max(right, rect.right - surfaceRect.left);
-    bottom = Math.max(bottom, rect.bottom - surfaceRect.top);
+    const rect = document.createElementNS(SVG_NS, "rect");
+
+    rect.setAttribute("x", String(node.x - width / 2));
+    rect.setAttribute("y", String(node.y));
+    rect.setAttribute("width", String(width));
+    rect.setAttribute("height", String(height));
+    rect.setAttribute("rx", "8");
+    rect.setAttribute("ry", "8");
+    rect.setAttribute("fill", "none");
+    rect.setAttribute("stroke", getNodeStroke(node));
+    rect.setAttribute("stroke-width", "2");
+    rect.setAttribute("pointer-events", "none");
+
+    frameGroup.appendChild(rect);
   });
 
-  const padding = 120;
+  nodesWrapper.prepend(frameGroup);
 
-  return {
-    x: Math.max(0, Math.floor(left - padding)),
-    y: Math.max(0, Math.floor(top - padding)),
-    width: Math.ceil(right - left + padding * 2),
-    height: Math.ceil(bottom - top + padding * 2),
-  };
+  return frameGroup;
+}
+
+function getNodeStroke(node) {
+  if (node.data?.isVacancy) {
+    return COLORS.vacancy;
+  }
+
+  if (node.data?.isDepartment) {
+    return COLORS.department;
+  }
+
+  return COLORS.employee;
+}
+
+function getContainerElement(state) {
+  const container = state.container;
+
+  if (typeof container === "string") {
+    const element = document.querySelector(container);
+
+    if (!element) {
+      throw new Error("Контейнер диаграммы не найден");
+    }
+
+    return element;
+  }
+
+  return getD3ElementNode(container) || container;
+}
+
+function getD3ElementNode(value) {
+  if (!value) return null;
+
+  if (typeof value.node === "function") {
+    return value.node();
+  }
+
+  return value;
+}
+
+function removeExportFrames() {
+  document
+    .querySelectorAll(`.${EXPORT_FRAME_CLASS}`)
+    .forEach(element => element.remove());
 }
 
 function waitForPaint() {
@@ -974,6 +875,498 @@ function waitForPaint() {
       requestAnimationFrame(resolve);
     });
   });
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+# FILE: src\pdf-svg-export.js
+
+import { toCanvas } from "html-to-image";
+import { jsPDF } from "jspdf";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const CARD_WIDTH = 340;
+const CARD_HEIGHT_DEPARTMENT = 124;
+const CARD_HEIGHT_PERSON = 82;
+
+const H_GAP = 56;
+const V_GAP = 90;
+const PADDING = 60;
+
+const COLORS = {
+  departmentStroke: "#4d8ce9",
+  employeeStroke: "#d0d5dd",
+  vacancyStroke: "#b0c4de",
+  connector: "#98a2b3",
+  text: "#333333",
+  muted: "#667085",
+  vacancyBg: "#e0f0ff",
+  white: "#ffffff",
+  count: "#0066cc",
+};
+
+export async function exportOrgChartToPdf({ selectedNode, showVacancies }) {
+  if (!selectedNode) {
+    alert("Нет диаграммы для экспорта");
+    return;
+  }
+
+  const exportButton = document.getElementById("exportPdf");
+  const originalButtonText = exportButton?.textContent;
+
+  if (exportButton) {
+    exportButton.disabled = true;
+    exportButton.textContent = "Экспорт...";
+  }
+
+  const { exportRoot, exportArea } = createExportContainer();
+
+  try {
+    const exportTree = buildExportTree(selectedNode, showVacancies);
+    const layout = calculateLayout(exportTree);
+    const svg = renderSvg(layout);
+
+    exportArea.appendChild(svg);
+
+    await waitForPaint();
+    await wait(100);
+
+    const canvas = await toCanvas(exportArea, {
+      pixelRatio: 2,
+      backgroundColor: COLORS.white,
+      cacheBust: true,
+      fontEmbedCSS: "",
+      style: {
+        background: COLORS.white,
+        fontFamily: "Arial, sans-serif",
+      },
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+
+    const pdf = new jsPDF({
+      orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
+      unit: "px",
+      format: [canvas.width, canvas.height],
+    });
+
+    pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+    pdf.save("orgchart.pdf");
+  } catch (error) {
+    console.error("Ошибка экспорта PDF:", error);
+    alert(`Не удалось экспортировать PDF. ${error.message}`);
+  } finally {
+    exportRoot.remove();
+
+    if (exportButton) {
+      exportButton.disabled = false;
+      exportButton.textContent = originalButtonText || "📄 Экспорт в PDF";
+    }
+  }
+}
+
+function createExportContainer() {
+  const exportRoot = document.createElement("div");
+  exportRoot.style.position = "fixed";
+  exportRoot.style.left = "0";
+  exportRoot.style.top = "0";
+  exportRoot.style.zIndex = "99999";
+  exportRoot.style.background = COLORS.white;
+  exportRoot.style.overflow = "auto";
+  exportRoot.style.pointerEvents = "none";
+
+  const exportArea = document.createElement("div");
+  exportArea.style.display = "inline-block";
+  exportArea.style.background = COLORS.white;
+  exportArea.style.padding = "0";
+  exportArea.style.fontFamily = "Arial, sans-serif";
+
+  exportRoot.appendChild(exportArea);
+  document.body.appendChild(exportRoot);
+
+  return {
+    exportRoot,
+    exportArea,
+  };
+}
+
+function buildExportTree(node, showVacancies) {
+  const children = [];
+
+  (node.children || []).forEach(child => {
+    children.push(buildExportTree(child, showVacancies));
+  });
+
+  (node.users || [])
+    .filter(user => showVacancies || !user.isVacancy)
+    .forEach(user => {
+      children.push({
+        type: user.isVacancy ? "vacancy" : "employee",
+        title: user.isVacancy ? "Вакансия" : user.full_name || user.name || "Сотрудник",
+        subtitle: user.position || "",
+        count: null,
+        children: [],
+      });
+    });
+
+  return {
+    type: "department",
+    title: node.department_name || node.name || "Без названия",
+    manager: node.department_manager || "Нет руководителя",
+    position: node.department_manager_position || "",
+    count: showVacancies
+      ? node.totalWithVacancies || node.staffCount || 0
+      : node.staffCount || 0,
+    children,
+  };
+}
+
+function getNodeHeight(node) {
+  return node.type === "department" ? CARD_HEIGHT_DEPARTMENT : CARD_HEIGHT_PERSON;
+}
+
+function calculateLayout(root) {
+  calculateSubtreeWidth(root);
+  assignPositions(root, PADDING, PADDING);
+
+  const bounds = getBounds(root);
+
+  return {
+    root,
+    width: Math.ceil(bounds.right + PADDING),
+    height: Math.ceil(bounds.bottom + PADDING),
+  };
+}
+
+function calculateSubtreeWidth(node) {
+  const ownWidth = CARD_WIDTH;
+
+  if (!node.children.length) {
+    node.subtreeWidth = ownWidth;
+    return node.subtreeWidth;
+  }
+
+  const childrenWidth =
+    node.children.reduce((sum, child) => sum + calculateSubtreeWidth(child), 0) +
+    H_GAP * Math.max(0, node.children.length - 1);
+
+  node.subtreeWidth = Math.max(ownWidth, childrenWidth);
+  return node.subtreeWidth;
+}
+
+function assignPositions(node, left, top) {
+  node.x = left + node.subtreeWidth / 2 - CARD_WIDTH / 2;
+  node.y = top;
+
+  if (!node.children.length) return;
+
+  const childrenTotalWidth =
+    node.children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
+    H_GAP * Math.max(0, node.children.length - 1);
+
+  let childLeft = left + node.subtreeWidth / 2 - childrenTotalWidth / 2;
+  const childTop = top + getNodeHeight(node) + V_GAP;
+
+  node.children.forEach(child => {
+    assignPositions(child, childLeft, childTop);
+    childLeft += child.subtreeWidth + H_GAP;
+  });
+}
+
+function getBounds(root) {
+  const bounds = {
+    right: 0,
+    bottom: 0,
+  };
+
+  walkTree(root, node => {
+    bounds.right = Math.max(bounds.right, node.x + CARD_WIDTH);
+    bounds.bottom = Math.max(bounds.bottom, node.y + getNodeHeight(node));
+  });
+
+  return bounds;
+}
+
+function renderSvg(layout) {
+  const svg = createSvgElement("svg", {
+    width: layout.width,
+    height: layout.height,
+    viewBox: `0 0 ${layout.width} ${layout.height}`,
+    xmlns: SVG_NS,
+  });
+
+  svg.style.background = COLORS.white;
+
+  walkTree(layout.root, node => {
+    node.children.forEach(child => {
+      drawConnector(svg, node, child);
+    });
+  });
+
+  walkTree(layout.root, node => {
+    drawCard(svg, node);
+  });
+
+  return svg;
+}
+
+function drawConnector(svg, parent, child) {
+  const parentHeight = getNodeHeight(parent);
+
+  const fromX = parent.x + CARD_WIDTH / 2;
+  const fromY = parent.y + parentHeight;
+
+  const toX = child.x + CARD_WIDTH / 2;
+  const toY = child.y;
+
+  const middleY = fromY + (toY - fromY) / 2;
+
+  const path = createSvgElement("path", {
+    d: `M ${fromX} ${fromY} V ${middleY} H ${toX} V ${toY}`,
+    fill: "none",
+    stroke: COLORS.connector,
+    "stroke-width": 2,
+  });
+
+  svg.appendChild(path);
+}
+
+function drawCard(svg, node) {
+  if (node.type === "department") {
+    drawDepartmentCard(svg, node);
+    return;
+  }
+
+  drawPersonCard(svg, node);
+}
+
+function drawDepartmentCard(svg, node) {
+  const group = createSvgElement("g", {
+    transform: `translate(${node.x}, ${node.y})`,
+  });
+
+  const rect = createSvgElement("rect", {
+    x: 0,
+    y: 0,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT_DEPARTMENT,
+    rx: 8,
+    ry: 8,
+    fill: COLORS.white,
+    stroke: COLORS.departmentStroke,
+    "stroke-width": 2,
+  });
+
+  group.appendChild(rect);
+
+  appendWrappedText(group, node.title, {
+    x: 16,
+    y: 26,
+    maxChars: 34,
+    maxLines: 2,
+    lineHeight: 16,
+    size: 13,
+    weight: 700,
+    fill: COLORS.text,
+  });
+
+  appendWrappedText(group, node.manager, {
+    x: 16,
+    y: 66,
+    maxChars: 38,
+    maxLines: 1,
+    lineHeight: 15,
+    size: 12,
+    fill: COLORS.muted,
+    prefix: "Руководитель: ",
+  });
+
+  if (node.position) {
+    appendWrappedText(group, node.position, {
+      x: 16,
+      y: 86,
+      maxChars: 42,
+      maxLines: 1,
+      lineHeight: 15,
+      size: 11,
+      fill: COLORS.muted,
+    });
+  }
+
+  appendText(group, String(node.count), {
+    x: CARD_WIDTH - 16,
+    y: CARD_HEIGHT_DEPARTMENT - 16,
+    size: 14,
+    weight: 700,
+    fill: COLORS.count,
+    anchor: "end",
+  });
+
+  svg.appendChild(group);
+}
+
+function drawPersonCard(svg, node) {
+  const group = createSvgElement("g", {
+    transform: `translate(${node.x}, ${node.y})`,
+  });
+
+  const isVacancy = node.type === "vacancy";
+
+  const rect = createSvgElement("rect", {
+    x: 0,
+    y: 0,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT_PERSON,
+    rx: 8,
+    ry: 8,
+    fill: isVacancy ? COLORS.vacancyBg : COLORS.white,
+    stroke: isVacancy ? COLORS.vacancyStroke : COLORS.employeeStroke,
+    "stroke-width": 2,
+  });
+
+  group.appendChild(rect);
+
+  appendWrappedText(group, node.title, {
+    x: 16,
+    y: 28,
+    maxChars: 36,
+    maxLines: 2,
+    lineHeight: 16,
+    size: 13,
+    weight: 700,
+    fill: COLORS.text,
+  });
+
+  if (node.subtitle) {
+    appendWrappedText(group, node.subtitle, {
+      x: 16,
+      y: 60,
+      maxChars: 42,
+      maxLines: 1,
+      lineHeight: 15,
+      size: 11,
+      fill: COLORS.muted,
+    });
+  }
+
+  svg.appendChild(group);
+}
+
+function appendText(
+  group,
+  text,
+  {
+    x,
+    y,
+    size = 12,
+    weight = 400,
+    fill = COLORS.text,
+    anchor = "start",
+  },
+) {
+  const textEl = createSvgElement("text", {
+    x,
+    y,
+    "font-family": "Arial, sans-serif",
+    "font-size": size,
+    "font-weight": weight,
+    fill,
+    "text-anchor": anchor,
+  });
+
+  textEl.textContent = text || "";
+  group.appendChild(textEl);
+}
+
+function appendWrappedText(
+  group,
+  text,
+  {
+    x,
+    y,
+    maxChars,
+    maxLines,
+    lineHeight,
+    size = 12,
+    weight = 400,
+    fill = COLORS.text,
+    prefix = "",
+  },
+) {
+  const lines = wrapText(`${prefix}${text || ""}`, maxChars, maxLines);
+
+  lines.forEach((line, index) => {
+    appendText(group, line, {
+      x,
+      y: y + index * lineHeight,
+      size,
+      weight,
+      fill,
+    });
+  });
+}
+
+function wrapText(text, maxChars, maxLines) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let currentLine = "";
+
+  words.forEach(word => {
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+
+    if (candidate.length <= maxChars) {
+      currentLine = candidate;
+      return;
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    currentLine = word;
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  const result = lines.slice(0, maxLines);
+
+  if (lines.length > maxLines && result.length) {
+    result[result.length - 1] = `${result[result.length - 1].slice(0, maxChars - 1)}…`;
+  }
+
+  return result;
+}
+
+function walkTree(node, callback) {
+  callback(node);
+  node.children.forEach(child => walkTree(child, callback));
+}
+
+function createSvgElement(tagName, attrs = {}) {
+  const element = document.createElementNS(SVG_NS, tagName);
+
+  Object.entries(attrs).forEach(([key, value]) => {
+    element.setAttribute(key, String(value));
+  });
+
+  return element;
+}
+
+function waitForPaint() {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(resolve);
+    });
+  });
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 # FILE: src\render.js
@@ -1669,7 +2062,9 @@ button:hover {
   }
 }
 
-
+.chart-card__export-border {
+  display: none;
+}
 
 # FILE: vite.config.js
 
