@@ -187,7 +187,7 @@ function createNodeElement(node, parentUl, isRoot = false) {
 function getDepartmentNodeHeight(data) {
   if (!data.isDepartment) return 82;
 
-  if (cardDesign === 'variant2') return 154;
+  if (cardDesign === 'variant2') return 164;
   if (cardDesign === 'variant3') return 146;
 
   return 118;
