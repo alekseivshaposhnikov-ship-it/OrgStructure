@@ -41,7 +41,14 @@ function parseSubLevel(value) {
 }
 
 function getProject(emp) {
-  return emp.project || emp.project_name || emp.projectName || emp.project_title || '';
+  return (
+    emp.projects ||
+    emp.project ||
+    emp.project_name ||
+    emp.projectName ||
+    emp.project_title ||
+    ''
+  );
 }
 
 function getPhone(emp) {

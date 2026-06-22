@@ -7,9 +7,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script type="module" crossorigin src="./assets/index-BYOzviu2.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DovwfpYu.css">
+    <script type="module" crossorigin src="./assets/index-6-NgnMTJ.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DkLRjd_Q.css">
   </head>
+
   <body>
     <div class="sidebar">
       <h1>Организационная структура</h1>
@@ -32,6 +33,31 @@
         </label>
       </div>
 
+      <div class="scenario-panel">
+        <div class="scenario-panel__title">Сценарий моделирования</div>
+
+        <label class="scenario-field">
+          <span>Название сценария</span>
+          <input id="scenarioName" type="text" />
+        </label>
+
+        <label class="scenario-field">
+          <span>Режим отображения</span>
+          <select id="viewMode">
+            <option value="as-is">Текущая структура</option>
+            <option value="to-be">Целевая структура</option>
+            <option value="changes">Изменения</option>
+          </select>
+        </label>
+
+        <div id="scenarioStats" class="scenario-stats"></div>
+
+        <div class="scenario-actions">
+          <button id="compareScenario" type="button">Сравнить</button>
+          <button id="resetScenario" type="button" class="button-secondary">Сбросить</button>
+        </div>
+      </div>
+
       <div id="tree-container" class="tree-container"></div>
     </div>
 
@@ -39,11 +65,37 @@
       <div id="orgChart"></div>
     </div>
 
+    <aside class="changes-panel">
+      <div class="changes-panel__header">
+        <h2>Изменения</h2>
+        <span id="changesCount">0</span>
+      </div>
+      <div id="changesList" class="changes-list"></div>
+    </aside>
+
     <div id="employeeModal" class="employee-modal hidden">
       <div class="employee-modal__backdrop"></div>
       <div class="employee-modal__card">
         <button id="closeEmployeeModal" class="employee-modal__close">×</button>
         <div id="employeeDetails"></div>
+      </div>
+    </div>
+
+    <div id="scenarioModal" class="scenario-modal hidden">
+      <div class="scenario-modal__backdrop"></div>
+      <div class="scenario-modal__card">
+        <button id="closeScenarioModal" class="scenario-modal__close">×</button>
+        <h2 id="scenarioModalTitle"></h2>
+        <form id="scenarioForm"></form>
+      </div>
+    </div>
+
+    <div id="compareModal" class="scenario-modal hidden">
+      <div class="scenario-modal__backdrop" data-close-compare></div>
+      <div class="scenario-modal__card scenario-modal__card--wide">
+        <button id="closeCompareModal" class="scenario-modal__close">×</button>
+        <h2>Сравнение AS IS / TO BE</h2>
+        <div id="compareContent"></div>
       </div>
     </div>
   </body>

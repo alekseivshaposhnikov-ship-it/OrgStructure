@@ -13,11 +13,40 @@ export function renderNodeContent(nd, options) {
     return renderDepartmentClassic(nd, showVacancies, viewMode);
   }
 
+  if (nd.isAssistant) {
+    return renderAssistantCard(nd, viewMode);
+  }
+
   if (nd.isVacancy) {
     return renderVacancy(nd, viewMode);
   }
 
   return renderEmployee(nd, viewMode);
+}
+
+function renderAssistantCard(nd, viewMode) {
+  return `
+    <div class="chart-card chart-card--assistant ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      ${renderScenarioBadge(nd)}
+
+      ${renderMenuButton(viewMode)}
+
+      <div class="chart-card__assistant-label">Административный ассистент</div>
+
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+
+      ${
+        nd.position
+          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
+          : ""
+      }
+
+      ${renderProject(nd)}
+    </div>
+  `;
 }
 
 function renderDepartmentClassic(nd, showVacancies, viewMode) {
@@ -40,6 +69,8 @@ function renderDepartmentClassic(nd, showVacancies, viewMode) {
           ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>`
           : ""
       }
+
+      ${renderAssistant(nd.assistant)}
 
       <div class="chart-card__count ${showVacancies ? "count-with-vacancies" : ""}">
         ${getDisplayCount(nd, showVacancies)}
@@ -71,6 +102,8 @@ function renderDepartmentVariant2(nd, showVacancies, viewMode) {
             ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>`
             : ""
         }
+
+        ${renderAssistant(nd.assistant)}
       </div>
 
       <div class="chart-card-v2__footer">
@@ -106,6 +139,8 @@ function renderDepartmentVariant3(nd, showVacancies, viewMode) {
             : ""
         }
 
+        ${renderAssistant(nd.assistant)}
+
         <div class="chart-card-v3__count">
           ${getDisplayCount(nd, showVacancies)} сотрудников
         </div>
@@ -130,6 +165,8 @@ function renderEmployee(nd, viewMode) {
           ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
           : ""
       }
+
+      ${renderProject(nd)}
     </div>
   `;
 }
@@ -149,8 +186,50 @@ function renderVacancy(nd, viewMode) {
           ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
           : ""
       }
+
+      ${renderProject(nd)}
     </div>
   `;
+}
+
+function renderAssistant(assistant) {
+  if (!assistant) return "";
+
+  return `
+    <div class="chart-card__assistant"
+         data-assistant-id="${escapeHtml(assistant.id || "")}">
+      <div class="chart-card__assistant-label">Административный ассистент</div>
+      <div class="chart-card__assistant-name">
+        ${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}
+      </div>
+      ${
+        assistant.position
+          ? `<div class="chart-card__assistant-position">${escapeHtml(assistant.position)}</div>`
+          : ""
+      }
+      ${renderProject(assistant)}
+    </div>
+  `;
+}
+
+function renderProject(nd) {
+  const project = normalizeProjects(nd.project);
+
+  if (!project) return "";
+
+  return `
+    <div class="chart-card__project">
+      <span>Проект:</span> ${escapeHtml(project)}
+    </div>
+  `;
+}
+
+function normalizeProjects(value) {
+  return String(value || "")
+    .split(";")
+    .map(item => item.trim())
+    .filter(Boolean)
+    .join("; ");
 }
 
 function renderMenuButton(viewMode) {

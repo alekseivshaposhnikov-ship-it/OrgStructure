@@ -46,6 +46,7 @@ let selectedNode = null;
 let showVacancies = true;
 let cardDesign = localStorage.getItem("orgCardDesign") || "classic";
 let viewMode = "to-be";
+let isOrgChartDelegationBound = false;
 
 async function initApp() {
   const container = document.getElementById("tree-container");
@@ -255,10 +256,12 @@ function focusEntity(entityId) {
 function getDepartmentNodeHeight(data) {
   if (!data.isDepartment) return 96;
 
-  if (cardDesign === "variant2") return 176;
-  if (cardDesign === "variant3") return 158;
+  const assistantExtraHeight = data.assistant ? 44 : 0;
 
-  return 130;
+  if (cardDesign === "variant2") return 176 + assistantExtraHeight;
+  if (cardDesign === "variant3") return 158 + assistantExtraHeight;
+
+  return 130 + assistantExtraHeight;
 }
 
 function getDepartmentNodeWidth() {
@@ -310,50 +313,67 @@ function renderScreenOrgChart(rootNodes) {
 
   window.orgChart = chart;
 
-  bindEmployeeCardClicks(flatData);
-  bindScenarioMenus(flatData);
+  bindOrgChartDelegatedEvents(flatData);
 }
 
-function bindEmployeeCardClicks(flatData) {
-  setTimeout(() => {
-    document.querySelectorAll("#orgChart [data-employee-id]").forEach(el => {
-      el.addEventListener("click", event => {
-        if (event.target.closest("[data-scenario-menu]")) return;
+function bindOrgChartDelegatedEvents(flatData) {
+  const container = document.getElementById("orgChart");
+  if (!container) return;
 
-        event.stopPropagation();
+  container.__flatData = flatData;
 
-        const employee = flatData.find(item => item.id === el.dataset.employeeId);
+  if (isOrgChartDelegationBound) return;
+  isOrgChartDelegationBound = true;
 
-        if (employee && !employee.isVacancy) {
-          openEmployeeDetails(employee);
-        }
+  container.addEventListener("click", event => {
+    const menuButton = event.target.closest("[data-scenario-menu]");
+
+    if (menuButton) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const card = menuButton.closest("[data-node-id]");
+      if (!card) return;
+
+      const flatData = container.__flatData || [];
+      const nodeId = card.dataset.nodeId;
+      const nodeType = card.dataset.nodeType;
+      const node = flatData.find(item => item.id === nodeId);
+
+      openContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        node,
+        nodeType,
       });
-    });
-  }, 0);
-}
 
-function bindScenarioMenus(flatData) {
-  setTimeout(() => {
-    document.querySelectorAll("#orgChart [data-scenario-menu]").forEach(button => {
-      button.addEventListener("click", event => {
+      return;
+    }
+
+    const assistantCard = event.target.closest("[data-assistant-id]");
+    if (assistantCard) {
+      const flatData = container.__flatData || [];
+      const department = flatData.find(item => item.assistant?.id === assistantCard.dataset.assistantId);
+
+      if (department?.assistant) {
         event.stopPropagation();
+        openEmployeeDetails(department.assistant);
+      }
 
-        const card = button.closest("[data-node-id]");
-        if (!card) return;
+      return;
+    }
 
-        const nodeId = card.dataset.nodeId;
-        const nodeType = card.dataset.nodeType;
-        const node = flatData.find(item => item.id === nodeId);
+    const employeeCard = event.target.closest("[data-employee-id]");
+    if (!employeeCard) return;
 
-        openContextMenu({
-          x: event.clientX,
-          y: event.clientY,
-          node,
-          nodeType,
-        });
-      });
-    });
-  }, 0);
+    const flatData = container.__flatData || [];
+    const employee = flatData.find(item => item.id === employeeCard.dataset.employeeId);
+
+    if (employee && !employee.isVacancy) {
+      event.stopPropagation();
+      openEmployeeDetails(employee);
+    }
+  });
 }
 
 function openContextMenu({ x, y, node, nodeType }) {
@@ -744,8 +764,9 @@ function closeCompareModal() {
 
 function convertToFlatData(nodes) {
   const result = [];
+  const assistantsToSkip = new Set();
 
-  function walk(node, parentId = null) {
+  function walk(node, parentId = null, isRootNode = false) {
     const nodeId = node.department_guid || node.id;
 
     result.push({
@@ -761,10 +782,32 @@ function convertToFlatData(nodes) {
       isDepartment: !!node.department_guid,
     });
 
-    (node.children || []).forEach(child => walk(child, nodeId));
+    if (isRootNode) {
+      const assistant = findAdministrativeAssistantInSubtree(node);
+
+      if (assistant?.id) {
+        assistantsToSkip.add(assistant.id);
+
+        result.push({
+          ...assistant,
+          id: assistant.id,
+          parentId: nodeId,
+          name: assistant.full_name || assistant.name || "Сотрудник",
+          position: assistant.position || "",
+          scenarioState: assistant.scenarioState || "",
+          isDepartment: false,
+          isVacancy: false,
+          isAssistant: true,
+        });
+      }
+    }
+
+    (node.children || []).forEach(child => walk(child, nodeId, false));
 
     (node.users || [])
       .filter(user => showVacancies || !user.isVacancy)
+      .filter(user => !isAdministrativeAssistant(user))
+      .filter(user => !assistantsToSkip.has(user.id))
       .forEach(user => {
         result.push({
           ...user,
@@ -779,9 +822,35 @@ function convertToFlatData(nodes) {
       });
   }
 
-  nodes.forEach(node => walk(node));
+  nodes.forEach(node => walk(node, null, true));
 
   return result;
+}
+
+function findAdministrativeAssistantInSubtree(node) {
+  const ownAssistant = findAdministrativeAssistant(node.users || []);
+
+  if (ownAssistant) return ownAssistant;
+
+  for (const child of node.children || []) {
+    const childAssistant = findAdministrativeAssistantInSubtree(child);
+
+    if (childAssistant) return childAssistant;
+  }
+
+  return null;
+}
+
+function findAdministrativeAssistant(users) {
+  return (users || []).find(user => isAdministrativeAssistant(user)) || null;
+}
+
+function isAdministrativeAssistant(user) {
+  if (!user || user.isVacancy) return false;
+
+  const position = String(user.rawPosition || user.position || "").toLowerCase();
+
+  return position.includes("административный ассистент");
 }
 
 function getOperationIcon(type) {

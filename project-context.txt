@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="./style.css" />
     <script type="module" src="./main.js"></script>
   </head>
+
   <body>
     <div class="sidebar">
       <h1>Организационная структура</h1>
@@ -36,12 +37,45 @@
         </label>
       </div>
 
+      <div class="scenario-panel">
+        <div class="scenario-panel__title">Сценарий моделирования</div>
+
+        <label class="scenario-field">
+          <span>Название сценария</span>
+          <input id="scenarioName" type="text" />
+        </label>
+
+        <label class="scenario-field">
+          <span>Режим отображения</span>
+          <select id="viewMode">
+            <option value="as-is">Текущая структура</option>
+            <option value="to-be">Целевая структура</option>
+            <option value="changes">Изменения</option>
+          </select>
+        </label>
+
+        <div id="scenarioStats" class="scenario-stats"></div>
+
+        <div class="scenario-actions">
+          <button id="compareScenario" type="button">Сравнить</button>
+          <button id="resetScenario" type="button" class="button-secondary">Сбросить</button>
+        </div>
+      </div>
+
       <div id="tree-container" class="tree-container"></div>
     </div>
 
     <div id="chartPanel">
       <div id="orgChart"></div>
     </div>
+
+    <aside class="changes-panel">
+      <div class="changes-panel__header">
+        <h2>Изменения</h2>
+        <span id="changesCount">0</span>
+      </div>
+      <div id="changesList" class="changes-list"></div>
+    </aside>
 
     <div id="employeeModal" class="employee-modal hidden">
       <div class="employee-modal__backdrop"></div>
@@ -50,12 +84,28 @@
         <div id="employeeDetails"></div>
       </div>
     </div>
+
+    <div id="scenarioModal" class="scenario-modal hidden">
+      <div class="scenario-modal__backdrop"></div>
+      <div class="scenario-modal__card">
+        <button id="closeScenarioModal" class="scenario-modal__close">×</button>
+        <h2 id="scenarioModalTitle"></h2>
+        <form id="scenarioForm"></form>
+      </div>
+    </div>
+
+    <div id="compareModal" class="scenario-modal hidden">
+      <div class="scenario-modal__backdrop" data-close-compare></div>
+      <div class="scenario-modal__card scenario-modal__card--wide">
+        <button id="closeCompareModal" class="scenario-modal__close">×</button>
+        <h2>Сравнение AS IS / TO BE</h2>
+        <div id="compareContent"></div>
+      </div>
+    </div>
   </body>
 </html>
 
 # FILE: main.js
-
-// main.js
 
 import * as d3 from "d3";
 import { flextree } from "d3-flextree";
@@ -74,13 +124,38 @@ import {
 } from "./src/employee-modal.js";
 import { exportOrgChartToPdf } from "./src/pdf-d3-export.js";
 
+import {
+  createScenario,
+  resetScenario,
+  renameScenario,
+  getTreeByViewMode,
+  getScenarioStats,
+  getDepartmentOptions,
+  findDepartmentById,
+  addDepartment,
+  editDepartment,
+  addEmployee,
+  editEmployee,
+  addVacancy,
+  editVacancy,
+  removeEmployee,
+  removeVacancy,
+  removeDepartment,
+  moveEmployee,
+  moveVacancy,
+  moveDepartment,
+} from "./src/scenario-manager.js";
+
 window.d3 = { ...d3, flextree };
 
-let fullTree = [];
+let sourceTree = [];
+let scenario = null;
 let chart = null;
 let selectedNode = null;
 let showVacancies = true;
 let cardDesign = localStorage.getItem("orgCardDesign") || "classic";
+let viewMode = "to-be";
+let isOrgChartDelegationBound = false;
 
 async function initApp() {
   const container = document.getElementById("tree-container");
@@ -89,22 +164,23 @@ async function initApp() {
   container.innerHTML = "<p>Загрузка организационной структуры...</p>";
 
   try {
-    fullTree = await fetchOrganizationStructure();
+    sourceTree = await fetchOrganizationStructure();
 
-    if (!fullTree.length) {
+    if (!sourceTree.length) {
       container.innerHTML = "<p>Не удалось загрузить структуру.</p>";
       return;
     }
 
-    addLevels(fullTree, 0);
+    addLevels(sourceTree, 0);
 
-    selectedNode = createSyntheticRoot(fullTree);
+    scenario = createScenario(sourceTree);
+    selectedNode = createSyntheticRoot(getCurrentTree());
 
     initDesignSwitcher();
     initEmployeeModal();
+    initScenarioControls();
 
-    renderSidebarTree(container);
-    renderScreenOrgChart([selectedNode]);
+    renderApp();
 
     document.getElementById("exportPdf")?.addEventListener("click", () => {
       exportOrgChartToPdf({ chart });
@@ -112,8 +188,7 @@ async function initApp() {
 
     document.getElementById("showVacancies")?.addEventListener("change", event => {
       showVacancies = event.target.checked;
-      renderSidebarTree(container);
-      renderScreenOrgChart([selectedNode]);
+      renderApp();
     });
   } catch (error) {
     console.error("Ошибка инициализации:", error);
@@ -130,13 +205,89 @@ function initDesignSwitcher() {
   select.addEventListener("change", event => {
     cardDesign = event.target.value;
     localStorage.setItem("orgCardDesign", cardDesign);
-    renderScreenOrgChart([selectedNode]);
+    renderApp();
   });
 }
 
-function renderSidebarTree(container) {
+function initScenarioControls() {
+  const scenarioName = document.getElementById("scenarioName");
+  const viewModeSelect = document.getElementById("viewMode");
+
+  if (scenarioName) {
+    scenarioName.value = scenario.name;
+
+    scenarioName.addEventListener("change", event => {
+      scenario = renameScenario(scenario, event.target.value);
+      renderScenarioPanels();
+    });
+  }
+
+  if (viewModeSelect) {
+    viewModeSelect.value = viewMode;
+
+    viewModeSelect.addEventListener("change", event => {
+      viewMode = event.target.value;
+      refreshSelectedNode();
+      renderApp();
+    });
+  }
+
+  document.getElementById("resetScenario")?.addEventListener("click", () => {
+    if (!confirm("Сбросить все изменения сценария?")) return;
+
+    scenario = resetScenario(scenario);
+    refreshSelectedNode();
+    renderApp();
+  });
+
+  document.getElementById("compareScenario")?.addEventListener("click", openCompareModal);
+
+  document.getElementById("closeScenarioModal")?.addEventListener("click", closeScenarioModal);
+  document.querySelector("#scenarioModal .scenario-modal__backdrop")?.addEventListener("click", closeScenarioModal);
+
+  document.getElementById("closeCompareModal")?.addEventListener("click", closeCompareModal);
+  document.querySelector("[data-close-compare]")?.addEventListener("click", closeCompareModal);
+}
+
+function getCurrentTree() {
+  return getTreeByViewMode(scenario, viewMode);
+}
+
+function refreshSelectedNode() {
+  const tree = getCurrentTree();
+
+  if (!selectedNode) {
+    selectedNode = createSyntheticRoot(tree);
+    return;
+  }
+
+  if (selectedNode.department_guid === "synthetic-root") {
+    selectedNode = createSyntheticRoot(tree);
+    return;
+  }
+
+  const updatedSelectedNode = findDepartmentById(tree, selectedNode.department_guid);
+
+  selectedNode = updatedSelectedNode || createSyntheticRoot(tree);
+}
+
+function renderApp() {
+  const tree = getCurrentTree();
+
+  addLevels(tree, 0);
+  refreshSelectedNode();
+
+  renderSidebarTree(tree);
+  renderScreenOrgChart([selectedNode]);
+  renderScenarioPanels();
+}
+
+function renderSidebarTree(tree) {
+  const container = document.getElementById("tree-container");
+  if (!container) return;
+
   selectedNode = buildTreeView({
-    nodes: fullTree,
+    nodes: tree,
     container,
     selectedNode,
     onSelect: node => {
@@ -146,13 +297,78 @@ function renderSidebarTree(container) {
   });
 }
 
+function renderScenarioPanels() {
+  renderStats();
+  renderChangesList();
+}
+
+function renderStats() {
+  const statsEl = document.getElementById("scenarioStats");
+  if (!statsEl) return;
+
+  const stats = getScenarioStats(scenario);
+
+  statsEl.innerHTML = `
+    <div><b>Сотрудники:</b> ${stats.toBe.staff} (${formatDiff(stats.diff.staff)})</div>
+    <div><b>Вакансии:</b> ${stats.toBe.vacancies} (${formatDiff(stats.diff.vacancies)})</div>
+    <div><b>Всего:</b> ${stats.toBe.total} (${formatDiff(stats.diff.total)})</div>
+    <div><b>Подразделения:</b> ${stats.toBe.departments} (${formatDiff(stats.diff.departments)})</div>
+  `;
+}
+
+function renderChangesList() {
+  const list = document.getElementById("changesList");
+  const count = document.getElementById("changesCount");
+
+  if (!list || !count) return;
+
+  count.textContent = String(scenario.operations.length);
+
+  if (!scenario.operations.length) {
+    list.innerHTML = `<div class="changes-list__empty">Изменений пока нет</div>`;
+    return;
+  }
+
+  list.innerHTML = scenario.operations
+    .slice()
+    .reverse()
+    .map(operation => `
+      <button class="change-item"
+              type="button"
+              data-change-entity-id="${escapeHtml(operation.entityId || "")}">
+        <span class="change-item__icon">${getOperationIcon(operation.type)}</span>
+        <span>
+          <b>${escapeHtml(getOperationTitle(operation.type))}</b>
+          <small>${escapeHtml(operation.title || "")}</small>
+        </span>
+      </button>
+    `)
+    .join("");
+
+  list.querySelectorAll("[data-change-entity-id]").forEach(button => {
+    button.addEventListener("click", () => {
+      focusEntity(button.dataset.changeEntityId);
+    });
+  });
+}
+
+function focusEntity(entityId) {
+  if (!entityId || !chart) return;
+
+  try {
+    chart.setCentered(entityId).render();
+  } catch {
+    console.warn("Не удалось сфокусироваться на объекте", entityId);
+  }
+}
+
 function getDepartmentNodeHeight(data) {
-  if (!data.isDepartment) return 82;
+  if (!data.isDepartment) return 96;
 
-  if (cardDesign === "variant2") return 164;
-  if (cardDesign === "variant3") return 146;
+  if (cardDesign === "variant2") return 176;
+  if (cardDesign === "variant3") return 158;
 
-  return 118;
+  return 130;
 }
 
 function getDepartmentNodeWidth() {
@@ -174,6 +390,7 @@ function createOrgChartInstance(containerSelector, flatData) {
       renderNodeContent(d.data, {
         cardDesign,
         showVacancies,
+        viewMode,
       }),
     );
 
@@ -186,7 +403,14 @@ function renderScreenOrgChart(rootNodes) {
   if (!rootNodes?.length) return;
 
   const flatData = convertToFlatData(rootNodes);
-  if (!flatData.length) return;
+
+  if (!flatData.length) {
+    const container = document.getElementById("orgChart");
+    if (container) {
+      container.innerHTML = `<div class="empty-chart">Нет данных для отображения</div>`;
+    }
+    return;
+  }
 
   const container = document.getElementById("orgChart");
   if (container) container.innerHTML = "";
@@ -196,23 +420,440 @@ function renderScreenOrgChart(rootNodes) {
 
   window.orgChart = chart;
 
-  bindEmployeeCardClicks(flatData);
+bindOrgChartDelegatedEvents(flatData);
 }
 
-function bindEmployeeCardClicks(flatData) {
-  setTimeout(() => {
-    document.querySelectorAll("#orgChart [data-employee-id]").forEach(el => {
-      el.addEventListener("click", event => {
-        event.stopPropagation();
+function bindOrgChartDelegatedEvents(flatData) {
+  const container = document.getElementById("orgChart");
+  if (!container) return;
 
-        const employee = flatData.find(item => item.id === el.dataset.employeeId);
+  container.__flatData = flatData;
 
-        if (employee && !employee.isVacancy) {
-          openEmployeeDetails(employee);
-        }
+  if (isOrgChartDelegationBound) return;
+  isOrgChartDelegationBound = true;
+
+  container.addEventListener("click", event => {
+    const menuButton = event.target.closest("[data-scenario-menu]");
+
+    if (menuButton) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const card = menuButton.closest("[data-node-id]");
+      if (!card) return;
+
+      const flatData = container.__flatData || [];
+      const nodeId = card.dataset.nodeId;
+      const nodeType = card.dataset.nodeType;
+      const node = flatData.find(item => item.id === nodeId);
+
+      openContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        node,
+        nodeType,
       });
+
+      return;
+    }
+
+    const employeeCard = event.target.closest("[data-employee-id]");
+    if (!employeeCard) return;
+
+    const flatData = container.__flatData || [];
+    const employee = flatData.find(item => item.id === employeeCard.dataset.employeeId);
+
+    if (employee && !employee.isVacancy) {
+      event.stopPropagation();
+      openEmployeeDetails(employee);
+    }
+  });
+}
+
+function openContextMenu({ x, y, node, nodeType }) {
+  closeContextMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "scenario-context-menu";
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  const actions = getContextActions(nodeType);
+
+  menu.innerHTML = actions
+    .map(action => `
+      <button type="button" data-action="${action.id}">
+        ${escapeHtml(action.label)}
+      </button>
+    `)
+    .join("");
+
+  menu.querySelectorAll("[data-action]").forEach(button => {
+    button.addEventListener("click", () => {
+      handleScenarioAction(button.dataset.action, node);
+      closeContextMenu();
     });
+  });
+
+  document.body.appendChild(menu);
+
+  setTimeout(() => {
+    document.addEventListener("click", closeContextMenu, { once: true });
   }, 0);
+}
+
+function closeContextMenu() {
+  document.querySelectorAll(".scenario-context-menu").forEach(menu => menu.remove());
+}
+
+function getContextActions(nodeType) {
+  if (nodeType === "department") {
+    return [
+      { id: "addDepartment", label: "Добавить подразделение" },
+      { id: "addEmployee", label: "Добавить сотрудника" },
+      { id: "addVacancy", label: "Добавить вакансию" },
+      { id: "editDepartment", label: "Редактировать подразделение" },
+      { id: "moveDepartment", label: "Переместить подразделение" },
+      { id: "removeDepartment", label: "Удалить подразделение" },
+    ];
+  }
+
+  if (nodeType === "vacancy") {
+    return [
+      { id: "editVacancy", label: "Редактировать" },
+      { id: "moveVacancy", label: "Переместить" },
+      { id: "removeVacancy", label: "Удалить" },
+    ];
+  }
+
+  return [
+    { id: "editEmployee", label: "Редактировать" },
+    { id: "moveEmployee", label: "Переместить" },
+    { id: "removeEmployee", label: "Удалить" },
+  ];
+}
+
+function handleScenarioAction(action, node) {
+  if (!node) return;
+
+  if (action === "addDepartment") {
+    openDepartmentForm({
+      title: "Добавить подразделение",
+      onSubmit: values => {
+        scenario = addDepartment(scenario, node.id, values);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+
+  if (action === "editDepartment") {
+    openDepartmentForm({
+      title: "Редактировать подразделение",
+      initialValues: {
+        department_name: node.name,
+        department_manager: node.headName,
+        department_manager_position: node.headPosition,
+      },
+      onSubmit: values => {
+        scenario = editDepartment(scenario, node.id, values);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+
+  if (action === "addEmployee") {
+    openEmployeeForm({
+      title: "Добавить сотрудника",
+      onSubmit: values => {
+        scenario = addEmployee(scenario, node.id, values);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+
+  if (action === "editEmployee") {
+    openEmployeeForm({
+      title: "Редактировать сотрудника",
+      initialValues: node,
+      onSubmit: values => {
+        scenario = editEmployee(scenario, node.id, values);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+
+  if (action === "addVacancy") {
+    openVacancyForm({
+      title: "Добавить вакансию",
+      onSubmit: values => {
+        scenario = addVacancy(scenario, node.id, values);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+
+  if (action === "editVacancy") {
+    openVacancyForm({
+      title: "Редактировать вакансию",
+      initialValues: node,
+      onSubmit: values => {
+        scenario = editVacancy(scenario, node.id, values);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+
+  if (action === "removeEmployee") {
+    if (!confirm("Удалить сотрудника из сценария?")) return;
+
+    scenario = removeEmployee(scenario, node.id);
+    refreshAfterScenarioChange();
+  }
+
+  if (action === "removeVacancy") {
+    if (!confirm("Удалить вакансию из сценария?")) return;
+
+    scenario = removeVacancy(scenario, node.id);
+    refreshAfterScenarioChange();
+  }
+
+  if (action === "removeDepartment") {
+    if (!confirm("Удалить подразделение из сценария?")) return;
+
+    scenario = removeDepartment(scenario, node.id);
+    refreshAfterScenarioChange();
+  }
+
+  if (action === "moveEmployee") {
+    openMoveForm({
+      title: "Переместить сотрудника",
+      excludeDepartmentId: null,
+      onSubmit: values => {
+        scenario = moveEmployee(scenario, node.id, values.targetDepartmentId);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+
+  if (action === "moveVacancy") {
+    openMoveForm({
+      title: "Переместить вакансию",
+      excludeDepartmentId: null,
+      onSubmit: values => {
+        scenario = moveVacancy(scenario, node.id, values.targetDepartmentId);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+
+  if (action === "moveDepartment") {
+    openMoveForm({
+      title: "Переместить подразделение",
+      excludeDepartmentId: node.id,
+      onSubmit: values => {
+        scenario = moveDepartment(scenario, node.id, values.targetDepartmentId);
+        refreshAfterScenarioChange();
+      },
+    });
+  }
+}
+
+function refreshAfterScenarioChange() {
+  viewMode = "to-be";
+
+  const viewModeSelect = document.getElementById("viewMode");
+  if (viewModeSelect) viewModeSelect.value = viewMode;
+
+  refreshSelectedNode();
+  renderApp();
+}
+
+function openDepartmentForm({ title, initialValues = {}, onSubmit }) {
+  openScenarioForm({
+    title,
+    fields: [
+      { name: "department_name", label: "Название подразделения", required: true },
+      { name: "department_manager", label: "Руководитель" },
+      { name: "department_manager_position", label: "Должность руководителя" },
+    ],
+    initialValues,
+    onSubmit,
+  });
+}
+
+function openEmployeeForm({ title, initialValues = {}, onSubmit }) {
+  openScenarioForm({
+    title,
+    fields: [
+      { name: "full_name", label: "ФИО", required: true },
+      { name: "position", label: "Должность", required: true },
+      { name: "email", label: "Email" },
+      { name: "phone", label: "Телефон" },
+      { name: "project", label: "Проект" },
+      { name: "typeEmployment", label: "Тип занятости" },
+      { name: "state", label: "Статус" },
+      { name: "subLevel", label: "sub_level" },
+    ],
+    initialValues,
+    onSubmit,
+  });
+}
+
+function openVacancyForm({ title, initialValues = {}, onSubmit }) {
+  openScenarioForm({
+    title,
+    fields: [
+      { name: "position", label: "Должность", required: true },
+      { name: "project", label: "Проект" },
+      { name: "subLevel", label: "sub_level" },
+    ],
+    initialValues,
+    onSubmit,
+  });
+}
+
+function openMoveForm({ title, excludeDepartmentId, onSubmit }) {
+  const options = getDepartmentOptions(scenario.workingTree)
+    .filter(item => item.id !== excludeDepartmentId);
+
+  openScenarioForm({
+    title,
+    fields: [
+      {
+        name: "targetDepartmentId",
+        label: "Новое подразделение",
+        type: "select",
+        required: true,
+        options,
+      },
+    ],
+    initialValues: {},
+    onSubmit,
+  });
+}
+
+function openScenarioForm({ title, fields, initialValues, onSubmit }) {
+  const modal = document.getElementById("scenarioModal");
+  const modalTitle = document.getElementById("scenarioModalTitle");
+  const form = document.getElementById("scenarioForm");
+
+  if (!modal || !modalTitle || !form) return;
+
+  modalTitle.textContent = title;
+
+  form.innerHTML = `
+    ${fields.map(field => renderFormField(field, initialValues)).join("")}
+
+    <div class="scenario-form__actions">
+      <button type="submit">Сохранить</button>
+      <button type="button" class="button-secondary" data-close-form>Отмена</button>
+    </div>
+  `;
+
+  form.querySelector("[data-close-form]")?.addEventListener("click", closeScenarioModal);
+
+  form.onsubmit = event => {
+    event.preventDefault();
+
+    const data = new FormData(form);
+    const values = {};
+
+    fields.forEach(field => {
+      values[field.name] = String(data.get(field.name) || "").trim();
+    });
+
+    onSubmit(values);
+    closeScenarioModal();
+  };
+
+  modal.classList.remove("hidden");
+}
+
+function renderFormField(field, initialValues) {
+  const value = initialValues[field.name] ?? "";
+
+  if (field.type === "select") {
+    return `
+      <label class="scenario-form__field">
+        <span>${escapeHtml(field.label)}</span>
+        <select name="${escapeHtml(field.name)}" ${field.required ? "required" : ""}>
+          ${(field.options || []).map(option => `
+            <option value="${escapeHtml(option.id)}">
+              ${escapeHtml(option.name)}
+            </option>
+          `).join("")}
+        </select>
+      </label>
+    `;
+  }
+
+  return `
+    <label class="scenario-form__field">
+      <span>${escapeHtml(field.label)}</span>
+      <input name="${escapeHtml(field.name)}"
+             value="${escapeHtml(value)}"
+             ${field.required ? "required" : ""}
+             type="text" />
+    </label>
+  `;
+}
+
+function closeScenarioModal() {
+  document.getElementById("scenarioModal")?.classList.add("hidden");
+}
+
+function openCompareModal() {
+  const modal = document.getElementById("compareModal");
+  const content = document.getElementById("compareContent");
+
+  if (!modal || !content) return;
+
+  const stats = getScenarioStats(scenario);
+
+  content.innerHTML = `
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Показатель</th>
+          <th>Было</th>
+          <th>Стало</th>
+          <th>Изменение</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Подразделения</td>
+          <td>${stats.asIs.departments}</td>
+          <td>${stats.toBe.departments}</td>
+          <td>${formatDiff(stats.diff.departments)}</td>
+        </tr>
+        <tr>
+          <td>Сотрудники</td>
+          <td>${stats.asIs.staff}</td>
+          <td>${stats.toBe.staff}</td>
+          <td>${formatDiff(stats.diff.staff)}</td>
+        </tr>
+        <tr>
+          <td>Вакансии</td>
+          <td>${stats.asIs.vacancies}</td>
+          <td>${stats.toBe.vacancies}</td>
+          <td>${formatDiff(stats.diff.vacancies)}</td>
+        </tr>
+        <tr>
+          <td>Всего</td>
+          <td>${stats.asIs.total}</td>
+          <td>${stats.toBe.total}</td>
+          <td>${formatDiff(stats.diff.total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+
+  modal.classList.remove("hidden");
+}
+
+function closeCompareModal() {
+  document.getElementById("compareModal")?.classList.add("hidden");
 }
 
 function convertToFlatData(nodes) {
@@ -226,9 +867,11 @@ function convertToFlatData(nodes) {
       parentId,
       name: node.department_name || node.name || "Без названия",
       staffCount: node.staffCount || 0,
+      vacancyCount: node.vacancyCount || 0,
       totalWithVacancies: node.totalWithVacancies ?? node.staffCount ?? 0,
       headName: node.department_manager || "",
       headPosition: node.department_manager_position || "",
+      scenarioState: node.scenarioState || "",
       isDepartment: !!node.department_guid,
     });
 
@@ -243,6 +886,7 @@ function convertToFlatData(nodes) {
           parentId: nodeId,
           name: user.full_name || user.name || "Сотрудник",
           position: user.position || "",
+          scenarioState: user.scenarioState || "",
           isDepartment: false,
           isVacancy: !!user.isVacancy,
         });
@@ -252,6 +896,50 @@ function convertToFlatData(nodes) {
   nodes.forEach(node => walk(node));
 
   return result;
+}
+
+function getOperationIcon(type) {
+  if (type.startsWith("add")) return "+";
+  if (type.startsWith("remove")) return "−";
+  if (type.startsWith("move")) return "⇄";
+  if (type.startsWith("edit")) return "✎";
+
+  return "•";
+}
+
+function getOperationTitle(type) {
+  const titles = {
+    addDepartment: "Добавлено подразделение",
+    editDepartment: "Изменено подразделение",
+    removeDepartment: "Удалено подразделение",
+    moveDepartment: "Перемещено подразделение",
+
+    addEmployee: "Добавлен сотрудник",
+    editEmployee: "Изменен сотрудник",
+    removeEmployee: "Удален сотрудник",
+    moveEmployee: "Перемещен сотрудник",
+
+    addVacancy: "Добавлена вакансия",
+    editVacancy: "Изменена вакансия",
+    removeVacancy: "Удалена вакансия",
+    moveVacancy: "Перемещена вакансия",
+  };
+
+  return titles[type] || "Изменение";
+}
+
+function formatDiff(value) {
+  if (value > 0) return `+${value}`;
+  return String(value);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 document.addEventListener("DOMContentLoaded", initApp);
@@ -329,7 +1017,14 @@ function parseSubLevel(value) {
 }
 
 function getProject(emp) {
-  return emp.project || emp.project_name || emp.projectName || emp.project_title || '';
+  return (
+    emp.projects ||
+    emp.project ||
+    emp.project_name ||
+    emp.projectName ||
+    emp.project_title ||
+    ''
+  );
 }
 
 function getPhone(emp) {
@@ -445,52 +1140,37 @@ function transformNode(apiNode, parentId = null) {
 
 # FILE: src\chart-cards.js
 
-// src/chart-cards.js
-
 export function renderNodeContent(nd, options) {
-  const { cardDesign, showVacancies } = options;
+  const { cardDesign, showVacancies, viewMode } = options;
 
   if (nd.isDepartment) {
     if (cardDesign === "variant2") {
-      return renderDepartmentVariant2(nd, showVacancies);
+      return renderDepartmentVariant2(nd, showVacancies, viewMode);
     }
 
     if (cardDesign === "variant3") {
-      return renderDepartmentVariant3(nd, showVacancies);
+      return renderDepartmentVariant3(nd, showVacancies, viewMode);
     }
 
-    return renderDepartmentClassic(nd, showVacancies);
+    return renderDepartmentClassic(nd, showVacancies, viewMode);
   }
 
   if (nd.isVacancy) {
-    return `
-      <div class="chart-card chart-card--vacancy">
-        <div class="chart-card__title">Вакансия</div>
-        ${
-          nd.position
-            ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
-            : ""
-        }
-      </div>
-    `;
+    return renderVacancy(nd, viewMode);
   }
 
-  return `
-    <div class="chart-card chart-card--employee"
-         data-employee-id="${escapeHtml(nd.id)}">
-      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
-      ${
-        nd.position
-          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
-          : ""
-      }
-    </div>
-  `;
+  return renderEmployee(nd, viewMode);
 }
 
-function renderDepartmentClassic(nd, showVacancies) {
+function renderDepartmentClassic(nd, showVacancies, viewMode) {
   return `
-    <div class="chart-card chart-card--department">
+    <div class="chart-card chart-card--department ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="department">
+      ${renderScenarioBadge(nd)}
+
+      ${renderMenuButton(viewMode)}
+
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
 
       <div class="chart-card__manager">
@@ -499,9 +1179,7 @@ function renderDepartmentClassic(nd, showVacancies) {
 
       ${
         nd.headPosition
-          ? `<div class="chart-card__manager-position">
-              ${escapeHtml(nd.headPosition)}
-            </div>`
+          ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>`
           : ""
       }
 
@@ -512,13 +1190,17 @@ function renderDepartmentClassic(nd, showVacancies) {
   `;
 }
 
-function renderDepartmentVariant2(nd, showVacancies) {
+function renderDepartmentVariant2(nd, showVacancies, viewMode) {
   return `
-    <div class="chart-card chart-card--department-v2">
+    <div class="chart-card chart-card--department-v2 ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="department">
+      ${renderScenarioBadge(nd)}
+
+      ${renderMenuButton(viewMode)}
+
       <div class="chart-card-v2__header">
-        <div class="chart-card-v2__title">
-          ${escapeHtml(nd.name)}
-        </div>
+        <div class="chart-card-v2__title">${escapeHtml(nd.name)}</div>
       </div>
 
       <div class="chart-card-v2__body">
@@ -528,9 +1210,7 @@ function renderDepartmentVariant2(nd, showVacancies) {
 
         ${
           nd.headPosition
-            ? `<div class="chart-card-v2__position">
-                ${escapeHtml(nd.headPosition)}
-              </div>`
+            ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>`
             : ""
         }
       </div>
@@ -542,17 +1222,21 @@ function renderDepartmentVariant2(nd, showVacancies) {
   `;
 }
 
-function renderDepartmentVariant3(nd, showVacancies) {
+function renderDepartmentVariant3(nd, showVacancies, viewMode) {
   return `
-    <div class="chart-card chart-card--department-v3">
+    <div class="chart-card chart-card--department-v3 ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="department">
+      ${renderScenarioBadge(nd)}
+
+      ${renderMenuButton(viewMode)}
+
       <div class="chart-card-v3__avatar">
         ${escapeHtml(getInitials(nd.headName))}
       </div>
 
       <div class="chart-card-v3__content">
-        <div class="chart-card-v3__title">
-          ${escapeHtml(nd.name)}
-        </div>
+        <div class="chart-card-v3__title">${escapeHtml(nd.name)}</div>
 
         <div class="chart-card-v3__manager">
           ${escapeHtml(nd.headName || "Нет руководителя")}
@@ -560,9 +1244,7 @@ function renderDepartmentVariant3(nd, showVacancies) {
 
         ${
           nd.headPosition
-            ? `<div class="chart-card-v3__position">
-                ${escapeHtml(nd.headPosition)}
-              </div>`
+            ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>`
             : ""
         }
 
@@ -572,6 +1254,106 @@ function renderDepartmentVariant3(nd, showVacancies) {
       </div>
     </div>
   `;
+}
+
+function renderEmployee(nd, viewMode) {
+  return `
+    <div class="chart-card chart-card--employee ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      ${renderScenarioBadge(nd)}
+
+      ${renderMenuButton(viewMode)}
+
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      ${
+        nd.position
+          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
+          : ""
+      }
+
+      ${renderProject(nd)}
+    </div>
+  `;
+}
+
+function renderVacancy(nd, viewMode) {
+  return `
+    <div class="chart-card chart-card--vacancy ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="vacancy">
+      ${renderScenarioBadge(nd)}
+
+      ${renderMenuButton(viewMode)}
+
+      <div class="chart-card__title">Вакансия</div>
+      ${
+        nd.position
+          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
+          : ""
+      }
+
+      ${renderProject(nd)}
+    </div>
+  `;
+}
+
+function renderProject(nd) {
+  const project = normalizeProjects(nd.project);
+
+  if (!project) return "";
+
+  return `
+    <div class="chart-card__project">
+      <span>Проект:</span> ${escapeHtml(project)}
+    </div>
+  `;
+}
+
+function normalizeProjects(value) {
+  return String(value || "")
+    .split(";")
+    .map(item => item.trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+function renderMenuButton(viewMode) {
+  if (viewMode === "as-is") return "";
+
+  return `
+    <button class="chart-card__menu"
+            type="button"
+            data-scenario-menu>
+      ⋮
+    </button>
+  `;
+}
+
+function renderScenarioBadge(nd) {
+  const label = getScenarioLabel(nd.scenarioState);
+
+  if (!label) return "";
+
+  return `
+    <div class="scenario-badge scenario-badge--${escapeHtml(nd.scenarioState)}">
+      ${escapeHtml(label)}
+    </div>
+  `;
+}
+
+function getScenarioClass(nd) {
+  return nd.scenarioState ? `chart-card--scenario-${nd.scenarioState}` : "";
+}
+
+function getScenarioLabel(state) {
+  if (state === "added") return "NEW";
+  if (state === "changed") return "Изменен";
+  if (state === "moved") return "Перемещен";
+  if (state === "removed") return "Удален";
+
+  return "";
 }
 
 function getDisplayCount(node, showVacancies) {
@@ -945,6 +1727,641 @@ export function renderTree(nodes, container) {
 }
 
 
+
+# FILE: src\scenario-manager.js
+
+const LOCAL_ID_PREFIX = "local";
+
+export function createScenario(baseTree) {
+  return {
+    id: createLocalId("scenario"),
+    name: "Новый сценарий моделирования",
+    baseDate: new Date().toISOString().slice(0, 10),
+    baseTree: cloneTree(baseTree),
+    workingTree: cloneTree(baseTree),
+    operations: [],
+  };
+}
+
+export function cloneTree(value) {
+  return JSON.parse(JSON.stringify(value || []));
+}
+
+export function resetScenario(scenario) {
+  return createScenario(scenario.baseTree);
+}
+
+export function renameScenario(scenario, name) {
+  return {
+    ...scenario,
+    name: name?.trim() || "Новый сценарий моделирования",
+  };
+}
+
+export function addDepartment(scenario, parentDepartmentId, payload) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const parent = findDepartmentById(workingTree, parentDepartmentId);
+  if (!parent) return scenario;
+
+  const department = {
+    department_guid: createLocalId("department"),
+    department_name: payload.department_name || "Новое подразделение",
+    department_manager: payload.department_manager || "",
+    department_manager_position: shortPosition(payload.department_manager_position || ""),
+    parent_guid: parent.department_guid,
+    staffCount: 0,
+    vacancyCount: 0,
+    totalWithVacancies: 0,
+    users: [],
+    children: [],
+    scenarioState: "added",
+  };
+
+  parent.children = parent.children || [];
+  parent.children.push(department);
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: "addDepartment",
+      entityId: department.department_guid,
+      parentId: parentDepartmentId,
+      title: department.department_name,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+export function editDepartment(scenario, departmentId, payload) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const department = findDepartmentById(workingTree, departmentId);
+  if (!department) return scenario;
+
+  department.department_name = payload.department_name || department.department_name;
+  department.department_manager = payload.department_manager || "";
+  department.department_manager_position = shortPosition(payload.department_manager_position || "");
+
+  if (department.scenarioState !== "added") {
+    department.scenarioState = "changed";
+  }
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: "editDepartment",
+      entityId: departmentId,
+      title: department.department_name,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+export function addEmployee(scenario, departmentId, payload) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const department = findDepartmentById(workingTree, departmentId);
+  if (!department) return scenario;
+
+  const employee = {
+    id: createLocalId("employee"),
+    full_name: payload.full_name || "Сотрудник",
+    name: payload.full_name || "Сотрудник",
+    fullName: payload.full_name || "Сотрудник",
+    position: shortPosition(payload.position || ""),
+    rawPosition: payload.position || "",
+    email: payload.email || "",
+    phone: payload.phone || "",
+    photo: "",
+    project: payload.project || "",
+    typeEmployment: payload.typeEmployment || "",
+    state: payload.state || "",
+    subLevel: parseSubLevel(payload.subLevel),
+    isVacancy: false,
+    scenarioState: "added",
+  };
+
+  department.users = department.users || [];
+  department.users.push(employee);
+  department.users = sortUsers(department.users);
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: "addEmployee",
+      entityId: employee.id,
+      departmentId,
+      title: employee.full_name,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+export function editEmployee(scenario, employeeId, payload) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const found = findUserById(workingTree, employeeId);
+  if (!found) return scenario;
+
+  found.user.full_name = payload.full_name || found.user.full_name;
+  found.user.name = payload.full_name || found.user.name;
+  found.user.fullName = payload.full_name || found.user.fullName;
+  found.user.position = shortPosition(payload.position || found.user.position || "");
+  found.user.rawPosition = payload.position || found.user.rawPosition || "";
+  found.user.email = payload.email || "";
+  found.user.phone = payload.phone || "";
+  found.user.project = payload.project || "";
+  found.user.typeEmployment = payload.typeEmployment || "";
+  found.user.state = payload.state || "";
+  found.user.subLevel = parseSubLevel(payload.subLevel);
+
+  if (found.user.scenarioState !== "added") {
+    found.user.scenarioState = "changed";
+  }
+
+  found.department.users = sortUsers(found.department.users);
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: "editEmployee",
+      entityId: employeeId,
+      departmentId: found.department.department_guid,
+      title: found.user.full_name,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+export function addVacancy(scenario, departmentId, payload) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const department = findDepartmentById(workingTree, departmentId);
+  if (!department) return scenario;
+
+  const vacancy = {
+    id: createLocalId("vacancy"),
+    full_name: "Вакансия",
+    name: "Вакансия",
+    fullName: "Вакансия",
+    position: shortPosition(payload.position || "Новая вакансия"),
+    rawPosition: payload.position || "Новая вакансия",
+    email: "",
+    phone: "",
+    photo: "",
+    project: payload.project || "",
+    subLevel: parseSubLevel(payload.subLevel),
+    isVacancy: true,
+    scenarioState: "added",
+  };
+
+  department.users = department.users || [];
+  department.users.push(vacancy);
+  department.users = sortUsers(department.users);
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: "addVacancy",
+      entityId: vacancy.id,
+      departmentId,
+      title: vacancy.position,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+export function editVacancy(scenario, vacancyId, payload) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const found = findUserById(workingTree, vacancyId);
+  if (!found || !found.user.isVacancy) return scenario;
+
+  found.user.position = shortPosition(payload.position || found.user.position || "");
+  found.user.rawPosition = payload.position || found.user.rawPosition || "";
+  found.user.project = payload.project || "";
+  found.user.subLevel = parseSubLevel(payload.subLevel);
+
+  if (found.user.scenarioState !== "added") {
+    found.user.scenarioState = "changed";
+  }
+
+  found.department.users = sortUsers(found.department.users);
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: "editVacancy",
+      entityId: vacancyId,
+      departmentId: found.department.department_guid,
+      title: found.user.position,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+export function removeEmployee(scenario, employeeId) {
+  return removeUser({
+    scenario,
+    userId: employeeId,
+    operationType: "removeEmployee",
+  });
+}
+
+export function removeVacancy(scenario, vacancyId) {
+  return removeUser({
+    scenario,
+    userId: vacancyId,
+    operationType: "removeVacancy",
+  });
+}
+
+export function moveEmployee(scenario, employeeId, targetDepartmentId) {
+  return moveUser({
+    scenario,
+    userId: employeeId,
+    targetDepartmentId,
+    operationType: "moveEmployee",
+  });
+}
+
+export function moveVacancy(scenario, vacancyId, targetDepartmentId) {
+  return moveUser({
+    scenario,
+    userId: vacancyId,
+    targetDepartmentId,
+    operationType: "moveVacancy",
+  });
+}
+
+export function moveDepartment(scenario, departmentId, targetParentId) {
+  if (departmentId === targetParentId) return scenario;
+
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const moving = detachDepartment(workingTree, departmentId);
+  const targetParent = findDepartmentById(workingTree, targetParentId);
+
+  if (!moving || !targetParent) return scenario;
+
+  if (containsDepartment(moving, targetParentId)) {
+    return scenario;
+  }
+
+  moving.parent_guid = targetParent.department_guid;
+
+  if (moving.scenarioState !== "added") {
+    moving.scenarioState = "moved";
+  }
+
+  targetParent.children = targetParent.children || [];
+  targetParent.children.push(moving);
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: "moveDepartment",
+      entityId: departmentId,
+      targetDepartmentId: targetParentId,
+      title: moving.department_name,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+export function removeDepartment(scenario, departmentId) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const removed = detachDepartment(workingTree, departmentId);
+  if (!removed) return scenario;
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: "removeDepartment",
+      entityId: departmentId,
+      title: removed.department_name,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+export function getTreeByViewMode(scenario, viewMode) {
+  if (viewMode === "as-is") {
+    return scenario.baseTree;
+  }
+
+  if (viewMode === "changes") {
+    return buildChangesTree(scenario.workingTree);
+  }
+
+  return scenario.workingTree;
+}
+
+export function getScenarioStats(scenario) {
+  const asIs = aggregateStats(scenario.baseTree);
+  const toBe = aggregateStats(scenario.workingTree);
+
+  return {
+    asIs,
+    toBe,
+    diff: {
+      departments: toBe.departments - asIs.departments,
+      staff: toBe.staff - asIs.staff,
+      vacancies: toBe.vacancies - asIs.vacancies,
+      total: toBe.total - asIs.total,
+    },
+  };
+}
+
+export function getDepartmentOptions(tree) {
+  const result = [];
+
+  function walk(nodes, level = 0) {
+    nodes.forEach(node => {
+      result.push({
+        id: node.department_guid,
+        name: `${"— ".repeat(level)}${node.department_name || "Без названия"}`,
+      });
+
+      walk(node.children || [], level + 1);
+    });
+  }
+
+  walk(tree);
+
+  return result;
+}
+
+export function findDepartmentById(nodes, departmentId) {
+  for (const node of nodes || []) {
+    if (node.department_guid === departmentId) return node;
+
+    const found = findDepartmentById(node.children || [], departmentId);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+export function findUserById(nodes, userId) {
+  for (const node of nodes || []) {
+    const user = (node.users || []).find(item => item.id === userId);
+    if (user) return { user, department: node };
+
+    const found = findUserById(node.children || [], userId);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+function removeUser({ scenario, userId, operationType }) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const found = findUserById(workingTree, userId);
+  if (!found) return scenario;
+
+  found.department.users = (found.department.users || []).filter(user => user.id !== userId);
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: operationType,
+      entityId: userId,
+      departmentId: found.department.department_guid,
+      title: found.user.full_name || found.user.position || "Объект",
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+function moveUser({ scenario, userId, targetDepartmentId, operationType }) {
+  const workingTree = cloneTree(scenario.workingTree);
+
+  const found = findUserById(workingTree, userId);
+  const targetDepartment = findDepartmentById(workingTree, targetDepartmentId);
+
+  if (!found || !targetDepartment) return scenario;
+
+  found.department.users = (found.department.users || []).filter(user => user.id !== userId);
+
+  const movedUser = {
+    ...found.user,
+    scenarioState: found.user.scenarioState === "added" ? "added" : "moved",
+  };
+
+  targetDepartment.users = targetDepartment.users || [];
+  targetDepartment.users.push(movedUser);
+  targetDepartment.users = sortUsers(targetDepartment.users);
+
+  recalculateTree(workingTree);
+
+  return appendOperation({
+    scenario,
+    workingTree,
+    operation: {
+      id: createLocalId("operation"),
+      type: operationType,
+      entityId: userId,
+      fromDepartmentId: found.department.department_guid,
+      targetDepartmentId,
+      title: movedUser.full_name || movedUser.position || "Объект",
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+function detachDepartment(nodes, departmentId) {
+  const index = nodes.findIndex(node => node.department_guid === departmentId);
+
+  if (index !== -1) {
+    return nodes.splice(index, 1)[0];
+  }
+
+  for (const node of nodes) {
+    const found = detachDepartment(node.children || [], departmentId);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+function containsDepartment(node, departmentId) {
+  if (node.department_guid === departmentId) return true;
+
+  return (node.children || []).some(child => containsDepartment(child, departmentId));
+}
+
+function recalculateTree(nodes) {
+  nodes.forEach(node => recalculateNode(node));
+}
+
+function recalculateNode(node) {
+  const children = node.children || [];
+  children.forEach(child => recalculateNode(child));
+
+  const ownStaff = (node.users || []).filter(user => !user.isVacancy).length;
+  const ownVacancies = (node.users || []).filter(user => user.isVacancy).length;
+
+  const childrenStaff = children.reduce((sum, child) => sum + (child.staffCount || 0), 0);
+  const childrenVacancies = children.reduce((sum, child) => sum + (child.vacancyCount || 0), 0);
+
+  node.staffCount = ownStaff + childrenStaff;
+  node.vacancyCount = ownVacancies + childrenVacancies;
+  node.totalWithVacancies = node.staffCount + node.vacancyCount;
+
+  node.users = sortUsers(node.users || []);
+}
+
+function buildChangesTree(nodes) {
+  const result = [];
+
+  nodes.forEach(node => {
+    const changedChildren = buildChangesTree(node.children || []);
+    const changedUsers = (node.users || []).filter(user => user.scenarioState);
+
+    if (node.scenarioState || changedChildren.length || changedUsers.length) {
+      result.push({
+        ...cloneTree(node),
+        users: changedUsers,
+        children: changedChildren,
+      });
+    }
+  });
+
+  recalculateTree(result);
+
+  return result;
+}
+
+function aggregateStats(nodes) {
+  let departments = 0;
+  let staff = 0;
+  let vacancies = 0;
+
+  function walk(items) {
+    items.forEach(node => {
+      departments += 1;
+
+      (node.users || []).forEach(user => {
+        if (user.isVacancy) {
+          vacancies += 1;
+        } else {
+          staff += 1;
+        }
+      });
+
+      walk(node.children || []);
+    });
+  }
+
+  walk(nodes);
+
+  return {
+    departments,
+    staff,
+    vacancies,
+    total: staff + vacancies,
+  };
+}
+
+function appendOperation({ scenario, workingTree, operation }) {
+  return {
+    ...scenario,
+    workingTree,
+    operations: [...scenario.operations, operation],
+  };
+}
+
+function sortUsers(users) {
+  return [...(users || [])].sort(sortUsersByPositionLevel);
+}
+
+function sortUsersByPositionLevel(a, b) {
+  if (a.isVacancy !== b.isVacancy) {
+    return a.isVacancy ? 1 : -1;
+  }
+
+  const levelDiff = positionWeight(a) - positionWeight(b);
+  if (levelDiff !== 0) return levelDiff;
+
+  return String(a.full_name || a.position || "").localeCompare(
+    String(b.full_name || b.position || ""),
+    "ru"
+  );
+}
+
+function positionWeight(user) {
+  if (Number.isFinite(user.subLevel)) return user.subLevel;
+
+  const position = String(user.position || "").toLowerCase();
+
+  if (position.includes("директор")) return 1;
+  if (position.includes("руководитель")) return 2;
+  if (position.includes("начальник")) return 3;
+  if (position.includes("лидер") || position.includes("lead")) return 4;
+  if (position.includes("ведущий")) return 5;
+  if (position.includes("старший")) return 6;
+  if (position.includes("главный")) return 6;
+
+  return 100;
+}
+
+function shortPosition(pos) {
+  if (!pos) return "";
+  const idx = pos.indexOf("/");
+  return idx !== -1 ? pos.substring(0, idx).trim() : pos.trim();
+}
+
+function parseSubLevel(value) {
+  if (value === undefined || value === null || value === "") {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  return parseFloat(String(value).replace(",", ".")) || Number.MAX_SAFE_INTEGER;
+}
+
+function createLocalId(type) {
+  return `${LOCAL_ID_PREFIX}-${type}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 # FILE: src\sidebar-tree.js
 
@@ -1616,6 +3033,409 @@ button:hover {
 
 .chart-card__export-border {
   display: none;
+}
+
+body {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr) 300px;
+}
+
+.sidebar {
+  width: auto;
+}
+
+.changes-panel {
+  height: 100vh;
+  overflow-y: auto;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 16px;
+}
+
+.changes-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.changes-panel__header h2 {
+  margin: 0;
+  font-size: 16px;
+  color: #2c3e50;
+}
+
+.changes-panel__header span {
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #155eef;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.scenario-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #f9fafb;
+}
+
+.scenario-panel__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #101828;
+}
+
+.scenario-field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #475467;
+}
+
+.scenario-field input,
+.scenario-field select,
+.scenario-form__field input,
+.scenario-form__field select {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #fff;
+  color: #101828;
+  font: inherit;
+}
+
+.scenario-stats {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 12px;
+  color: #344054;
+}
+
+.scenario-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.button-secondary {
+  background: #eef2f6;
+  color: #344054;
+}
+
+.button-secondary:hover {
+  background: #e4e7ec;
+}
+
+.changes-list {
+  display: grid;
+  gap: 8px;
+}
+
+.changes-list__empty {
+  padding: 12px;
+  border-radius: 10px;
+  background: #f9fafb;
+  color: #667085;
+  font-size: 13px;
+}
+
+.change-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #101828;
+  text-align: left;
+  cursor: pointer;
+}
+
+.change-item:hover {
+  background: #f9fafb;
+}
+
+.change-item__icon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #155eef;
+  font-weight: 700;
+}
+
+.change-item small {
+  display: block;
+  margin-top: 2px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.chart-card {
+  position: relative;
+}
+
+.chart-card__menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.9);
+  color: #344054;
+  border: 1px solid #e4e7ec;
+  font-size: 16px;
+  line-height: 1;
+  z-index: 5;
+}
+
+.chart-card__menu:hover {
+  background: #f2f4f7;
+}
+
+.scenario-badge {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 4;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.scenario-badge--added {
+  background: #dcfae6;
+  color: #067647;
+}
+
+.scenario-badge--changed {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.scenario-badge--moved {
+  background: #f4e8ff;
+  color: #7e22ce;
+}
+
+.scenario-badge--removed {
+  background: #fee4e2;
+  color: #b42318;
+}
+
+.chart-card--scenario-added {
+  outline: 2px solid #12b76a;
+  outline-offset: 2px;
+}
+
+.chart-card--scenario-changed {
+  outline: 2px solid #2e90fa;
+  outline-offset: 2px;
+}
+
+.chart-card--scenario-moved {
+  outline: 2px solid #9e77ed;
+  outline-offset: 2px;
+}
+
+.chart-card--scenario-removed {
+  outline: 2px solid #f04438;
+  outline-offset: 2px;
+  opacity: 0.65;
+  text-decoration: line-through;
+}
+
+.scenario-context-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 220px;
+  display: grid;
+  padding: 6px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(16, 24, 40, 0.18);
+}
+
+.scenario-context-menu button {
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #344054;
+  text-align: left;
+  font-size: 13px;
+}
+
+.scenario-context-menu button:hover {
+  background: #f2f4f7;
+}
+
+.scenario-modal.hidden {
+  display: none;
+}
+
+.scenario-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+}
+
+.scenario-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+}
+
+.scenario-modal__card {
+  position: relative;
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  margin: 6vh auto;
+  padding: 24px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.2);
+}
+
+.scenario-modal__card--wide {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.scenario-modal__card h2 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  color: #101828;
+}
+
+.scenario-modal__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 2px 10px;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.scenario-form__field {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #475467;
+}
+
+.scenario-form__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 10px;
+  border-bottom: 1px solid #e4e7ec;
+  text-align: right;
+}
+
+.compare-table th:first-child,
+.compare-table td:first-child {
+  text-align: left;
+}
+
+.compare-table th {
+  background: #f9fafb;
+  color: #475467;
+  font-weight: 600;
+}
+
+.empty-chart {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #667085;
+  font-size: 14px;
+}
+
+@media (max-width: 1100px) {
+  body {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+
+  .changes-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    max-height: 45vh;
+  }
+
+  #chartPanel {
+    height: 55vh;
+  }
+
+  .changes-panel {
+    display: none;
+  }
+}
+
+.chart-card__project {
+  margin-top: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: #f2f4f7;
+  color: #344054;
+  font-size: 10px;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.chart-card__project span {
+  font-weight: 700;
+  color: #475467;
 }
 
 # FILE: vite.config.js
