@@ -55,13 +55,14 @@ function renderDepartmentClassic(nd, showVacancies, viewMode) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="department">
       ${renderScenarioBadge(nd)}
-
       ${renderMenuButton(viewMode)}
 
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
 
       <div class="chart-card__manager">
-        👤 ${escapeHtml(nd.headName || "Нет руководителя")}
+        <span class="chart-card__manager-name">
+          ${escapeHtml(nd.headName || "Нет руководителя")}
+        </span>
       </div>
 
       ${

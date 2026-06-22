@@ -4,10 +4,7 @@ import { OrgChart } from "d3-org-chart";
 
 import { fetchOrganizationStructure } from "./src/api.js";
 import { addLevels } from "./src/layout.js";
-import {
-  buildTreeView,
-  createSyntheticRoot,
-} from "./src/sidebar-tree.js";
+import { buildTreeView, createSyntheticRoot } from "./src/sidebar-tree.js";
 import { renderNodeContent } from "./src/chart-cards.js";
 import {
   initEmployeeModal,
@@ -74,13 +71,25 @@ async function initApp() {
     renderApp();
 
     document.getElementById("exportPdf")?.addEventListener("click", () => {
-      exportOrgChartToPdf({ chart });
+      const exportWithoutNames =
+        document.getElementById("exportWithoutNames")?.checked;
+
+      exportOrgChartToPdf({
+        chart,
+        title:
+          selectedNode?.department_name ||
+          selectedNode?.name ||
+          "Организационная структура",
+        hideNames: exportWithoutNames,
+      });
     });
 
-    document.getElementById("showVacancies")?.addEventListener("change", event => {
-      showVacancies = event.target.checked;
-      renderApp();
-    });
+    document
+      .getElementById("showVacancies")
+      ?.addEventListener("change", (event) => {
+        showVacancies = event.target.checked;
+        renderApp();
+      });
   } catch (error) {
     console.error("Ошибка инициализации:", error);
     container.innerHTML = "<p>Произошла ошибка. Обновите страницу.</p>";
@@ -93,7 +102,7 @@ function initDesignSwitcher() {
 
   select.value = cardDesign;
 
-  select.addEventListener("change", event => {
+  select.addEventListener("change", (event) => {
     cardDesign = event.target.value;
     localStorage.setItem("orgCardDesign", cardDesign);
     renderApp();
@@ -107,7 +116,7 @@ function initScenarioControls() {
   if (scenarioName) {
     scenarioName.value = scenario.name;
 
-    scenarioName.addEventListener("change", event => {
+    scenarioName.addEventListener("change", (event) => {
       scenario = renameScenario(scenario, event.target.value);
       renderScenarioPanels();
     });
@@ -116,7 +125,7 @@ function initScenarioControls() {
   if (viewModeSelect) {
     viewModeSelect.value = viewMode;
 
-    viewModeSelect.addEventListener("change", event => {
+    viewModeSelect.addEventListener("change", (event) => {
       viewMode = event.target.value;
       refreshSelectedNode();
       renderApp();
@@ -131,13 +140,23 @@ function initScenarioControls() {
     renderApp();
   });
 
-  document.getElementById("compareScenario")?.addEventListener("click", openCompareModal);
+  document
+    .getElementById("compareScenario")
+    ?.addEventListener("click", openCompareModal);
 
-  document.getElementById("closeScenarioModal")?.addEventListener("click", closeScenarioModal);
-  document.querySelector("#scenarioModal .scenario-modal__backdrop")?.addEventListener("click", closeScenarioModal);
+  document
+    .getElementById("closeScenarioModal")
+    ?.addEventListener("click", closeScenarioModal);
+  document
+    .querySelector("#scenarioModal .scenario-modal__backdrop")
+    ?.addEventListener("click", closeScenarioModal);
 
-  document.getElementById("closeCompareModal")?.addEventListener("click", closeCompareModal);
-  document.querySelector("[data-close-compare]")?.addEventListener("click", closeCompareModal);
+  document
+    .getElementById("closeCompareModal")
+    ?.addEventListener("click", closeCompareModal);
+  document
+    .querySelector("[data-close-compare]")
+    ?.addEventListener("click", closeCompareModal);
 }
 
 function getCurrentTree() {
@@ -157,7 +176,10 @@ function refreshSelectedNode() {
     return;
   }
 
-  const updatedSelectedNode = findDepartmentById(tree, selectedNode.department_guid);
+  const updatedSelectedNode = findDepartmentById(
+    tree,
+    selectedNode.department_guid,
+  );
 
   selectedNode = updatedSelectedNode || createSyntheticRoot(tree);
 }
@@ -181,7 +203,7 @@ function renderSidebarTree(tree) {
     nodes: tree,
     container,
     selectedNode,
-    onSelect: node => {
+    onSelect: (node) => {
       selectedNode = node;
       renderScreenOrgChart([node]);
     },
@@ -223,7 +245,8 @@ function renderChangesList() {
   list.innerHTML = scenario.operations
     .slice()
     .reverse()
-    .map(operation => `
+    .map(
+      (operation) => `
       <button class="change-item"
               type="button"
               data-change-entity-id="${escapeHtml(operation.entityId || "")}">
@@ -233,10 +256,11 @@ function renderChangesList() {
           <small>${escapeHtml(operation.title || "")}</small>
         </span>
       </button>
-    `)
+    `,
+    )
     .join("");
 
-  list.querySelectorAll("[data-change-entity-id]").forEach(button => {
+  list.querySelectorAll("[data-change-entity-id]").forEach((button) => {
     button.addEventListener("click", () => {
       focusEntity(button.dataset.changeEntityId);
     });
@@ -274,12 +298,12 @@ function getDepartmentNodeWidth() {
 function createOrgChartInstance(containerSelector, flatData) {
   const orgChart = new OrgChart()
     .container(containerSelector)
-    .nodeHeight(d => getDepartmentNodeHeight(d.data))
+    .nodeHeight((d) => getDepartmentNodeHeight(d.data))
     .nodeWidth(() => getDepartmentNodeWidth())
     .childrenMargin(() => 40)
     .compactMarginBetween(() => 20)
     .compactMarginPair(() => 60)
-    .nodeContent(d =>
+    .nodeContent((d) =>
       renderNodeContent(d.data, {
         cardDesign,
         showVacancies,
@@ -325,7 +349,7 @@ function bindOrgChartDelegatedEvents(flatData) {
   if (isOrgChartDelegationBound) return;
   isOrgChartDelegationBound = true;
 
-  container.addEventListener("click", event => {
+  container.addEventListener("click", (event) => {
     const menuButton = event.target.closest("[data-scenario-menu]");
 
     if (menuButton) {
@@ -338,7 +362,7 @@ function bindOrgChartDelegatedEvents(flatData) {
       const flatData = container.__flatData || [];
       const nodeId = card.dataset.nodeId;
       const nodeType = card.dataset.nodeType;
-      const node = flatData.find(item => item.id === nodeId);
+      const node = flatData.find((item) => item.id === nodeId);
 
       openContextMenu({
         x: event.clientX,
@@ -353,7 +377,9 @@ function bindOrgChartDelegatedEvents(flatData) {
     const assistantCard = event.target.closest("[data-assistant-id]");
     if (assistantCard) {
       const flatData = container.__flatData || [];
-      const department = flatData.find(item => item.assistant?.id === assistantCard.dataset.assistantId);
+      const department = flatData.find(
+        (item) => item.assistant?.id === assistantCard.dataset.assistantId,
+      );
 
       if (department?.assistant) {
         event.stopPropagation();
@@ -367,7 +393,9 @@ function bindOrgChartDelegatedEvents(flatData) {
     if (!employeeCard) return;
 
     const flatData = container.__flatData || [];
-    const employee = flatData.find(item => item.id === employeeCard.dataset.employeeId);
+    const employee = flatData.find(
+      (item) => item.id === employeeCard.dataset.employeeId,
+    );
 
     if (employee && !employee.isVacancy) {
       event.stopPropagation();
@@ -387,14 +415,16 @@ function openContextMenu({ x, y, node, nodeType }) {
   const actions = getContextActions(nodeType);
 
   menu.innerHTML = actions
-    .map(action => `
+    .map(
+      (action) => `
       <button type="button" data-action="${action.id}">
         ${escapeHtml(action.label)}
       </button>
-    `)
+    `,
+    )
     .join("");
 
-  menu.querySelectorAll("[data-action]").forEach(button => {
+  menu.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
       handleScenarioAction(button.dataset.action, node);
       closeContextMenu();
@@ -409,7 +439,9 @@ function openContextMenu({ x, y, node, nodeType }) {
 }
 
 function closeContextMenu() {
-  document.querySelectorAll(".scenario-context-menu").forEach(menu => menu.remove());
+  document
+    .querySelectorAll(".scenario-context-menu")
+    .forEach((menu) => menu.remove());
 }
 
 function getContextActions(nodeType) {
@@ -445,7 +477,7 @@ function handleScenarioAction(action, node) {
   if (action === "addDepartment") {
     openDepartmentForm({
       title: "Добавить подразделение",
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = addDepartment(scenario, node.id, values);
         refreshAfterScenarioChange();
       },
@@ -460,7 +492,7 @@ function handleScenarioAction(action, node) {
         department_manager: node.headName,
         department_manager_position: node.headPosition,
       },
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = editDepartment(scenario, node.id, values);
         refreshAfterScenarioChange();
       },
@@ -470,7 +502,7 @@ function handleScenarioAction(action, node) {
   if (action === "addEmployee") {
     openEmployeeForm({
       title: "Добавить сотрудника",
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = addEmployee(scenario, node.id, values);
         refreshAfterScenarioChange();
       },
@@ -481,7 +513,7 @@ function handleScenarioAction(action, node) {
     openEmployeeForm({
       title: "Редактировать сотрудника",
       initialValues: node,
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = editEmployee(scenario, node.id, values);
         refreshAfterScenarioChange();
       },
@@ -491,7 +523,7 @@ function handleScenarioAction(action, node) {
   if (action === "addVacancy") {
     openVacancyForm({
       title: "Добавить вакансию",
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = addVacancy(scenario, node.id, values);
         refreshAfterScenarioChange();
       },
@@ -502,7 +534,7 @@ function handleScenarioAction(action, node) {
     openVacancyForm({
       title: "Редактировать вакансию",
       initialValues: node,
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = editVacancy(scenario, node.id, values);
         refreshAfterScenarioChange();
       },
@@ -534,7 +566,7 @@ function handleScenarioAction(action, node) {
     openMoveForm({
       title: "Переместить сотрудника",
       excludeDepartmentId: null,
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = moveEmployee(scenario, node.id, values.targetDepartmentId);
         refreshAfterScenarioChange();
       },
@@ -545,7 +577,7 @@ function handleScenarioAction(action, node) {
     openMoveForm({
       title: "Переместить вакансию",
       excludeDepartmentId: null,
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = moveVacancy(scenario, node.id, values.targetDepartmentId);
         refreshAfterScenarioChange();
       },
@@ -556,7 +588,7 @@ function handleScenarioAction(action, node) {
     openMoveForm({
       title: "Переместить подразделение",
       excludeDepartmentId: node.id,
-      onSubmit: values => {
+      onSubmit: (values) => {
         scenario = moveDepartment(scenario, node.id, values.targetDepartmentId);
         refreshAfterScenarioChange();
       },
@@ -578,7 +610,11 @@ function openDepartmentForm({ title, initialValues = {}, onSubmit }) {
   openScenarioForm({
     title,
     fields: [
-      { name: "department_name", label: "Название подразделения", required: true },
+      {
+        name: "department_name",
+        label: "Название подразделения",
+        required: true,
+      },
       { name: "department_manager", label: "Руководитель" },
       { name: "department_manager_position", label: "Должность руководителя" },
     ],
@@ -619,8 +655,9 @@ function openVacancyForm({ title, initialValues = {}, onSubmit }) {
 }
 
 function openMoveForm({ title, excludeDepartmentId, onSubmit }) {
-  const options = getDepartmentOptions(scenario.workingTree)
-    .filter(item => item.id !== excludeDepartmentId);
+  const options = getDepartmentOptions(scenario.workingTree).filter(
+    (item) => item.id !== excludeDepartmentId,
+  );
 
   openScenarioForm({
     title,
@@ -648,7 +685,7 @@ function openScenarioForm({ title, fields, initialValues, onSubmit }) {
   modalTitle.textContent = title;
 
   form.innerHTML = `
-    ${fields.map(field => renderFormField(field, initialValues)).join("")}
+    ${fields.map((field) => renderFormField(field, initialValues)).join("")}
 
     <div class="scenario-form__actions">
       <button type="submit">Сохранить</button>
@@ -656,15 +693,17 @@ function openScenarioForm({ title, fields, initialValues, onSubmit }) {
     </div>
   `;
 
-  form.querySelector("[data-close-form]")?.addEventListener("click", closeScenarioModal);
+  form
+    .querySelector("[data-close-form]")
+    ?.addEventListener("click", closeScenarioModal);
 
-  form.onsubmit = event => {
+  form.onsubmit = (event) => {
     event.preventDefault();
 
     const data = new FormData(form);
     const values = {};
 
-    fields.forEach(field => {
+    fields.forEach((field) => {
       values[field.name] = String(data.get(field.name) || "").trim();
     });
 
@@ -683,11 +722,15 @@ function renderFormField(field, initialValues) {
       <label class="scenario-form__field">
         <span>${escapeHtml(field.label)}</span>
         <select name="${escapeHtml(field.name)}" ${field.required ? "required" : ""}>
-          ${(field.options || []).map(option => `
+          ${(field.options || [])
+            .map(
+              (option) => `
             <option value="${escapeHtml(option.id)}">
               ${escapeHtml(option.name)}
             </option>
-          `).join("")}
+          `,
+            )
+            .join("")}
         </select>
       </label>
     `;
@@ -802,13 +845,13 @@ function convertToFlatData(nodes) {
       }
     }
 
-    (node.children || []).forEach(child => walk(child, nodeId, false));
+    (node.children || []).forEach((child) => walk(child, nodeId, false));
 
     (node.users || [])
-      .filter(user => showVacancies || !user.isVacancy)
-      .filter(user => !isAdministrativeAssistant(user))
-      .filter(user => !assistantsToSkip.has(user.id))
-      .forEach(user => {
+      .filter((user) => showVacancies || !user.isVacancy)
+      .filter((user) => !isAdministrativeAssistant(user))
+      .filter((user) => !assistantsToSkip.has(user.id))
+      .forEach((user) => {
         result.push({
           ...user,
           id: user.id || `user_${result.length + 1}`,
@@ -822,7 +865,7 @@ function convertToFlatData(nodes) {
       });
   }
 
-  nodes.forEach(node => walk(node, null, true));
+  nodes.forEach((node) => walk(node, null, true));
 
   return result;
 }
@@ -842,13 +885,15 @@ function findAdministrativeAssistantInSubtree(node) {
 }
 
 function findAdministrativeAssistant(users) {
-  return (users || []).find(user => isAdministrativeAssistant(user)) || null;
+  return (users || []).find((user) => isAdministrativeAssistant(user)) || null;
 }
 
 function isAdministrativeAssistant(user) {
   if (!user || user.isVacancy) return false;
 
-  const position = String(user.rawPosition || user.position || "").toLowerCase();
+  const position = String(
+    user.rawPosition || user.position || "",
+  ).toLowerCase();
 
   return position.includes("административный ассистент");
 }

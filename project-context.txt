@@ -365,10 +365,12 @@ function focusEntity(entityId) {
 function getDepartmentNodeHeight(data) {
   if (!data.isDepartment) return 96;
 
-  if (cardDesign === "variant2") return 176;
-  if (cardDesign === "variant3") return 158;
+  const assistantExtraHeight = data.assistant ? 44 : 0;
 
-  return 130;
+  if (cardDesign === "variant2") return 176 + assistantExtraHeight;
+  if (cardDesign === "variant3") return 158 + assistantExtraHeight;
+
+  return 130 + assistantExtraHeight;
 }
 
 function getDepartmentNodeWidth() {
@@ -420,7 +422,7 @@ function renderScreenOrgChart(rootNodes) {
 
   window.orgChart = chart;
 
-bindOrgChartDelegatedEvents(flatData);
+  bindOrgChartDelegatedEvents(flatData);
 }
 
 function bindOrgChartDelegatedEvents(flatData) {
@@ -453,6 +455,19 @@ function bindOrgChartDelegatedEvents(flatData) {
         node,
         nodeType,
       });
+
+      return;
+    }
+
+    const assistantCard = event.target.closest("[data-assistant-id]");
+    if (assistantCard) {
+      const flatData = container.__flatData || [];
+      const department = flatData.find(item => item.assistant?.id === assistantCard.dataset.assistantId);
+
+      if (department?.assistant) {
+        event.stopPropagation();
+        openEmployeeDetails(department.assistant);
+      }
 
       return;
     }
@@ -858,8 +873,9 @@ function closeCompareModal() {
 
 function convertToFlatData(nodes) {
   const result = [];
+  const assistantsToSkip = new Set();
 
-  function walk(node, parentId = null) {
+  function walk(node, parentId = null, isRootNode = false) {
     const nodeId = node.department_guid || node.id;
 
     result.push({
@@ -875,10 +891,32 @@ function convertToFlatData(nodes) {
       isDepartment: !!node.department_guid,
     });
 
-    (node.children || []).forEach(child => walk(child, nodeId));
+    if (isRootNode) {
+      const assistant = findAdministrativeAssistantInSubtree(node);
+
+      if (assistant?.id) {
+        assistantsToSkip.add(assistant.id);
+
+        result.push({
+          ...assistant,
+          id: assistant.id,
+          parentId: nodeId,
+          name: assistant.full_name || assistant.name || "Сотрудник",
+          position: assistant.position || "",
+          scenarioState: assistant.scenarioState || "",
+          isDepartment: false,
+          isVacancy: false,
+          isAssistant: true,
+        });
+      }
+    }
+
+    (node.children || []).forEach(child => walk(child, nodeId, false));
 
     (node.users || [])
       .filter(user => showVacancies || !user.isVacancy)
+      .filter(user => !isAdministrativeAssistant(user))
+      .filter(user => !assistantsToSkip.has(user.id))
       .forEach(user => {
         result.push({
           ...user,
@@ -893,9 +931,35 @@ function convertToFlatData(nodes) {
       });
   }
 
-  nodes.forEach(node => walk(node));
+  nodes.forEach(node => walk(node, null, true));
 
   return result;
+}
+
+function findAdministrativeAssistantInSubtree(node) {
+  const ownAssistant = findAdministrativeAssistant(node.users || []);
+
+  if (ownAssistant) return ownAssistant;
+
+  for (const child of node.children || []) {
+    const childAssistant = findAdministrativeAssistantInSubtree(child);
+
+    if (childAssistant) return childAssistant;
+  }
+
+  return null;
+}
+
+function findAdministrativeAssistant(users) {
+  return (users || []).find(user => isAdministrativeAssistant(user)) || null;
+}
+
+function isAdministrativeAssistant(user) {
+  if (!user || user.isVacancy) return false;
+
+  const position = String(user.rawPosition || user.position || "").toLowerCase();
+
+  return position.includes("административный ассистент");
 }
 
 function getOperationIcon(type) {
@@ -1155,11 +1219,40 @@ export function renderNodeContent(nd, options) {
     return renderDepartmentClassic(nd, showVacancies, viewMode);
   }
 
+  if (nd.isAssistant) {
+    return renderAssistantCard(nd, viewMode);
+  }
+
   if (nd.isVacancy) {
     return renderVacancy(nd, viewMode);
   }
 
   return renderEmployee(nd, viewMode);
+}
+
+function renderAssistantCard(nd, viewMode) {
+  return `
+    <div class="chart-card chart-card--assistant ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      ${renderScenarioBadge(nd)}
+
+      ${renderMenuButton(viewMode)}
+
+      <div class="chart-card__assistant-label">Административный ассистент</div>
+
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+
+      ${
+        nd.position
+          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
+          : ""
+      }
+
+      ${renderProject(nd)}
+    </div>
+  `;
 }
 
 function renderDepartmentClassic(nd, showVacancies, viewMode) {
@@ -1182,6 +1275,8 @@ function renderDepartmentClassic(nd, showVacancies, viewMode) {
           ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>`
           : ""
       }
+
+      ${renderAssistant(nd.assistant)}
 
       <div class="chart-card__count ${showVacancies ? "count-with-vacancies" : ""}">
         ${getDisplayCount(nd, showVacancies)}
@@ -1213,6 +1308,8 @@ function renderDepartmentVariant2(nd, showVacancies, viewMode) {
             ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>`
             : ""
         }
+
+        ${renderAssistant(nd.assistant)}
       </div>
 
       <div class="chart-card-v2__footer">
@@ -1247,6 +1344,8 @@ function renderDepartmentVariant3(nd, showVacancies, viewMode) {
             ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>`
             : ""
         }
+
+        ${renderAssistant(nd.assistant)}
 
         <div class="chart-card-v3__count">
           ${getDisplayCount(nd, showVacancies)} сотрудников
@@ -1295,6 +1394,26 @@ function renderVacancy(nd, viewMode) {
       }
 
       ${renderProject(nd)}
+    </div>
+  `;
+}
+
+function renderAssistant(assistant) {
+  if (!assistant) return "";
+
+  return `
+    <div class="chart-card__assistant"
+         data-assistant-id="${escapeHtml(assistant.id || "")}">
+      <div class="chart-card__assistant-label">Административный ассистент</div>
+      <div class="chart-card__assistant-name">
+        ${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}
+      </div>
+      ${
+        assistant.position
+          ? `<div class="chart-card__assistant-position">${escapeHtml(assistant.position)}</div>`
+          : ""
+      }
+      ${renderProject(assistant)}
     </div>
   `;
 }
@@ -3436,6 +3555,62 @@ body {
 .chart-card__project span {
   font-weight: 700;
   color: #475467;
+}
+
+.chart-card__assistant {
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid #e0e7ff;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #344054;
+  font-size: 10px;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chart-card__assistant:hover {
+  background: #eef4ff;
+}
+
+.chart-card__assistant-label {
+  margin-bottom: 3px;
+  color: #155eef;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.chart-card__assistant-name {
+  color: #101828;
+  font-size: 11px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.chart-card__assistant-position {
+  margin-top: 2px;
+  color: #667085;
+  font-size: 10px;
+  word-break: break-word;
+}
+
+.chart-card--assistant {
+  padding: 10px;
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  cursor: pointer;
+}
+
+.chart-card--assistant .chart-card__assistant-label {
+  margin-bottom: 4px;
+  color: #155eef;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 # FILE: vite.config.js

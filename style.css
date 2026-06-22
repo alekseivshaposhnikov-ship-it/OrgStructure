@@ -910,3 +910,39 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+
+/* style.css: добавьте в конец */
+
+.chart-card {
+  overflow: hidden;
+}
+
+.chart-card--department,
+.chart-card--employee,
+.chart-card--vacancy,
+.chart-card--assistant {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.chart-card__title,
+.chart-card__manager,
+.chart-card__manager-position,
+.chart-card__position,
+.chart-card__assistant-name,
+.chart-card__assistant-position {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.pdf-export-mode .chart-card__menu,
+.pdf-export-mode .scenario-badge,
+.pdf-export-mode .chart-card-v3__avatar {
+  display: none !important;
+}
+
+.pdf-export-hide-names .chart-card__manager-name,
+.pdf-export-hide-names .chart-card__assistant-name,
+.pdf-export-hide-names .chart-card--employee .chart-card__title {
+  display: none !important;
+}
