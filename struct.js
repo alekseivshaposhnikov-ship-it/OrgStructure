@@ -18,6 +18,7 @@ const EXTS = [
 const IGNORE = [
   'node_modules',
   'dist',
+  'docs',
   '.git',
   '.nuxt',
   '.output',
