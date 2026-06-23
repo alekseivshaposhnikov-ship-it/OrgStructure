@@ -1,10 +1,13 @@
+
 import { jsPDF } from "jspdf";
 
-const CARD_WIDTH = 360;
-const CARD_HEIGHT = 150;
-const H_GAP = 90;
-const V_GAP = 130;
-const PADDING = 70;
+const CARD_WIDTH = 300;
+const CARD_HEIGHT = 136;
+const H_GAP = 56;
+const V_GAP = 92;
+const PADDING = 56;
+const HEADER_HEIGHT = 124;
+const MAX_EXPORT_WIDTH = 2400;
 const EXPORT_SCALE = 2;
 
 const COLORS = {
@@ -166,7 +169,7 @@ function convertUserToExportNode(user, { hideNames, forceType = null }) {
 
 function renderExportSvg(root, options) {
   const layoutRoot = buildLayout(root);
-  assignPositions(layoutRoot, PADDING, PADDING + 90);
+  assignPositions(layoutRoot, PADDING, PADDING + HEADER_HEIGHT);
 
   const bounds = getBounds(layoutRoot);
 
@@ -204,37 +207,72 @@ function renderExportSvg(root, options) {
 
 function buildLayout(node, depth = 0) {
   const children = (node.children || []).map(child => buildLayout(child, depth + 1));
-
-  const childrenWidth = children.reduce((sum, child, index) => {
-    return sum + child.subtreeWidth + (index > 0 ? H_GAP : 0);
+  const rows = packChildrenIntoRows(children);
+  const childrenWidth = rows.reduce((max, row) => Math.max(max, row.width), 0);
+  const childrenHeight = rows.reduce((sum, row, index) => {
+    return sum + row.height + (index > 0 ? V_GAP : 0);
   }, 0);
 
   return {
     ...node,
     depth,
     children,
+    rows,
     subtreeWidth: Math.max(CARD_WIDTH, childrenWidth),
+    subtreeHeight: CARD_HEIGHT + (children.length ? V_GAP + childrenHeight : 0),
     x: 0,
     y: 0,
   };
 }
 
-function assignPositions(node, left, top) {
-  node.x = left + node.subtreeWidth / 2 - CARD_WIDTH / 2;
-  node.y = top + node.depth * (CARD_HEIGHT + V_GAP);
+function packChildrenIntoRows(children) {
+  const rows = [];
+  let current = [];
+  let currentWidth = 0;
 
-  let childLeft = left + node.subtreeWidth / 2 - getChildrenWidth(node.children) / 2;
+  children.forEach(child => {
+    const nextWidth = currentWidth + child.subtreeWidth + (current.length ? H_GAP : 0);
 
-  node.children.forEach(child => {
-    assignPositions(child, childLeft, top);
-    childLeft += child.subtreeWidth + H_GAP;
+    if (current.length && nextWidth > MAX_EXPORT_WIDTH) {
+      rows.push(createLayoutRow(current, currentWidth));
+      current = [child];
+      currentWidth = child.subtreeWidth;
+      return;
+    }
+
+    current.push(child);
+    currentWidth = nextWidth;
   });
+
+  if (current.length) rows.push(createLayoutRow(current, currentWidth));
+
+  return rows;
 }
 
-function getChildrenWidth(children) {
-  return children.reduce((sum, child, index) => {
-    return sum + child.subtreeWidth + (index > 0 ? H_GAP : 0);
-  }, 0);
+function createLayoutRow(children, width) {
+  return {
+    children,
+    width,
+    height: children.reduce((max, child) => Math.max(max, child.subtreeHeight), CARD_HEIGHT),
+  };
+}
+
+function assignPositions(node, left, top) {
+  node.x = left + node.subtreeWidth / 2 - CARD_WIDTH / 2;
+  node.y = top;
+
+  let rowTop = top + CARD_HEIGHT + V_GAP;
+
+  node.rows.forEach(row => {
+    let childLeft = left + node.subtreeWidth / 2 - row.width / 2;
+
+    row.children.forEach(child => {
+      assignPositions(child, childLeft, rowTop);
+      childLeft += child.subtreeWidth + H_GAP;
+    });
+
+    rowTop += row.height + V_GAP;
+  });
 }
 
 function getBounds(root) {

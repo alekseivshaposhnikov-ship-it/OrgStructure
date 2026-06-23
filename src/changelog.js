@@ -2,92 +2,54 @@ const CHANGELOG_STORAGE_KEY = "orgAppLastSeenVersion";
 
 const CHANGELOG_ENTRIES = [
   {
+    version: "1.6.0",
+    date: "2026-06-24",
+    added: [
+      "Компактная иконка журнала обновлений рядом с заголовком приложения.",
+      "Сворачиваемый блок сценарного моделирования с сохранением состояния в localStorage.",
+      "Брендбук интерфейса ui-brandbook.md.",
+    ],
+    fixed: [
+      "Экспорт PDF приближен к экранной логике расположения структуры.",
+      "Название дизайна карточек Вариант 3 заменено на «Профиль руководителя».",
+    ],
+    implemented: [
+      "Упрощенный практический формат раздела «Что нового»: версия, дата, добавлено, исправлено, реализовано.",
+    ],
+  },
+  {
     version: "1.5.0",
     date: "2026-06-24",
-    title: "Журнал обновлений внутри приложения",
-    summary:
-      "Добавлен раздел, в котором пользователи могут самостоятельно отслеживать новые версии приложения, реализованные доработки и выполненные пожелания.",
-    items: [
-      {
-        type: "new",
-        title: "Раздел «Что нового»",
-        description:
-          "Внутри приложения добавлен журнал обновлений с историей версий, датами выпуска и описанием изменений.",
-      },
-      {
-        type: "user-request",
-        title: "Отображение реализованных пользовательских пожеланий",
-        description:
-          "В журнале обновлений отдельно показываются доработки, которые были выполнены по пожеланиям пользователей.",
-        requestStatus: "Реализовано",
-      },
-      {
-        type: "improvement",
-        title: "Индикатор новой версии",
-        description:
-          "Если пользователь еще не открывал последнюю версию журнала, рядом с кнопкой «Что нового» отображается отметка NEW.",
-      },
-      {
-        type: "technical",
-        title: "Локальное хранение просмотренной версии",
-        description:
-          "Последняя просмотренная версия сохраняется в localStorage и не требует изменений в API или базе данных.",
-      },
+    added: ["Журнал обновлений внутри приложения."],
+    fixed: [],
+    implemented: [
+      "Индикатор NEW для непросмотренной версии журнала обновлений.",
+      "Сохранение последней просмотренной версии в localStorage.",
     ],
   },
   {
     version: "1.4.0",
     date: "2026-06-23",
-    title: "Проекты и административный ассистент",
-    summary:
-      "Расширено отображение данных сотрудников, вакансий и административного ассистента в диаграмме и PDF-экспорте.",
-    items: [
-      {
-        type: "improvement",
-        title: "Проекты сотрудников и вакансий",
-        description:
-          "Проект отображается в карточках сотрудников, вакансий, административного ассистента и в детальной карточке сотрудника.",
-      },
-      {
-        type: "improvement",
-        title: "Административный ассистент рядом с руководителем",
-        description:
-          "Административный ассистент выводится рядом с директором или руководителем выбранной верхней структуры.",
-      },
-      {
-        type: "fix",
-        title: "Исключение дублей ассистента",
-        description:
-          "Административный ассистент не отображается повторно в нижнем списке сотрудников, если уже выведен рядом с руководителем.",
-      },
+    added: [
+      "Отображение проектов сотрудников, вакансий и административного ассистента.",
+      "Карточка административного ассистента рядом с руководителем выбранной структуры.",
     ],
+    fixed: [
+      "Административный ассистент не дублируется в нижнем списке сотрудников, если уже показан рядом с руководителем.",
+    ],
+    implemented: ["Отображение проектов в PDF-экспорте."],
   },
   {
     version: "1.3.0",
     date: "2026-06-20",
-    title: "Сценарное моделирование организационной структуры",
-    summary:
-      "Добавлены операции моделирования AS IS / TO BE, список изменений сценария и сравнение текущей и целевой структуры.",
-    items: [
-      {
-        type: "new",
-        title: "Режимы AS IS / TO BE / Изменения",
-        description:
-          "Пользователь может переключаться между текущей структурой, целевой структурой и списком измененных объектов.",
-      },
-      {
-        type: "new",
-        title: "Операции сценария",
-        description:
-          "Добавлены добавление, редактирование, удаление и перемещение подразделений, сотрудников и вакансий.",
-      },
-      {
-        type: "new",
-        title: "Панель изменений сценария",
-        description:
-          "Справа отображается список операций, выполненных в рамках сценария моделирования.",
-      },
+    added: [
+      "Режимы AS IS, TO BE и Изменения.",
+      "Операции добавления, редактирования, удаления и перемещения подразделений, сотрудников и вакансий.",
+      "Правая панель изменений сценария.",
+      "Сравнение текущей и целевой структуры.",
     ],
+    fixed: [],
+    implemented: [],
   },
 ];
 
@@ -141,13 +103,7 @@ function renderLatestVersion(container) {
   if (!container) return;
 
   const latestEntry = getLatestEntry();
-
-  if (!latestEntry) {
-    container.textContent = "";
-    return;
-  }
-
-  container.textContent = `Последняя версия: ${latestEntry.version}`;
+  container.textContent = latestEntry ? `Последняя версия: ${latestEntry.version}` : "";
 }
 
 function renderChangelog(container) {
@@ -176,66 +132,37 @@ function renderVersionEntry(entry, index) {
       <button class="changelog-entry__header" type="button" data-changelog-toggle>
         <span>
           <span class="changelog-entry__version">Версия ${escapeHtml(entry.version)}</span>
-          <span class="changelog-entry__date">${escapeHtml(formatDate(entry.date))}</span>
+          <span class="changelog-entry__date">Дата: ${escapeHtml(formatDate(entry.date))}</span>
         </span>
         <span class="changelog-entry__toggle">⌄</span>
       </button>
 
       <div class="changelog-entry__body">
-        <h3>${escapeHtml(entry.title)}</h3>
-        <p>${escapeHtml(entry.summary)}</p>
-        <div class="changelog-items">
-          ${(entry.items || []).map(renderChangelogItem).join("")}
-        </div>
+        ${renderChangeGroup("Добавлено", entry.added)}
+        ${renderChangeGroup("Исправлено", entry.fixed)}
+        ${renderChangeGroup("Реализовано", entry.implemented)}
       </div>
     </section>
   `;
 }
 
-function renderChangelogItem(item) {
-  return `
-    <article class="changelog-item changelog-item--${escapeHtml(item.type)}">
-      <div class="changelog-item__type">${escapeHtml(getTypeLabel(item.type))}</div>
-      <div class="changelog-item__content">
-        <h4>${escapeHtml(item.title)}</h4>
-        <p>${escapeHtml(item.description)}</p>
-        ${renderRequestStatus(item)}
-      </div>
-    </article>
-  `;
-}
-
-function renderRequestStatus(item) {
-  if (item.type !== "user-request" && !item.requestStatus) return "";
+function renderChangeGroup(title, items = []) {
+  if (!items.length) return "";
 
   return `
-    <div class="changelog-item__status">
-      Пожелание пользователя: ${escapeHtml(item.requestStatus || "Реализовано")}
+    <div class="changelog-group">
+      <h3>${escapeHtml(title)}</h3>
+      <ul>
+        ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
     </div>
   `;
-}
-
-function getTypeLabel(type) {
-  const labels = {
-    new: "Новая функция",
-    improvement: "Улучшение",
-    fix: "Исправление",
-    "user-request": "Пожелание",
-    technical: "Техническое",
-  };
-
-  return labels[type] || "Изменение";
 }
 
 function updateUnreadBadge(badge) {
   if (!badge) return;
 
-  if (hasUnreadLatestVersion()) {
-    badge.classList.remove("hidden");
-    return;
-  }
-
-  badge.classList.add("hidden");
+  badge.classList.toggle("hidden", !hasUnreadLatestVersion());
 }
 
 function hasUnreadLatestVersion() {

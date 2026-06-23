@@ -1,3 +1,4 @@
+
 import * as d3 from "d3";
 import { flextree } from "d3-flextree";
 import { OrgChart } from "d3-org-chart";
@@ -45,6 +46,7 @@ let showVacancies = true;
 let cardDesign = localStorage.getItem("orgCardDesign") || "classic";
 let viewMode = "to-be";
 let isOrgChartDelegationBound = false;
+const SCENARIO_PANEL_COLLAPSED_KEY = "orgScenarioPanelCollapsed";
 
 async function initApp() {
   const container = document.getElementById("tree-container");
@@ -68,6 +70,7 @@ async function initApp() {
     initDesignSwitcher();
     initEmployeeModal();
     initScenarioControls();
+    initScenarioPanelToggle();
     initChangelog();
 
     renderApp();
@@ -109,6 +112,31 @@ function initDesignSwitcher() {
     localStorage.setItem("orgCardDesign", cardDesign);
     renderApp();
   });
+}
+
+function initScenarioPanelToggle() {
+  const panel = document.getElementById("scenarioPanel");
+  const toggle = document.getElementById("scenarioPanelToggle");
+  const icon = document.getElementById("scenarioPanelIcon");
+
+  if (!panel || !toggle || !icon) return;
+
+  const storedValue = localStorage.getItem(SCENARIO_PANEL_COLLAPSED_KEY);
+  const isCollapsed = storedValue === null ? true : storedValue === "true";
+
+  setScenarioPanelCollapsed(isCollapsed, { panel, toggle, icon });
+
+  toggle.addEventListener("click", () => {
+    const nextCollapsed = !panel.classList.contains("scenario-panel--collapsed");
+    setScenarioPanelCollapsed(nextCollapsed, { panel, toggle, icon });
+    localStorage.setItem(SCENARIO_PANEL_COLLAPSED_KEY, String(nextCollapsed));
+  });
+}
+
+function setScenarioPanelCollapsed(isCollapsed, { panel, toggle, icon }) {
+  panel.classList.toggle("scenario-panel--collapsed", isCollapsed);
+  toggle.setAttribute("aria-expanded", String(!isCollapsed));
+  icon.textContent = isCollapsed ? "▶" : "▼";
 }
 
 function initScenarioControls() {

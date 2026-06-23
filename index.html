@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="ru">
   <head>
@@ -13,15 +14,22 @@
 
   <body>
     <div class="sidebar">
-      <h1>Организационная структура</h1>
+      <div class="app-title">
+        <h1>Организационная структура</h1>
+        <button
+          id="openChangelog"
+          type="button"
+          class="changelog-icon-button"
+          aria-label="Открыть журнал обновлений"
+          title="Что нового"
+        >
+          <span aria-hidden="true">ⓘ</span>
+          <span id="changelogBadge" class="changelog-icon-button__badge hidden">NEW</span>
+        </button>
+      </div>
 
       <div class="controls">
         <button id="exportPdf">📄 Экспорт в PDF</button>
-
-        <button id="openChangelog" type="button" class="changelog-button">
-          Что нового
-          <span id="changelogBadge" class="changelog-button__badge hidden">NEW</span>
-        </button>
 
         <label class="vacancy-toggle">
           <input id="exportWithoutNames" type="checkbox" />
@@ -38,14 +46,23 @@
           <select id="cardDesign">
             <option value="classic">Текущий</option>
             <option value="variant2">Вариант 2 — цветная шапка</option>
-            <option value="variant3">Вариант 3 — руководитель</option>
+            <option value="variant3">Профиль руководителя</option>
           </select>
         </label>
       </div>
 
-      <div class="scenario-panel">
-        <div class="scenario-panel__title">Сценарий моделирования</div>
+      <div class="scenario-panel" id="scenarioPanel">
+        <button
+          id="scenarioPanelToggle"
+          class="scenario-panel__toggle"
+          type="button"
+          aria-expanded="false"
+        >
+          <span id="scenarioPanelIcon">▶</span>
+          <span>Сценарий моделирования</span>
+        </button>
 
+        <div id="scenarioPanelBody" class="scenario-panel__body">
         <label class="scenario-field">
           <span>Название сценария</span>
           <input id="scenarioName" type="text" />
@@ -65,6 +82,7 @@
         <div class="scenario-actions">
           <button id="compareScenario" type="button">Сравнить</button>
           <button id="resetScenario" type="button" class="button-secondary">Сбросить</button>
+        </div>
         </div>
       </div>
 
