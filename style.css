@@ -1163,3 +1163,262 @@ body {
 .org-chart-pdf-export button {
   display: none !important;
 }
+
+/* Журнал обновлений приложения */
+
+.changelog-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #101828;
+}
+
+.changelog-button:hover {
+  background: #1d2939;
+}
+
+.changelog-button__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 18px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #12b76a;
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.changelog-button__badge.hidden {
+  display: none;
+}
+
+.changelog-modal__card {
+  width: min(840px, calc(100vw - 32px));
+}
+
+.changelog-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding-right: 32px;
+}
+
+.changelog-modal__eyebrow {
+  margin-bottom: 4px;
+  color: #155eef;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.changelog-modal__header h2 {
+  margin: 0;
+}
+
+.changelog-modal__version {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #155eef;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.changelog-content {
+  display: grid;
+  gap: 12px;
+}
+
+.changelog-empty {
+  padding: 16px;
+  border-radius: 12px;
+  background: #f9fafb;
+  color: #667085;
+  font-size: 14px;
+}
+
+.changelog-entry {
+  overflow: hidden;
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.changelog-entry__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 0;
+  background: #f9fafb;
+  color: #101828;
+  text-align: left;
+}
+
+.changelog-entry__header:hover {
+  background: #f2f4f7;
+}
+
+.changelog-entry__version {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+  color: #101828;
+}
+
+.changelog-entry__date {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #667085;
+}
+
+.changelog-entry__toggle {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #155eef;
+  font-size: 18px;
+  font-weight: 700;
+  transform: rotate(180deg);
+  transition: transform 0.2s ease;
+}
+
+.changelog-entry--collapsed .changelog-entry__toggle {
+  transform: rotate(0deg);
+}
+
+.changelog-entry__body {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.changelog-entry--collapsed .changelog-entry__body {
+  display: none;
+}
+
+.changelog-entry__body h3 {
+  margin: 0;
+  color: #101828;
+  font-size: 16px;
+}
+
+.changelog-entry__body p {
+  margin: 0;
+  color: #475467;
+  font-size: 14px;
+}
+
+.changelog-items {
+  display: grid;
+  gap: 10px;
+}
+
+.changelog-item {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.changelog-item__type {
+  width: fit-content;
+  height: fit-content;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f2f4f7;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.changelog-item--new .changelog-item__type {
+  background: #dcfae6;
+  color: #067647;
+}
+
+.changelog-item--improvement .changelog-item__type {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.changelog-item--fix .changelog-item__type {
+  background: #fee4e2;
+  color: #b42318;
+}
+
+.changelog-item--user-request .changelog-item__type {
+  background: #f4e8ff;
+  color: #7e22ce;
+}
+
+.changelog-item--technical .changelog-item__type {
+  background: #f2f4f7;
+  color: #344054;
+}
+
+.changelog-item__content {
+  min-width: 0;
+}
+
+.changelog-item__content h4 {
+  margin: 0 0 4px;
+  color: #101828;
+  font-size: 14px;
+}
+
+.changelog-item__content p {
+  margin: 0;
+  color: #475467;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.changelog-item__status {
+  width: fit-content;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #f4e8ff;
+  color: #7e22ce;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 700px) {
+  .changelog-modal__header {
+    display: grid;
+    padding-right: 28px;
+  }
+
+  .changelog-modal__version {
+    width: fit-content;
+  }
+
+  .changelog-item {
+    grid-template-columns: 1fr;
+  }
+}

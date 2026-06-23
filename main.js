@@ -11,6 +11,7 @@ import {
   openEmployeeDetails,
 } from "./src/employee-modal.js";
 import { exportOrgChartToPdf } from "./src/pdf-d3-export.js";
+import { initChangelog } from "./src/changelog.js";
 
 import {
   createScenario,
@@ -67,6 +68,7 @@ async function initApp() {
     initDesignSwitcher();
     initEmployeeModal();
     initScenarioControls();
+    initChangelog();
 
     renderApp();
 

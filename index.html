@@ -18,6 +18,11 @@
       <div class="controls">
         <button id="exportPdf">📄 Экспорт в PDF</button>
 
+        <button id="openChangelog" type="button" class="changelog-button">
+          Что нового
+          <span id="changelogBadge" class="changelog-button__badge hidden">NEW</span>
+        </button>
+
         <label class="vacancy-toggle">
           <input id="exportWithoutNames" type="checkbox" />
           Выгружать PDF без фамилий
@@ -101,6 +106,21 @@
         <button id="closeCompareModal" class="scenario-modal__close">×</button>
         <h2>Сравнение AS IS / TO BE</h2>
         <div id="compareContent"></div>
+      </div>
+    </div>
+
+    <div id="changelogModal" class="scenario-modal hidden">
+      <div class="scenario-modal__backdrop" data-close-changelog></div>
+      <div class="scenario-modal__card scenario-modal__card--wide changelog-modal__card">
+        <button id="closeChangelogModal" class="scenario-modal__close">×</button>
+        <div class="changelog-modal__header">
+          <div>
+            <div class="changelog-modal__eyebrow">Журнал обновлений</div>
+            <h2>Что нового</h2>
+          </div>
+          <div id="changelogLatestVersion" class="changelog-modal__version"></div>
+        </div>
+        <div id="changelogContent" class="changelog-content"></div>
       </div>
     </div>
   </body>
