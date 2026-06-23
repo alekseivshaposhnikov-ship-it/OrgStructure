@@ -1,6 +1,6 @@
 
 
-# FILE: index.html
+# FILE: data\org_pdf_export_v2\index.html
 
 <!doctype html>
 <html lang="ru">
@@ -21,6 +21,11 @@
 
       <div class="controls">
         <button id="exportPdf">📄 Экспорт в PDF</button>
+
+        <label class="vacancy-toggle">
+          <input id="exportWithoutNames" type="checkbox" />
+          Выгружать PDF без фамилий
+        </label>
 
         <label class="vacancy-toggle">
           <input id="showVacancies" type="checkbox" checked />
@@ -105,6 +110,908 @@
   </body>
 </html>
 
+
+# FILE: data\org_pdf_export_v2\src\chart-cards.js
+
+export function renderNodeContent(nd, options = {}) {
+  const {
+    cardDesign = "classic",
+    showVacancies = true,
+    viewMode = "to-be",
+    hideNames = false,
+    isPdfExport = false,
+  } = options;
+
+  if (nd.isDepartment) {
+    if (isPdfExport) {
+      return renderDepartmentPdf(nd, showVacancies, hideNames);
+    }
+
+    if (cardDesign === "variant2") {
+      return renderDepartmentVariant2(nd, showVacancies, viewMode);
+    }
+
+    if (cardDesign === "variant3") {
+      return renderDepartmentVariant3(nd, showVacancies, viewMode);
+    }
+
+    return renderDepartmentClassic(nd, showVacancies, viewMode);
+  }
+
+  if (nd.isAssistant) {
+    return isPdfExport
+      ? renderAssistantCardPdf(nd, hideNames)
+      : renderAssistantCard(nd, viewMode);
+  }
+
+  if (nd.isVacancy) {
+    return isPdfExport ? renderVacancyPdf(nd) : renderVacancy(nd, viewMode);
+  }
+
+  return isPdfExport ? renderEmployeePdf(nd, hideNames) : renderEmployee(nd, viewMode);
+}
+
+function renderDepartmentPdf(nd, showVacancies, hideNames) {
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-department ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="department">
+      <div class="chart-card-pdf__eyebrow">Подразделение</div>
+      <div class="chart-card-pdf__title">${escapeHtml(nd.name)}</div>
+
+      ${
+        !hideNames && nd.headName
+          ? `<div class="chart-card-pdf__person">${escapeHtml(nd.headName)}</div>`
+          : ""
+      }
+
+      ${
+        nd.headPosition
+          ? `<div class="chart-card-pdf__position">${escapeHtml(nd.headPosition)}</div>`
+          : ""
+      }
+
+      ${renderAssistantPdf(nd.assistant, hideNames)}
+
+      <div class="chart-card-pdf__footer">
+        <span class="chart-card-pdf__count">${getDisplayCount(nd, showVacancies)}</span>
+        <span>${showVacancies ? "штат + вакансии" : "штат"}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderEmployeePdf(nd, hideNames) {
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-employee ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      <div class="chart-card-pdf__eyebrow">Сотрудник</div>
+      ${!hideNames ? `<div class="chart-card-pdf__person">${escapeHtml(nd.name)}</div>` : ""}
+      ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProjectPdf(nd)}
+    </div>
+  `;
+}
+
+function renderAssistantCardPdf(nd, hideNames) {
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-employee ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      <div class="chart-card-pdf__eyebrow">Административный ассистент</div>
+      ${!hideNames ? `<div class="chart-card-pdf__person">${escapeHtml(nd.name)}</div>` : ""}
+      ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProjectPdf(nd)}
+    </div>
+  `;
+}
+
+function renderVacancyPdf(nd) {
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-vacancy ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="vacancy">
+      <div class="chart-card-pdf__eyebrow">Вакансия</div>
+      ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProjectPdf(nd)}
+    </div>
+  `;
+}
+
+function renderAssistantPdf(assistant, hideNames) {
+  if (!assistant) return "";
+
+  return `
+    <div class="chart-card-pdf__assistant">
+      <div class="chart-card-pdf__eyebrow">Административный ассистент</div>
+      ${
+        !hideNames
+          ? `<div class="chart-card-pdf__assistant-name">${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}</div>`
+          : ""
+      }
+      ${
+        assistant.position
+          ? `<div class="chart-card-pdf__assistant-position">${escapeHtml(assistant.position)}</div>`
+          : ""
+      }
+      ${renderProjectPdf(assistant)}
+    </div>
+  `;
+}
+
+function renderProjectPdf(nd) {
+  const project = normalizeProjects(nd.project);
+  if (!project) return "";
+
+  return `
+    <div class="chart-card-pdf__project">
+      Проект: ${escapeHtml(project)}
+    </div>
+  `;
+}
+
+function renderAssistantCard(nd, viewMode) {
+  return `
+    <div class="chart-card chart-card--assistant ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      ${renderScenarioBadge(nd)}
+      ${renderMenuButton(viewMode)}
+      <div class="chart-card__assistant-label">Административный ассистент</div>
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProject(nd)}
+    </div>
+  `;
+}
+
+function renderDepartmentClassic(nd, showVacancies, viewMode) {
+  return `
+    <div class="chart-card chart-card--department ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="department">
+      ${renderScenarioBadge(nd)}
+      ${renderMenuButton(viewMode)}
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      <div class="chart-card__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+      ${nd.headPosition ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>` : ""}
+      ${renderAssistant(nd.assistant)}
+      <div class="chart-card__count ${showVacancies ? "count-with-vacancies" : ""}">
+        ${getDisplayCount(nd, showVacancies)}
+      </div>
+    </div>
+  `;
+}
+
+function renderDepartmentVariant2(nd, showVacancies, viewMode) {
+  return `
+    <div class="chart-card chart-card--department-v2 ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="department">
+      ${renderScenarioBadge(nd)}
+      ${renderMenuButton(viewMode)}
+      <div class="chart-card-v2__header"><div class="chart-card-v2__title">${escapeHtml(nd.name)}</div></div>
+      <div class="chart-card-v2__body">
+        <div class="chart-card-v2__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+        ${nd.headPosition ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>` : ""}
+        ${renderAssistant(nd.assistant)}
+      </div>
+      <div class="chart-card-v2__footer">${getDisplayCount(nd, showVacancies)} сотрудников</div>
+    </div>
+  `;
+}
+
+function renderDepartmentVariant3(nd, showVacancies, viewMode) {
+  return `
+    <div class="chart-card chart-card--department-v3 ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="department">
+      ${renderScenarioBadge(nd)}
+      ${renderMenuButton(viewMode)}
+      <div class="chart-card-v3__avatar">${escapeHtml(getInitials(nd.headName))}</div>
+      <div class="chart-card-v3__content">
+        <div class="chart-card-v3__title">${escapeHtml(nd.name)}</div>
+        <div class="chart-card-v3__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+        ${nd.headPosition ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>` : ""}
+        ${renderAssistant(nd.assistant)}
+        <div class="chart-card-v3__count">${getDisplayCount(nd, showVacancies)} сотрудников</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderEmployee(nd, viewMode) {
+  return `
+    <div class="chart-card chart-card--employee ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      ${renderScenarioBadge(nd)}
+      ${renderMenuButton(viewMode)}
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProject(nd)}
+    </div>
+  `;
+}
+
+function renderVacancy(nd, viewMode) {
+  return `
+    <div class="chart-card chart-card--vacancy ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="vacancy">
+      ${renderScenarioBadge(nd)}
+      ${renderMenuButton(viewMode)}
+      <div class="chart-card__title">Вакансия</div>
+      ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProject(nd)}
+    </div>
+  `;
+}
+
+function renderAssistant(assistant) {
+  if (!assistant) return "";
+
+  return `
+    <div class="chart-card__assistant" data-assistant-id="${escapeHtml(assistant.id || "")}">
+      <div class="chart-card__assistant-label">Административный ассистент</div>
+      <div class="chart-card__assistant-name">${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}</div>
+      ${assistant.position ? `<div class="chart-card__assistant-position">${escapeHtml(assistant.position)}</div>` : ""}
+      ${renderProject(assistant)}
+    </div>
+  `;
+}
+
+function renderProject(nd) {
+  const project = normalizeProjects(nd.project);
+  if (!project) return "";
+
+  return `
+    <div class="chart-card__project">
+      <span>Проект:</span> ${escapeHtml(project)}
+    </div>
+  `;
+}
+
+function normalizeProjects(value) {
+  return String(value || "")
+    .split(";")
+    .map(item => item.trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+function renderMenuButton(viewMode) {
+  if (viewMode === "as-is") return "";
+
+  return `
+    <button class="chart-card__menu" type="button" data-scenario-menu>
+      ⋮
+    </button>
+  `;
+}
+
+function renderScenarioBadge(nd) {
+  const label = getScenarioLabel(nd.scenarioState);
+  if (!label) return "";
+
+  return `
+    <div class="scenario-badge scenario-badge--${escapeHtml(nd.scenarioState)}">
+      ${escapeHtml(label)}
+    </div>
+  `;
+}
+
+function getScenarioClass(nd) {
+  return nd.scenarioState ? `chart-card--scenario-${nd.scenarioState}` : "";
+}
+
+function getScenarioLabel(state) {
+  if (state === "added") return "NEW";
+  if (state === "changed") return "Изменен";
+  if (state === "moved") return "Перемещен";
+  if (state === "removed") return "Удален";
+  return "";
+}
+
+function getDisplayCount(node, showVacancies) {
+  return showVacancies
+    ? node.totalWithVacancies || node.staffCount || 0
+    : node.staffCount || 0;
+}
+
+function getInitials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "—";
+  return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase();
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+
+# FILE: data\org_pdf_export_v2\src\pdf-d3-export.js
+
+import { toCanvas } from "html-to-image";
+import { jsPDF } from "jspdf";
+import { OrgChart } from "d3-org-chart";
+import { renderNodeContent } from "./chart-cards.js";
+
+const EXPORT_WIDTH = 2200;
+const EXPORT_HEIGHT = 1500;
+const EXPORT_PADDING = 56;
+
+export async function exportOrgChartToPdf({ chart } = {}) {
+  if (!chart) {
+    alert("Нет диаграммы для экспорта");
+    return;
+  }
+
+  const exportButton = document.getElementById("exportPdf");
+  const originalButtonText = exportButton?.textContent;
+
+  if (exportButton) {
+    exportButton.disabled = true;
+    exportButton.textContent = "Экспорт...";
+  }
+
+  let sandbox = null;
+
+  try {
+    const sourceState = chart.getChartState();
+    const sourceData = getFlatDataFromChartState(sourceState);
+
+    if (!sourceData.length) {
+      throw new Error("Нет данных для экспорта");
+    }
+
+    const hideNames = Boolean(document.getElementById("exportWithoutNames")?.checked);
+    const showVacancies = Boolean(document.getElementById("showVacancies")?.checked ?? true);
+    const viewMode = document.getElementById("viewMode")?.value || "to-be";
+    const title = getExportTitle(sourceData);
+
+    sandbox = createPdfSandbox({ title, hideNames, viewMode });
+    document.body.appendChild(sandbox);
+
+    const chartContainer = sandbox.querySelector("#pdfOrgChart");
+    const pdfData = preparePdfData(sourceData, { hideNames, showVacancies });
+
+    const pdfChart = new OrgChart()
+      .container(chartContainer)
+      .data(pdfData)
+      .nodeHeight(d => getPdfNodeHeight(d.data))
+      .nodeWidth(d => getPdfNodeWidth(d.data))
+      .childrenMargin(() => 70)
+      .compactMarginBetween(() => 36)
+      .compactMarginPair(() => 90)
+      .siblingsMargin(() => 44)
+      .nodeContent(d =>
+        renderNodeContent(d.data, {
+          cardDesign: "pdf",
+          showVacancies,
+          viewMode,
+          hideNames,
+          isPdfExport: true,
+        }),
+      );
+
+    pdfChart.render();
+    safeExpandAll(pdfChart);
+    pdfChart.fit();
+
+    await waitForPaint();
+    await wait(450);
+
+    const canvas = await toCanvas(sandbox, {
+      pixelRatio: 2,
+      backgroundColor: "#ffffff",
+      cacheBust: true,
+      fontEmbedCSS: "",
+      style: {
+        background: "#ffffff",
+        fontFamily: "Inter, Arial, sans-serif",
+      },
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "px",
+      format: [canvas.width, canvas.height],
+      compress: true,
+    });
+
+    pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+    pdf.save(`${sanitizeFileName(title)}.pdf`);
+  } catch (error) {
+    console.error("Ошибка экспорта PDF:", error);
+    alert(`Не удалось экспортировать PDF. ${error.message}`);
+  } finally {
+    sandbox?.remove();
+
+    if (exportButton) {
+      exportButton.disabled = false;
+      exportButton.textContent = originalButtonText || "📄 Экспорт в PDF";
+    }
+  }
+}
+
+function getFlatDataFromChartState(state) {
+  return (state?.allNodes || [])
+    .filter(node => node?.data)
+    .map(node => ({ ...node.data }));
+}
+
+function preparePdfData(data, { hideNames, showVacancies }) {
+  return data
+    .filter(item => showVacancies || !item.isVacancy)
+    .map(item => {
+      const prepared = {
+        ...item,
+        name: item.name || item.full_name || item.position || "Без названия",
+      };
+
+      if (prepared.isDepartment) {
+        prepared.headName = hideNames ? "" : prepared.headName || "";
+        prepared.assistant = prepared.assistant
+          ? sanitizeAssistant(prepared.assistant, hideNames)
+          : null;
+      }
+
+      if (!prepared.isDepartment && !prepared.isVacancy) {
+        prepared.name = hideNames ? "" : prepared.name || prepared.full_name || "Сотрудник";
+      }
+
+      if (prepared.isVacancy) {
+        prepared.name = "Вакансия";
+      }
+
+      return prepared;
+    });
+}
+
+function sanitizeAssistant(assistant, hideNames) {
+  return {
+    ...assistant,
+    name: hideNames ? "" : assistant.name,
+    full_name: hideNames ? "" : assistant.full_name,
+    fullName: hideNames ? "" : assistant.fullName,
+  };
+}
+
+function createPdfSandbox({ title, hideNames, viewMode }) {
+  const sandbox = document.createElement("div");
+  sandbox.className = "org-chart-pdf-export";
+  sandbox.style.width = `${EXPORT_WIDTH}px`;
+  sandbox.style.height = `${EXPORT_HEIGHT}px`;
+
+  sandbox.innerHTML = `
+    <div class="org-chart-pdf-export__page">
+      <header class="org-chart-pdf-export__header">
+        <div>
+          <div class="org-chart-pdf-export__eyebrow">Организационная структура</div>
+          <h1>${escapeHtml(title)}</h1>
+          <div class="org-chart-pdf-export__meta">
+            ${escapeHtml(getViewModeLabel(viewMode))} · ${hideNames ? "без фамилий" : "с фамилиями"}
+          </div>
+        </div>
+        <div class="org-chart-pdf-export__date">${formatDate(new Date())}</div>
+      </header>
+      <div id="pdfOrgChart" class="org-chart-pdf-export__chart"></div>
+    </div>
+  `;
+
+  return sandbox;
+}
+
+function getExportTitle(data) {
+  const root = data.find(item => !item.parentId) || data[0];
+  return root?.name || "Организационная структура";
+}
+
+function getViewModeLabel(viewMode) {
+  if (viewMode === "as-is") return "Текущая структура";
+  if (viewMode === "changes") return "Изменения";
+  return "Целевая структура";
+}
+
+function getPdfNodeWidth(data) {
+  if (data.isDepartment) return 430;
+  return 360;
+}
+
+function getPdfNodeHeight(data) {
+  if (data.isDepartment) {
+    return data.assistant ? 230 : 184;
+  }
+
+  if (data.isVacancy) return 132;
+  return 146;
+}
+
+function safeExpandAll(chart) {
+  try {
+    chart.expandAll();
+  } catch {
+    // В некоторых версиях d3-org-chart expandAll может отсутствовать.
+  }
+}
+
+function sanitizeFileName(value) {
+  return String(value || "orgchart")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .slice(0, 120);
+}
+
+function formatDate(date) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function waitForPaint() {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+
+# FILE: data\org_pdf_export_v2\style.additions.css
+
+/* Добавьте этот блок в конец style.css */
+
+.org-chart-pdf-export {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: #ffffff;
+  color: #101828;
+  font-family: Inter, Arial, sans-serif;
+}
+
+.org-chart-pdf-export *,
+.org-chart-pdf-export *::before,
+.org-chart-pdf-export *::after {
+  box-sizing: border-box;
+}
+
+.org-chart-pdf-export__page {
+  width: 100%;
+  height: 100%;
+  padding: 56px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 32px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(21, 94, 239, 0.08), transparent 340px),
+    #ffffff;
+}
+
+.org-chart-pdf-export__header {
+  min-height: 116px;
+  display: flex;
+  justify-content: space-between;
+  gap: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e4e7ec;
+}
+
+.org-chart-pdf-export__eyebrow {
+  margin-bottom: 8px;
+  color: #155eef;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.org-chart-pdf-export__header h1 {
+  margin: 0;
+  color: #101828;
+  font-size: 34px;
+  line-height: 1.15;
+  font-weight: 700;
+  text-align: left;
+}
+
+.org-chart-pdf-export__meta {
+  margin-top: 10px;
+  color: #667085;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.org-chart-pdf-export__date {
+  flex: 0 0 auto;
+  padding-top: 4px;
+  color: #667085;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.org-chart-pdf-export__chart {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+.org-chart-pdf-export .svg-chart-container,
+.org-chart-pdf-export svg {
+  overflow: visible;
+}
+
+.org-chart-pdf-export .chart-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  font-family: Inter, Arial, sans-serif;
+}
+
+.org-chart-pdf-export .chart-card--pdf {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px;
+  border-radius: 20px;
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
+  box-shadow: 0 16px 36px rgba(16, 24, 40, 0.10);
+  overflow: hidden;
+}
+
+.org-chart-pdf-export .chart-card--pdf-department {
+  border: 2px solid #155eef;
+  box-shadow: 0 18px 44px rgba(21, 94, 239, 0.14);
+}
+
+.org-chart-pdf-export .chart-card--pdf-employee {
+  border-color: #d0d5dd;
+}
+
+.org-chart-pdf-export .chart-card--pdf-vacancy {
+  border-color: #84caff;
+  background: #f5fbff;
+}
+
+.org-chart-pdf-export .chart-card-pdf__eyebrow {
+  margin-bottom: 8px;
+  color: #155eef;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.org-chart-pdf-export .chart-card-pdf__title {
+  color: #101828;
+  font-size: 19px;
+  line-height: 1.18;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.org-chart-pdf-export .chart-card-pdf__person {
+  margin-top: 12px;
+  color: #344054;
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.org-chart-pdf-export .chart-card-pdf__position {
+  margin-top: 8px;
+  color: #475467;
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.org-chart-pdf-export .chart-card-pdf__project {
+  margin-top: 10px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.org-chart-pdf-export .chart-card-pdf__assistant {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.org-chart-pdf-export .chart-card-pdf__assistant-name {
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.org-chart-pdf-export .chart-card-pdf__assistant-position {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.org-chart-pdf-export .chart-card-pdf__footer {
+  margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.org-chart-pdf-export .chart-card-pdf__count {
+  min-width: 34px;
+  min-height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #155eef;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.org-chart-pdf-export .chart-card__menu,
+.org-chart-pdf-export .scenario-badge,
+.org-chart-pdf-export button {
+  display: none !important;
+}
+
+
+# FILE: index.html
+
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Org Structure Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./main.js"></script>
+  </head>
+
+  <body>
+    <div class="sidebar">
+      <h1>Организационная структура</h1>
+
+      <div class="controls">
+        <button id="exportPdf">📄 Экспорт в PDF</button>
+
+        <label class="vacancy-toggle">
+          <input id="exportWithoutNames" type="checkbox" />
+          Выгружать PDF без фамилий
+        </label>
+
+        <label class="vacancy-toggle">
+          <input id="showVacancies" type="checkbox" checked />
+          Показывать вакансии
+        </label>
+
+        <label class="design-switcher">
+          <span>Дизайн карточек</span>
+          <select id="cardDesign">
+            <option value="classic">Текущий</option>
+            <option value="variant2">Вариант 2 — цветная шапка</option>
+            <option value="variant3">Вариант 3 — руководитель</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="scenario-panel">
+        <div class="scenario-panel__title">Сценарий моделирования</div>
+
+        <label class="scenario-field">
+          <span>Название сценария</span>
+          <input id="scenarioName" type="text" />
+        </label>
+
+        <label class="scenario-field">
+          <span>Режим отображения</span>
+          <select id="viewMode">
+            <option value="as-is">Текущая структура</option>
+            <option value="to-be">Целевая структура</option>
+            <option value="changes">Изменения</option>
+          </select>
+        </label>
+
+        <div id="scenarioStats" class="scenario-stats"></div>
+
+        <div class="scenario-actions">
+          <button id="compareScenario" type="button">Сравнить</button>
+          <button id="resetScenario" type="button" class="button-secondary">Сбросить</button>
+        </div>
+      </div>
+
+      <div id="tree-container" class="tree-container"></div>
+    </div>
+
+    <div id="chartPanel">
+      <div id="orgChart"></div>
+    </div>
+
+    <aside class="changes-panel">
+      <div class="changes-panel__header">
+        <h2>Изменения</h2>
+        <span id="changesCount">0</span>
+      </div>
+      <div id="changesList" class="changes-list"></div>
+    </aside>
+
+    <div id="employeeModal" class="employee-modal hidden">
+      <div class="employee-modal__backdrop"></div>
+      <div class="employee-modal__card">
+        <button id="closeEmployeeModal" class="employee-modal__close">×</button>
+        <div id="employeeDetails"></div>
+      </div>
+    </div>
+
+    <div id="scenarioModal" class="scenario-modal hidden">
+      <div class="scenario-modal__backdrop"></div>
+      <div class="scenario-modal__card">
+        <button id="closeScenarioModal" class="scenario-modal__close">×</button>
+        <h2 id="scenarioModalTitle"></h2>
+        <form id="scenarioForm"></form>
+      </div>
+    </div>
+
+    <div id="compareModal" class="scenario-modal hidden">
+      <div class="scenario-modal__backdrop" data-close-compare></div>
+      <div class="scenario-modal__card scenario-modal__card--wide">
+        <button id="closeCompareModal" class="scenario-modal__close">×</button>
+        <h2>Сравнение AS IS / TO BE</h2>
+        <div id="compareContent"></div>
+      </div>
+    </div>
+  </body>
+</html>
+
+
 # FILE: main.js
 
 import * as d3 from "d3";
@@ -183,7 +1090,14 @@ async function initApp() {
     renderApp();
 
     document.getElementById("exportPdf")?.addEventListener("click", () => {
-      exportOrgChartToPdf({ chart });
+      const exportWithoutNames = document.getElementById("exportWithoutNames")?.checked;
+
+      exportOrgChartToPdf({
+        chart,
+        title: getExportTitle(),
+        subtitle: getExportSubtitle(exportWithoutNames),
+        hideNames: exportWithoutNames,
+      });
     });
 
     document.getElementById("showVacancies")?.addEventListener("change", event => {
@@ -247,6 +1161,32 @@ function initScenarioControls() {
 
   document.getElementById("closeCompareModal")?.addEventListener("click", closeCompareModal);
   document.querySelector("[data-close-compare]")?.addEventListener("click", closeCompareModal);
+}
+
+function getExportTitle() {
+  return (
+    selectedNode?.department_name ||
+    selectedNode?.name ||
+    "Организационная структура"
+  );
+}
+
+function getExportSubtitle(hideNames) {
+  const modeTitles = {
+    "as-is": "Текущая структура",
+    "to-be": "Целевая структура",
+    changes: "Изменения",
+  };
+
+  const parts = [modeTitles[viewMode] || "Организационная структура"];
+
+  if (!showVacancies) {
+    parts.push("без вакансий");
+  }
+
+  parts.push(hideNames ? "без фамилий" : "с фамилиями");
+
+  return parts.join(" · ");
 }
 
 function getCurrentTree() {
@@ -1008,6 +1948,7 @@ function escapeHtml(value) {
 
 document.addEventListener("DOMContentLoaded", initApp);
 
+
 # FILE: package.json
 
 {
@@ -1204,10 +2145,20 @@ function transformNode(apiNode, parentId = null) {
 
 # FILE: src\chart-cards.js
 
-export function renderNodeContent(nd, options) {
-  const { cardDesign, showVacancies, viewMode } = options;
+export function renderNodeContent(nd, options = {}) {
+  const {
+    cardDesign = "classic",
+    showVacancies = true,
+    viewMode = "to-be",
+    hideNames = false,
+    isPdfExport = false,
+  } = options;
 
   if (nd.isDepartment) {
+    if (isPdfExport) {
+      return renderDepartmentPdf(nd, showVacancies, hideNames);
+    }
+
     if (cardDesign === "variant2") {
       return renderDepartmentVariant2(nd, showVacancies, viewMode);
     }
@@ -1220,14 +2171,118 @@ export function renderNodeContent(nd, options) {
   }
 
   if (nd.isAssistant) {
-    return renderAssistantCard(nd, viewMode);
+    return isPdfExport
+      ? renderAssistantCardPdf(nd, hideNames)
+      : renderAssistantCard(nd, viewMode);
   }
 
   if (nd.isVacancy) {
-    return renderVacancy(nd, viewMode);
+    return isPdfExport ? renderVacancyPdf(nd) : renderVacancy(nd, viewMode);
   }
 
-  return renderEmployee(nd, viewMode);
+  return isPdfExport ? renderEmployeePdf(nd, hideNames) : renderEmployee(nd, viewMode);
+}
+
+function renderDepartmentPdf(nd, showVacancies, hideNames) {
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-department ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="department">
+      <div class="chart-card-pdf__eyebrow">Подразделение</div>
+      <div class="chart-card-pdf__title">${escapeHtml(nd.name)}</div>
+
+      ${
+        !hideNames && nd.headName
+          ? `<div class="chart-card-pdf__person">${escapeHtml(nd.headName)}</div>`
+          : ""
+      }
+
+      ${
+        nd.headPosition
+          ? `<div class="chart-card-pdf__position">${escapeHtml(nd.headPosition)}</div>`
+          : ""
+      }
+
+      ${renderAssistantPdf(nd.assistant, hideNames)}
+
+      <div class="chart-card-pdf__footer">
+        <span class="chart-card-pdf__count">${getDisplayCount(nd, showVacancies)}</span>
+        <span>${showVacancies ? "штат + вакансии" : "штат"}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderEmployeePdf(nd, hideNames) {
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-employee ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      <div class="chart-card-pdf__eyebrow">Сотрудник</div>
+      ${!hideNames ? `<div class="chart-card-pdf__person">${escapeHtml(nd.name)}</div>` : ""}
+      ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProjectPdf(nd)}
+    </div>
+  `;
+}
+
+function renderAssistantCardPdf(nd, hideNames) {
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-employee ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee">
+      <div class="chart-card-pdf__eyebrow">Административный ассистент</div>
+      ${!hideNames ? `<div class="chart-card-pdf__person">${escapeHtml(nd.name)}</div>` : ""}
+      ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProjectPdf(nd)}
+    </div>
+  `;
+}
+
+function renderVacancyPdf(nd) {
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-vacancy ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="vacancy">
+      <div class="chart-card-pdf__eyebrow">Вакансия</div>
+      ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderProjectPdf(nd)}
+    </div>
+  `;
+}
+
+function renderAssistantPdf(assistant, hideNames) {
+  if (!assistant) return "";
+
+  return `
+    <div class="chart-card-pdf__assistant">
+      <div class="chart-card-pdf__eyebrow">Административный ассистент</div>
+      ${
+        !hideNames
+          ? `<div class="chart-card-pdf__assistant-name">${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}</div>`
+          : ""
+      }
+      ${
+        assistant.position
+          ? `<div class="chart-card-pdf__assistant-position">${escapeHtml(assistant.position)}</div>`
+          : ""
+      }
+      ${renderProjectPdf(assistant)}
+    </div>
+  `;
+}
+
+function renderProjectPdf(nd) {
+  const project = normalizeProjects(nd.project);
+  if (!project) return "";
+
+  return `
+    <div class="chart-card-pdf__project">
+      Проект: ${escapeHtml(project)}
+    </div>
+  `;
 }
 
 function renderAssistantCard(nd, viewMode) {
@@ -1237,19 +2292,10 @@ function renderAssistantCard(nd, viewMode) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="employee">
       ${renderScenarioBadge(nd)}
-
       ${renderMenuButton(viewMode)}
-
       <div class="chart-card__assistant-label">Административный ассистент</div>
-
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
-
-      ${
-        nd.position
-          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
-          : ""
-      }
-
+      ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
       ${renderProject(nd)}
     </div>
   `;
@@ -1261,23 +2307,11 @@ function renderDepartmentClassic(nd, showVacancies, viewMode) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="department">
       ${renderScenarioBadge(nd)}
-
       ${renderMenuButton(viewMode)}
-
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
-
-      <div class="chart-card__manager">
-        👤 ${escapeHtml(nd.headName || "Нет руководителя")}
-      </div>
-
-      ${
-        nd.headPosition
-          ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>`
-          : ""
-      }
-
+      <div class="chart-card__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+      ${nd.headPosition ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>` : ""}
       ${renderAssistant(nd.assistant)}
-
       <div class="chart-card__count ${showVacancies ? "count-with-vacancies" : ""}">
         ${getDisplayCount(nd, showVacancies)}
       </div>
@@ -1291,30 +2325,14 @@ function renderDepartmentVariant2(nd, showVacancies, viewMode) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="department">
       ${renderScenarioBadge(nd)}
-
       ${renderMenuButton(viewMode)}
-
-      <div class="chart-card-v2__header">
-        <div class="chart-card-v2__title">${escapeHtml(nd.name)}</div>
-      </div>
-
+      <div class="chart-card-v2__header"><div class="chart-card-v2__title">${escapeHtml(nd.name)}</div></div>
       <div class="chart-card-v2__body">
-        <div class="chart-card-v2__manager">
-          ${escapeHtml(nd.headName || "Нет руководителя")}
-        </div>
-
-        ${
-          nd.headPosition
-            ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>`
-            : ""
-        }
-
+        <div class="chart-card-v2__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+        ${nd.headPosition ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>` : ""}
         ${renderAssistant(nd.assistant)}
       </div>
-
-      <div class="chart-card-v2__footer">
-        ${getDisplayCount(nd, showVacancies)} сотрудников
-      </div>
+      <div class="chart-card-v2__footer">${getDisplayCount(nd, showVacancies)} сотрудников</div>
     </div>
   `;
 }
@@ -1325,31 +2343,14 @@ function renderDepartmentVariant3(nd, showVacancies, viewMode) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="department">
       ${renderScenarioBadge(nd)}
-
       ${renderMenuButton(viewMode)}
-
-      <div class="chart-card-v3__avatar">
-        ${escapeHtml(getInitials(nd.headName))}
-      </div>
-
+      <div class="chart-card-v3__avatar">${escapeHtml(getInitials(nd.headName))}</div>
       <div class="chart-card-v3__content">
         <div class="chart-card-v3__title">${escapeHtml(nd.name)}</div>
-
-        <div class="chart-card-v3__manager">
-          ${escapeHtml(nd.headName || "Нет руководителя")}
-        </div>
-
-        ${
-          nd.headPosition
-            ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>`
-            : ""
-        }
-
+        <div class="chart-card-v3__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+        ${nd.headPosition ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>` : ""}
         ${renderAssistant(nd.assistant)}
-
-        <div class="chart-card-v3__count">
-          ${getDisplayCount(nd, showVacancies)} сотрудников
-        </div>
+        <div class="chart-card-v3__count">${getDisplayCount(nd, showVacancies)} сотрудников</div>
       </div>
     </div>
   `;
@@ -1362,16 +2363,9 @@ function renderEmployee(nd, viewMode) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="employee">
       ${renderScenarioBadge(nd)}
-
       ${renderMenuButton(viewMode)}
-
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
-      ${
-        nd.position
-          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
-          : ""
-      }
-
+      ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
       ${renderProject(nd)}
     </div>
   `;
@@ -1383,16 +2377,9 @@ function renderVacancy(nd, viewMode) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="vacancy">
       ${renderScenarioBadge(nd)}
-
       ${renderMenuButton(viewMode)}
-
       <div class="chart-card__title">Вакансия</div>
-      ${
-        nd.position
-          ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>`
-          : ""
-      }
-
+      ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
       ${renderProject(nd)}
     </div>
   `;
@@ -1402,17 +2389,10 @@ function renderAssistant(assistant) {
   if (!assistant) return "";
 
   return `
-    <div class="chart-card__assistant"
-         data-assistant-id="${escapeHtml(assistant.id || "")}">
+    <div class="chart-card__assistant" data-assistant-id="${escapeHtml(assistant.id || "")}">
       <div class="chart-card__assistant-label">Административный ассистент</div>
-      <div class="chart-card__assistant-name">
-        ${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}
-      </div>
-      ${
-        assistant.position
-          ? `<div class="chart-card__assistant-position">${escapeHtml(assistant.position)}</div>`
-          : ""
-      }
+      <div class="chart-card__assistant-name">${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}</div>
+      ${assistant.position ? `<div class="chart-card__assistant-position">${escapeHtml(assistant.position)}</div>` : ""}
       ${renderProject(assistant)}
     </div>
   `;
@@ -1420,7 +2400,6 @@ function renderAssistant(assistant) {
 
 function renderProject(nd) {
   const project = normalizeProjects(nd.project);
-
   if (!project) return "";
 
   return `
@@ -1442,9 +2421,7 @@ function renderMenuButton(viewMode) {
   if (viewMode === "as-is") return "";
 
   return `
-    <button class="chart-card__menu"
-            type="button"
-            data-scenario-menu>
+    <button class="chart-card__menu" type="button" data-scenario-menu>
       ⋮
     </button>
   `;
@@ -1452,7 +2429,6 @@ function renderMenuButton(viewMode) {
 
 function renderScenarioBadge(nd) {
   const label = getScenarioLabel(nd.scenarioState);
-
   if (!label) return "";
 
   return `
@@ -1471,7 +2447,6 @@ function getScenarioLabel(state) {
   if (state === "changed") return "Изменен";
   if (state === "moved") return "Перемещен";
   if (state === "removed") return "Удален";
-
   return "";
 }
 
@@ -1482,13 +2457,8 @@ function getDisplayCount(node, showVacancies) {
 }
 
 function getInitials(name) {
-  const parts = String(name || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "—";
-
   return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase();
 }
 
@@ -1500,6 +2470,7 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
 
 # FILE: src\employee-modal.js
 
@@ -1633,18 +2604,14 @@ export function flattenTree(nodes, result = []) {
 
 import { toCanvas } from "html-to-image";
 import { jsPDF } from "jspdf";
+import { OrgChart } from "d3-org-chart";
+import { renderNodeContent } from "./chart-cards.js";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
+const EXPORT_WIDTH = 2200;
+const EXPORT_HEIGHT = 1500;
+const EXPORT_PADDING = 56;
 
-const EXPORT_FRAME_CLASS = "pdf-export-frame-layer";
-
-const COLORS = {
-  department: "#4d8ce9",
-  employee: "#d0d5dd",
-  vacancy: "#b0c4de",
-};
-
-export async function exportOrgChartToPdf({ chart }) {
+export async function exportOrgChartToPdf({ chart } = {}) {
   if (!chart) {
     alert("Нет диаграммы для экспорта");
     return;
@@ -1658,48 +2625,79 @@ export async function exportOrgChartToPdf({ chart }) {
     exportButton.textContent = "Экспорт...";
   }
 
+  let sandbox = null;
+
   try {
-    const state = chart.getChartState();
+    const sourceState = chart.getChartState();
+    const sourceData = getFlatDataFromChartState(sourceState);
 
-    removeExportFrames();
+    if (!sourceData.length) {
+      throw new Error("Нет данных для экспорта");
+    }
 
-    const frameGroup = drawSvgFrames(state);
+    const hideNames = Boolean(document.getElementById("exportWithoutNames")?.checked);
+    const showVacancies = Boolean(document.getElementById("showVacancies")?.checked ?? true);
+    const viewMode = document.getElementById("viewMode")?.value || "to-be";
+    const title = getExportTitle(sourceData);
+
+    sandbox = createPdfSandbox({ title, hideNames, viewMode });
+    document.body.appendChild(sandbox);
+
+    const chartContainer = sandbox.querySelector("#pdfOrgChart");
+    const pdfData = preparePdfData(sourceData, { hideNames, showVacancies });
+
+    const pdfChart = new OrgChart()
+      .container(chartContainer)
+      .data(pdfData)
+      .nodeHeight(d => getPdfNodeHeight(d.data))
+      .nodeWidth(d => getPdfNodeWidth(d.data))
+      .childrenMargin(() => 70)
+      .compactMarginBetween(() => 36)
+      .compactMarginPair(() => 90)
+      .siblingsMargin(() => 44)
+      .nodeContent(d =>
+        renderNodeContent(d.data, {
+          cardDesign: "pdf",
+          showVacancies,
+          viewMode,
+          hideNames,
+          isPdfExport: true,
+        }),
+      );
+
+    pdfChart.render();
+    safeExpandAll(pdfChart);
+    pdfChart.fit();
 
     await waitForPaint();
-    await wait(100);
+    await wait(450);
 
-    const container = getContainerElement(state);
-
-    const canvas = await toCanvas(container, {
+    const canvas = await toCanvas(sandbox, {
       pixelRatio: 2,
       backgroundColor: "#ffffff",
       cacheBust: true,
       fontEmbedCSS: "",
       style: {
         background: "#ffffff",
-        fontFamily: "Arial, sans-serif",
+        fontFamily: "Inter, Arial, sans-serif",
       },
     });
 
     const imgData = canvas.toDataURL("image/png");
-
-    const { width, height } = canvas;
-
     const pdf = new jsPDF({
-      orientation: width >= height ? "landscape" : "portrait",
+      orientation: "landscape",
       unit: "px",
-      format: [width, height],
+      format: [canvas.width, canvas.height],
+      compress: true,
     });
 
-    pdf.addImage(imgData, "PNG", 0, 0, width, height);
-    pdf.save("orgchart.pdf");
-
-    frameGroup?.remove();
+    pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+    pdf.save(`${sanitizeFileName(title)}.pdf`);
   } catch (error) {
     console.error("Ошибка экспорта PDF:", error);
     alert(`Не удалось экспортировать PDF. ${error.message}`);
   } finally {
-    removeExportFrames();
+    sandbox?.remove();
 
     if (exportButton) {
       exportButton.disabled = false;
@@ -1708,100 +2706,140 @@ export async function exportOrgChartToPdf({ chart }) {
   }
 }
 
-function drawSvgFrames(state) {
-  const nodesWrapper = getD3ElementNode(state.nodesWrapper);
-
-  if (!nodesWrapper) {
-    throw new Error("Не найден слой узлов диаграммы");
-  }
-
-  const frameGroup = document.createElementNS(SVG_NS, "g");
-  frameGroup.setAttribute("class", EXPORT_FRAME_CLASS);
-
-  const visibleNodes = state.allNodes.filter(
-    node => Number.isFinite(node.x) && Number.isFinite(node.y),
-  );
-
-  visibleNodes.forEach(node => {
-    const width = state.nodeWidth(node);
-    const height = state.nodeHeight(node);
-
-    const rect = document.createElementNS(SVG_NS, "rect");
-
-    rect.setAttribute("x", String(node.x - width / 2));
-    rect.setAttribute("y", String(node.y));
-    rect.setAttribute("width", String(width));
-    rect.setAttribute("height", String(height));
-    rect.setAttribute("rx", "8");
-    rect.setAttribute("ry", "8");
-    rect.setAttribute("fill", "none");
-    rect.setAttribute("stroke", getNodeStroke(node));
-    rect.setAttribute("stroke-width", "2");
-    rect.setAttribute("pointer-events", "none");
-
-    frameGroup.appendChild(rect);
-  });
-
-  nodesWrapper.prepend(frameGroup);
-
-  return frameGroup;
+function getFlatDataFromChartState(state) {
+  return (state?.allNodes || [])
+    .filter(node => node?.data)
+    .map(node => ({ ...node.data }));
 }
 
-function getNodeStroke(node) {
-  if (node.data?.isVacancy) {
-    return COLORS.vacancy;
-  }
+function preparePdfData(data, { hideNames, showVacancies }) {
+  return data
+    .filter(item => showVacancies || !item.isVacancy)
+    .map(item => {
+      const prepared = {
+        ...item,
+        name: item.name || item.full_name || item.position || "Без названия",
+      };
 
-  if (node.data?.isDepartment) {
-    return COLORS.department;
-  }
+      if (prepared.isDepartment) {
+        prepared.headName = hideNames ? "" : prepared.headName || "";
+        prepared.assistant = prepared.assistant
+          ? sanitizeAssistant(prepared.assistant, hideNames)
+          : null;
+      }
 
-  return COLORS.employee;
+      if (!prepared.isDepartment && !prepared.isVacancy) {
+        prepared.name = hideNames ? "" : prepared.name || prepared.full_name || "Сотрудник";
+      }
+
+      if (prepared.isVacancy) {
+        prepared.name = "Вакансия";
+      }
+
+      return prepared;
+    });
 }
 
-function getContainerElement(state) {
-  const container = state.container;
-
-  if (typeof container === "string") {
-    const element = document.querySelector(container);
-
-    if (!element) {
-      throw new Error("Контейнер диаграммы не найден");
-    }
-
-    return element;
-  }
-
-  return getD3ElementNode(container) || container;
+function sanitizeAssistant(assistant, hideNames) {
+  return {
+    ...assistant,
+    name: hideNames ? "" : assistant.name,
+    full_name: hideNames ? "" : assistant.full_name,
+    fullName: hideNames ? "" : assistant.fullName,
+  };
 }
 
-function getD3ElementNode(value) {
-  if (!value) return null;
+function createPdfSandbox({ title, hideNames, viewMode }) {
+  const sandbox = document.createElement("div");
+  sandbox.className = "org-chart-pdf-export";
+  sandbox.style.width = `${EXPORT_WIDTH}px`;
+  sandbox.style.height = `${EXPORT_HEIGHT}px`;
 
-  if (typeof value.node === "function") {
-    return value.node();
-  }
+  sandbox.innerHTML = `
+    <div class="org-chart-pdf-export__page">
+      <header class="org-chart-pdf-export__header">
+        <div>
+          <div class="org-chart-pdf-export__eyebrow">Организационная структура</div>
+          <h1>${escapeHtml(title)}</h1>
+          <div class="org-chart-pdf-export__meta">
+            ${escapeHtml(getViewModeLabel(viewMode))} · ${hideNames ? "без фамилий" : "с фамилиями"}
+          </div>
+        </div>
+        <div class="org-chart-pdf-export__date">${formatDate(new Date())}</div>
+      </header>
+      <div id="pdfOrgChart" class="org-chart-pdf-export__chart"></div>
+    </div>
+  `;
 
-  return value;
+  return sandbox;
 }
 
-function removeExportFrames() {
-  document
-    .querySelectorAll(`.${EXPORT_FRAME_CLASS}`)
-    .forEach(element => element.remove());
+function getExportTitle(data) {
+  const root = data.find(item => !item.parentId) || data[0];
+  return root?.name || "Организационная структура";
+}
+
+function getViewModeLabel(viewMode) {
+  if (viewMode === "as-is") return "Текущая структура";
+  if (viewMode === "changes") return "Изменения";
+  return "Целевая структура";
+}
+
+function getPdfNodeWidth(data) {
+  if (data.isDepartment) return 430;
+  return 360;
+}
+
+function getPdfNodeHeight(data) {
+  if (data.isDepartment) {
+    return data.assistant ? 230 : 184;
+  }
+
+  if (data.isVacancy) return 132;
+  return 146;
+}
+
+function safeExpandAll(chart) {
+  try {
+    chart.expandAll();
+  } catch {
+    // В некоторых версиях d3-org-chart expandAll может отсутствовать.
+  }
+}
+
+function sanitizeFileName(value) {
+  return String(value || "orgchart")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .slice(0, 120);
+}
+
+function formatDate(date) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function waitForPaint() {
   return new Promise(resolve => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(resolve);
-    });
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
   });
 }
 
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
 
 # FILE: src\render.js
 
@@ -3612,6 +4650,260 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+
+/* style.css: добавьте в конец */
+
+.chart-card {
+  overflow: hidden;
+}
+
+.chart-card--department,
+.chart-card--employee,
+.chart-card--vacancy,
+.chart-card--assistant {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.chart-card__title,
+.chart-card__manager,
+.chart-card__manager-position,
+.chart-card__position,
+.chart-card__assistant-name,
+.chart-card__assistant-position {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.pdf-export-mode .chart-card__menu,
+.pdf-export-mode .scenario-badge,
+.pdf-export-mode .chart-card-v3__avatar {
+  display: none !important;
+}
+
+.pdf-export-hide-names .chart-card__manager-name,
+.pdf-export-hide-names .chart-card__assistant-name,
+.pdf-export-hide-names .chart-card--employee .chart-card__title {
+  display: none !important;
+}
+
+/* Добавьте этот блок в конец style.css */
+
+.org-chart-pdf-export {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: #ffffff;
+  color: #101828;
+  font-family: Inter, Arial, sans-serif;
+}
+
+.org-chart-pdf-export *,
+.org-chart-pdf-export *::before,
+.org-chart-pdf-export *::after {
+  box-sizing: border-box;
+}
+
+.org-chart-pdf-export__page {
+  width: 100%;
+  height: 100%;
+  padding: 56px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 32px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(21, 94, 239, 0.08), transparent 340px),
+    #ffffff;
+}
+
+.org-chart-pdf-export__header {
+  min-height: 116px;
+  display: flex;
+  justify-content: space-between;
+  gap: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e4e7ec;
+}
+
+.org-chart-pdf-export__eyebrow {
+  margin-bottom: 8px;
+  color: #155eef;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.org-chart-pdf-export__header h1 {
+  margin: 0;
+  color: #101828;
+  font-size: 34px;
+  line-height: 1.15;
+  font-weight: 700;
+  text-align: left;
+}
+
+.org-chart-pdf-export__meta {
+  margin-top: 10px;
+  color: #667085;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.org-chart-pdf-export__date {
+  flex: 0 0 auto;
+  padding-top: 4px;
+  color: #667085;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.org-chart-pdf-export__chart {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+.org-chart-pdf-export .svg-chart-container,
+.org-chart-pdf-export svg {
+  overflow: visible;
+}
+
+.org-chart-pdf-export .chart-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  font-family: Inter, Arial, sans-serif;
+}
+
+.org-chart-pdf-export .chart-card--pdf {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px;
+  border-radius: 20px;
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
+  box-shadow: 0 16px 36px rgba(16, 24, 40, 0.10);
+  overflow: hidden;
+}
+
+.org-chart-pdf-export .chart-card--pdf-department {
+  border: 2px solid #155eef;
+  box-shadow: 0 18px 44px rgba(21, 94, 239, 0.14);
+}
+
+.org-chart-pdf-export .chart-card--pdf-employee {
+  border-color: #d0d5dd;
+}
+
+.org-chart-pdf-export .chart-card--pdf-vacancy {
+  border-color: #84caff;
+  background: #f5fbff;
+}
+
+.org-chart-pdf-export .chart-card-pdf__eyebrow {
+  margin-bottom: 8px;
+  color: #155eef;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.org-chart-pdf-export .chart-card-pdf__title {
+  color: #101828;
+  font-size: 19px;
+  line-height: 1.18;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.org-chart-pdf-export .chart-card-pdf__person {
+  margin-top: 12px;
+  color: #344054;
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.org-chart-pdf-export .chart-card-pdf__position {
+  margin-top: 8px;
+  color: #475467;
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.org-chart-pdf-export .chart-card-pdf__project {
+  margin-top: 10px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.org-chart-pdf-export .chart-card-pdf__assistant {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.org-chart-pdf-export .chart-card-pdf__assistant-name {
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.org-chart-pdf-export .chart-card-pdf__assistant-position {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.org-chart-pdf-export .chart-card-pdf__footer {
+  margin-top: auto;
+  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.org-chart-pdf-export .chart-card-pdf__count {
+  min-width: 34px;
+  min-height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #155eef;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.org-chart-pdf-export .chart-card__menu,
+.org-chart-pdf-export .scenario-badge,
+.org-chart-pdf-export button {
+  display: none !important;
+}
+
 
 # FILE: vite.config.js
 

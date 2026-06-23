@@ -75,12 +75,12 @@ async function initApp() {
         document.getElementById("exportWithoutNames")?.checked;
 
       exportOrgChartToPdf({
-        chart,
-        title:
-          selectedNode?.department_name ||
-          selectedNode?.name ||
-          "Организационная структура",
+        rootNodes: [selectedNode],
+        title: getExportTitle(),
+        subtitle: getExportSubtitle(exportWithoutNames),
         hideNames: exportWithoutNames,
+        showVacancies,
+        viewMode,
       });
     });
 
@@ -157,6 +157,32 @@ function initScenarioControls() {
   document
     .querySelector("[data-close-compare]")
     ?.addEventListener("click", closeCompareModal);
+}
+
+function getExportTitle() {
+  return (
+    selectedNode?.department_name ||
+    selectedNode?.name ||
+    "Организационная структура"
+  );
+}
+
+function getExportSubtitle(hideNames) {
+  const modeTitles = {
+    "as-is": "Текущая структура",
+    "to-be": "Целевая структура",
+    changes: "Изменения",
+  };
+
+  const parts = [modeTitles[viewMode] || "Организационная структура"];
+
+  if (!showVacancies) {
+    parts.push("без вакансий");
+  }
+
+  parts.push(hideNames ? "без фамилий" : "с фамилиями");
+
+  return parts.join(" · ");
 }
 
 function getCurrentTree() {
