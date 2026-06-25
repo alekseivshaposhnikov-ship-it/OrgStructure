@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -14,6 +15,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+    },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    include: ['src/**/*.test.js'],
+    coverage: {
+      reporter: ['text', 'lcov', 'html'],
+      include: ['src/**/*.js'],
+      exclude: ['src/**/*.test.js'],
     },
   },
 });
