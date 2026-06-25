@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="ru">
   <head>
@@ -6,17 +7,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script type="module" crossorigin src="./assets/index-6-NgnMTJ.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DkLRjd_Q.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script type="module" crossorigin src="./assets/index-DSKrcnOJ.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-TMN3KkYe.css">
   </head>
 
   <body>
     <div class="sidebar">
-      <h1>Организационная структура</h1>
+      <div class="app-title">
+        <h1>Организационная структура</h1>
+        <button
+          id="openChangelog"
+          type="button"
+          class="changelog-icon-button"
+          aria-label="Открыть журнал обновлений"
+          title="Что нового"
+        >
+          <span aria-hidden="true">ⓘ</span>
+          <span id="changelogBadge" class="changelog-icon-button__badge hidden">NEW</span>
+        </button>
+      </div>
 
       <div class="controls">
         <button id="exportPdf">📄 Экспорт в PDF</button>
+
+        <label class="vacancy-toggle">
+          <input id="exportWithoutNames" type="checkbox" />
+          Выгружать PDF без фамилий
+        </label>
 
         <label class="vacancy-toggle">
           <input id="showVacancies" type="checkbox" checked />
@@ -28,14 +46,23 @@
           <select id="cardDesign">
             <option value="classic">Текущий</option>
             <option value="variant2">Вариант 2 — цветная шапка</option>
-            <option value="variant3">Вариант 3 — руководитель</option>
+            <option value="variant3">Профиль руководителя</option>
           </select>
         </label>
       </div>
 
-      <div class="scenario-panel">
-        <div class="scenario-panel__title">Сценарий моделирования</div>
+      <div class="scenario-panel" id="scenarioPanel">
+        <button
+          id="scenarioPanelToggle"
+          class="scenario-panel__toggle"
+          type="button"
+          aria-expanded="false"
+        >
+          <span id="scenarioPanelIcon">▶</span>
+          <span>Сценарий моделирования</span>
+        </button>
 
+        <div id="scenarioPanelBody" class="scenario-panel__body">
         <label class="scenario-field">
           <span>Название сценария</span>
           <input id="scenarioName" type="text" />
@@ -55,6 +82,7 @@
         <div class="scenario-actions">
           <button id="compareScenario" type="button">Сравнить</button>
           <button id="resetScenario" type="button" class="button-secondary">Сбросить</button>
+        </div>
         </div>
       </div>
 
@@ -96,6 +124,21 @@
         <button id="closeCompareModal" class="scenario-modal__close">×</button>
         <h2>Сравнение AS IS / TO BE</h2>
         <div id="compareContent"></div>
+      </div>
+    </div>
+
+    <div id="changelogModal" class="scenario-modal hidden">
+      <div class="scenario-modal__backdrop" data-close-changelog></div>
+      <div class="scenario-modal__card scenario-modal__card--wide changelog-modal__card">
+        <button id="closeChangelogModal" class="scenario-modal__close">×</button>
+        <div class="changelog-modal__header">
+          <div>
+            <div class="changelog-modal__eyebrow">Журнал обновлений</div>
+            <h2>Что нового</h2>
+          </div>
+          <div id="changelogLatestVersion" class="changelog-modal__version"></div>
+        </div>
+        <div id="changelogContent" class="changelog-content"></div>
       </div>
     </div>
   </body>
