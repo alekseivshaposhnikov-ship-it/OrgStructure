@@ -7,11 +7,12 @@ import { fetchOrganizationStructure } from "./src/api.js";
 import { addLevels } from "./src/layout.js";
 import { buildTreeView, createSyntheticRoot } from "./src/sidebar-tree.js";
 import { renderNodeContent } from "./src/chart-cards.js";
+import { renderCompactA4Screen } from "./src/compact-a4/compact-a4-screen-renderer.js";
 import {
   initEmployeeModal,
   openEmployeeDetails,
 } from "./src/employee-modal.js";
-import { exportOrgChartToPdf } from "./src/pdf-d3-export.js";
+import { exportOrgChartToPdf, exportCompactA4ToPdf } from "./src/pdf-d3-export.js";
 import { initChangelog } from "./src/changelog.js";
 
 import {
@@ -74,20 +75,7 @@ async function initApp() {
     initChangelog();
 
     renderApp();
-
-    document.getElementById("exportPdf")?.addEventListener("click", () => {
-      const exportWithoutNames =
-        document.getElementById("exportWithoutNames")?.checked;
-
-      exportOrgChartToPdf({
-        rootNodes: [selectedNode],
-        title: getExportTitle(),
-        subtitle: getExportSubtitle(exportWithoutNames),
-        hideNames: exportWithoutNames,
-        showVacancies,
-        viewMode,
-      });
-    });
+    initExportHandler();
 
     document
       .getElementById("showVacancies")
@@ -99,6 +87,34 @@ async function initApp() {
     console.error("Ошибка инициализации:", error);
     container.innerHTML = "<p>Произошла ошибка. Обновите страницу.</p>";
   }
+}
+
+function initExportHandler() {
+  document.getElementById("exportPdf")?.addEventListener("click", () => {
+    const exportWithoutNames =
+      document.getElementById("exportWithoutNames")?.checked;
+
+    if (cardDesign === "compact-a4") {
+      exportCompactA4ToPdf({
+        rootNodes: [selectedNode],
+        title: getExportTitle(),
+        subtitle: getExportSubtitle(exportWithoutNames),
+        hideNames: exportWithoutNames,
+        showVacancies,
+        viewMode,
+      });
+      return;
+    }
+
+    exportOrgChartToPdf({
+      rootNodes: [selectedNode],
+      title: getExportTitle(),
+      subtitle: getExportSubtitle(exportWithoutNames),
+      hideNames: exportWithoutNames,
+      showVacancies,
+      viewMode,
+    });
+  });
 }
 
 function initDesignSwitcher() {
@@ -374,6 +390,16 @@ function createOrgChartInstance(containerSelector, flatData) {
 
 function renderScreenOrgChart(rootNodes) {
   if (!rootNodes?.length) return;
+
+  // Для компактного A4 используем отдельный рендерер
+  if (cardDesign === "compact-a4") {
+    renderCompactA4Screen(rootNodes, "#orgChart", {
+      hideNames: false,
+      showVacancies,
+      viewMode,
+    });
+    return;
+  }
 
   const flatData = convertToFlatData(rootNodes);
 

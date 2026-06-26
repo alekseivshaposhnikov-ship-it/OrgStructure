@@ -1,14 +1,22 @@
-
 import { jsPDF } from "jspdf";
+import { calculateCompactLayout, convertToCompactTree } from "./compact-a4/compact-a4-layout.js";
+import { renderCompactSvg } from "./compact-a4/compact-a4-svg-renderer.js";
 
-const CARD_WIDTH = 300;
-const CARD_HEIGHT = 136;
+const DEPT_CARD_WIDTH = 300;
+const DEPT_CARD_HEIGHT = 136;
+const PERSON_CARD_WIDTH = 300;
+const PERSON_CARD_HEIGHT = 96;
+
 const H_GAP = 56;
-const V_GAP = 92;
+const V_GAP = 76;
+const PERSON_GRID_GAP_X = 48;
+const PERSON_GRID_GAP_Y = 36;
+
 const PADDING = 56;
 const HEADER_HEIGHT = 124;
-const MAX_EXPORT_WIDTH = 2400;
 const EXPORT_SCALE = 2;
+
+const MAX_PERSON_COLUMNS = 2;
 
 const COLORS = {
   blue: "#155eef",
@@ -17,8 +25,7 @@ const COLORS = {
   muted: "#667085",
   border: "#d0d5dd",
   line: "#98a2b3",
-  green: "#12b76a",
-  purple: "#9e77ed",
+  purple: "#7a5af8",
   red: "#f04438",
 };
 
@@ -44,14 +51,10 @@ export async function exportOrgChartToPdf({
   }
 
   try {
-    const exportTree = buildExportTree(rootNodes, {
-      hideNames,
-      showVacancies,
-    });
+    const exportTree = buildExportTree(rootNodes, { hideNames, showVacancies });
+    if (!exportTree) throw new Error("Нет данных для экспорта");
 
-    if (!exportTree) {
-      throw new Error("Нет данных для экспорта");
-    }
+    validateExportTree(exportTree);
 
     const svg = renderExportSvg(exportTree, {
       title,
@@ -95,10 +98,14 @@ function buildExportTree(rootNodes, { hideNames, showVacancies }) {
     hideNames,
     showVacancies,
     isRoot: true,
+    parentId: null,
   });
 }
 
-function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot = false }) {
+function convertDepartmentToExportNode(
+  node,
+  { hideNames, showVacancies, isRoot = false, parentId = null },
+) {
   const departmentId = node.department_guid || node.id || createFallbackId();
 
   const exportNode = {
@@ -112,6 +119,7 @@ function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot 
       : node.staffCount ?? 0,
     project: "",
     scenarioState: node.scenarioState || "",
+    parentId,
     children: [],
   };
 
@@ -119,20 +127,24 @@ function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot 
   const assistantId = assistant?.id || null;
 
   if (assistant) {
-    exportNode.children.push(convertUserToExportNode(assistant, {
-      hideNames,
-      forceType: "assistant",
-    }));
+    exportNode.children.push(
+      convertUserToExportNode(assistant, {
+        hideNames,
+        forceType: "assistant",
+        parentId: departmentId,
+      }),
+    );
   }
 
   (node.children || []).forEach(child => {
-    exportNode.children.push(
-      convertDepartmentToExportNode(child, {
-        hideNames,
-        showVacancies,
-        isRoot: false,
-      }),
-    );
+    const childNode = convertDepartmentToExportNode(child, {
+      hideNames,
+      showVacancies,
+      isRoot: false,
+      parentId: departmentId,
+    });
+
+    exportNode.children.push(childNode);
   });
 
   (node.users || [])
@@ -143,6 +155,7 @@ function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot 
       exportNode.children.push(
         convertUserToExportNode(user, {
           hideNames,
+          parentId: departmentId,
         }),
       );
     });
@@ -150,7 +163,7 @@ function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot 
   return exportNode;
 }
 
-function convertUserToExportNode(user, { hideNames, forceType = null }) {
+function convertUserToExportNode(user, { hideNames, forceType = null, parentId = null }) {
   const isVacancy = Boolean(user.isVacancy);
   const type = forceType || (isVacancy ? "vacancy" : "employee");
 
@@ -159,22 +172,22 @@ function convertUserToExportNode(user, { hideNames, forceType = null }) {
     type,
     name: isVacancy ? "Вакансия" : hideNames ? "" : user.full_name || user.name || "Сотрудник",
     manager: "",
-    position: user.position || "",
+    position: String(user.position || user.rawPosition || ""),
     count: null,
     project: normalizeProjects(user.project),
     scenarioState: user.scenarioState || "",
+    parentId,
     children: [],
   };
 }
 
 function renderExportSvg(root, options) {
-  const layoutRoot = buildLayout(root);
-  assignPositions(layoutRoot, PADDING, PADDING + HEADER_HEIGHT);
+  const layoutRoot = buildExportLayout(root);
+  assignExportPositions(layoutRoot, PADDING, PADDING + HEADER_HEIGHT);
 
   const bounds = getBounds(layoutRoot);
-
-  const width = bounds.maxX + CARD_WIDTH + PADDING;
-  const height = bounds.maxY + CARD_HEIGHT + PADDING;
+  const width = bounds.maxX + PADDING;
+  const height = bounds.maxY + PADDING;
 
   const svg = createSvgElement("svg", {
     width,
@@ -205,74 +218,118 @@ function renderExportSvg(root, options) {
   return svg;
 }
 
-function buildLayout(node, depth = 0) {
-  const children = (node.children || []).map(child => buildLayout(child, depth + 1));
-  const rows = packChildrenIntoRows(children);
-  const childrenWidth = rows.reduce((max, row) => Math.max(max, row.width), 0);
-  const childrenHeight = rows.reduce((sum, row, index) => {
-    return sum + row.height + (index > 0 ? V_GAP : 0);
-  }, 0);
+/**
+ * Layout не меняет иерархию.
+ * Department-дети раскладываются как orgchart-ветки.
+ * Employee/vacancy/assistant раскладываются отдельным sibling grid-блоком.
+ */
+function buildExportLayout(node, depth = 0) {
+  const children = (node.children || []).map(child => buildExportLayout(child, depth + 1));
+
+  const departmentChildren = children.filter(child => child.type === "department");
+  const personChildren = children.filter(child => child.type !== "department");
+
+  const cardWidth = getCardWidth(node);
+  const cardHeight = getCardHeight(node);
+
+  const departmentRowWidth = getRowWidth(departmentChildren);
+  const departmentRowHeight = getRowHeight(departmentChildren);
+
+  const personGrid = buildPersonGrid(personChildren);
+  const personGridWidth = personGrid.width;
+  const personGridHeight = personGrid.height;
+
+  const childrenWidth = Math.max(departmentRowWidth, personGridWidth);
+  const childrenHeight =
+    (departmentChildren.length ? V_GAP + departmentRowHeight : 0) +
+    (personChildren.length ? V_GAP + personGridHeight : 0);
 
   return {
     ...node,
     depth,
     children,
-    rows,
-    subtreeWidth: Math.max(CARD_WIDTH, childrenWidth),
-    subtreeHeight: CARD_HEIGHT + (children.length ? V_GAP + childrenHeight : 0),
+    departmentChildren,
+    personChildren,
+    personGrid,
+    cardWidth,
+    cardHeight,
+    subtreeWidth: Math.max(cardWidth, childrenWidth),
+    subtreeHeight: cardHeight + childrenHeight,
     x: 0,
     y: 0,
   };
 }
 
-function packChildrenIntoRows(children) {
-  const rows = [];
-  let current = [];
-  let currentWidth = 0;
-
-  children.forEach(child => {
-    const nextWidth = currentWidth + child.subtreeWidth + (current.length ? H_GAP : 0);
-
-    if (current.length && nextWidth > MAX_EXPORT_WIDTH) {
-      rows.push(createLayoutRow(current, currentWidth));
-      current = [child];
-      currentWidth = child.subtreeWidth;
-      return;
-    }
-
-    current.push(child);
-    currentWidth = nextWidth;
-  });
-
-  if (current.length) rows.push(createLayoutRow(current, currentWidth));
-
-  return rows;
-}
-
-function createLayoutRow(children, width) {
-  return {
-    children,
-    width,
-    height: children.reduce((max, child) => Math.max(max, child.subtreeHeight), CARD_HEIGHT),
-  };
-}
-
-function assignPositions(node, left, top) {
-  node.x = left + node.subtreeWidth / 2 - CARD_WIDTH / 2;
+function assignExportPositions(node, left, top) {
+  node.x = left + node.subtreeWidth / 2 - node.cardWidth / 2;
   node.y = top;
 
-  let rowTop = top + CARD_HEIGHT + V_GAP;
+  let cursorY = top + node.cardHeight;
 
-  node.rows.forEach(row => {
-    let childLeft = left + node.subtreeWidth / 2 - row.width / 2;
+  if (node.departmentChildren.length) {
+    cursorY += V_GAP;
 
-    row.children.forEach(child => {
-      assignPositions(child, childLeft, rowTop);
+    const rowWidth = getRowWidth(node.departmentChildren);
+    let childLeft = left + node.subtreeWidth / 2 - rowWidth / 2;
+
+    node.departmentChildren.forEach(child => {
+      assignExportPositions(child, childLeft, cursorY);
       childLeft += child.subtreeWidth + H_GAP;
     });
 
-    rowTop += row.height + V_GAP;
-  });
+    cursorY += getRowHeight(node.departmentChildren);
+  }
+
+  if (node.personChildren.length) {
+    cursorY += V_GAP;
+
+    const grid = node.personGrid;
+    const gridLeft = left + node.subtreeWidth / 2 - grid.width / 2;
+
+    node.personChildren.forEach((child, index) => {
+      const col = index % grid.columns;
+      const row = Math.floor(index / grid.columns);
+
+      child.x = gridLeft + col * (PERSON_CARD_WIDTH + PERSON_GRID_GAP_X);
+      child.y = cursorY + row * (PERSON_CARD_HEIGHT + PERSON_GRID_GAP_Y);
+    });
+  }
+}
+
+function buildPersonGrid(personChildren) {
+  if (!personChildren.length) {
+    return { columns: 0, rows: 0, width: 0, height: 0 };
+  }
+
+  const columns = Math.min(MAX_PERSON_COLUMNS, personChildren.length);
+  const rows = Math.ceil(personChildren.length / columns);
+
+  return {
+    columns,
+    rows,
+    width: columns * PERSON_CARD_WIDTH + (columns - 1) * PERSON_GRID_GAP_X,
+    height: rows * PERSON_CARD_HEIGHT + (rows - 1) * PERSON_GRID_GAP_Y,
+  };
+}
+
+function getRowWidth(children) {
+  if (!children.length) return 0;
+  return children.reduce((sum, child, index) => {
+    return sum + child.subtreeWidth + (index > 0 ? H_GAP : 0);
+  }, 0);
+}
+
+function getRowHeight(children) {
+  if (!children.length) return 0;
+  return children.reduce((max, child) => Math.max(max, child.subtreeHeight), 0);
+}
+
+function getCardWidth(node) {
+  return node.type === "department" ? DEPT_CARD_WIDTH : PERSON_CARD_WIDTH;
+}
+
+function getCardHeight(node) {
+  return node.type === "department" ? DEPT_CARD_HEIGHT : PERSON_CARD_HEIGHT;
 }
 
 function getBounds(root) {
@@ -280,8 +337,8 @@ function getBounds(root) {
   let maxY = 0;
 
   walk(root, node => {
-    maxX = Math.max(maxX, node.x);
-    maxY = Math.max(maxY, node.y);
+    maxX = Math.max(maxX, node.x + node.cardWidth);
+    maxY = Math.max(maxY, node.y + node.cardHeight);
   });
 
   return { maxX, maxY };
@@ -334,24 +391,62 @@ function drawHeader(svg, { width, title, subtitle }) {
 }
 
 function drawConnectors(svg, root) {
-  walk(root, node => {
-    node.children.forEach(child => {
-      drawConnector(svg, {
-        fromX: node.x + CARD_WIDTH / 2,
-        fromY: node.y + CARD_HEIGHT,
-        toX: child.x + CARD_WIDTH / 2,
-        toY: child.y,
-      });
-    });
+  walk(root, parent => {
+    if (!parent.children || !parent.children.length) return;
+
+    const children = parent.children;
+    const parentX = parent.x + parent.cardWidth / 2;
+    const parentY = parent.y + parent.cardHeight;
+
+    const departmentChildren = children.filter(child => child.type === "department");
+    const personChildren = children.filter(child => child.type !== "department");
+
+    if (departmentChildren.length) {
+      drawSiblingGroupConnector(svg, parent, departmentChildren, parentX, parentY);
+    }
+
+    if (personChildren.length) {
+      drawSiblingGroupConnector(svg, parent, personChildren, parentX, parentY);
+    }
   });
 }
 
-function drawConnector(svg, { fromX, fromY, toX, toY }) {
-  const middleY = fromY + (toY - fromY) / 2;
+function drawSiblingGroupConnector(svg, parent, children, parentX, parentY) {
+  if (!children.length) return;
 
+  if (children.length === 1) {
+    const child = children[0];
+    drawOrthogonalLine(
+      svg,
+      parentX,
+      parentY,
+      child.x + child.cardWidth / 2,
+      child.y,
+    );
+    return;
+  }
+
+  const minChildY = Math.min(...children.map(child => child.y));
+  const trunkY = parentY + Math.max(28, (minChildY - parentY) / 2);
+
+  drawStraightLine(svg, parentX, parentY, parentX, trunkY);
+
+  const minX = Math.min(...children.map(child => child.x + child.cardWidth / 2));
+  const maxX = Math.max(...children.map(child => child.x + child.cardWidth / 2));
+
+  drawStraightLine(svg, minX, trunkY, maxX, trunkY);
+
+  children.forEach(child => {
+    const childX = child.x + child.cardWidth / 2;
+    drawStraightLine(svg, childX, trunkY, childX, child.y);
+  });
+}
+
+function drawOrthogonalLine(svg, x1, y1, x2, y2) {
+  const midY = y1 + (y2 - y1) / 2;
   svg.appendChild(
     createSvgElement("path", {
-      d: `M ${fromX} ${fromY} V ${middleY} H ${toX} V ${toY}`,
+      d: `M ${x1} ${y1} V ${midY} H ${x2} V ${y2}`,
       fill: "none",
       stroke: COLORS.line,
       "stroke-width": 2,
@@ -359,10 +454,21 @@ function drawConnector(svg, { fromX, fromY, toX, toY }) {
   );
 }
 
+function drawStraightLine(svg, x1, y1, x2, y2) {
+  svg.appendChild(
+    createSvgElement("line", {
+      x1,
+      y1,
+      x2,
+      y2,
+      stroke: COLORS.line,
+      "stroke-width": 2,
+    }),
+  );
+}
+
 function drawNodes(svg, root) {
-  walk(root, node => {
-    drawCard(svg, node);
-  });
+  walk(root, node => drawCard(svg, node));
 }
 
 function drawCard(svg, node) {
@@ -376,8 +482,8 @@ function drawCard(svg, node) {
     createSvgElement("rect", {
       x: 0,
       y: 0,
-      width: CARD_WIDTH,
-      height: CARD_HEIGHT,
+      width: node.cardWidth,
+      height: node.cardHeight,
       rx: 14,
       ry: 14,
       fill: styles.fill,
@@ -390,10 +496,20 @@ function drawCard(svg, node) {
     drawScenarioBadge(group, node.scenarioState);
   }
 
-  appendWrappedText(group, getNodeTitle(node), {
+  if (node.type === "department") {
+    drawDepartmentContent(group, node);
+  } else {
+    drawPersonContent(group, node);
+  }
+
+  svg.appendChild(group);
+}
+
+function drawDepartmentContent(group, node) {
+  appendWrappedText(group, node.name || "Без названия", {
     x: 18,
-    y: node.scenarioState ? 46 : 28,
-    maxWidth: 250,
+    y: node.scenarioState ? 46 : 30,
+    maxWidth: node.cardWidth - 36,
     lineHeight: 16,
     maxLines: 2,
     size: 14,
@@ -405,7 +521,7 @@ function drawCard(svg, node) {
     appendWrappedText(group, node.manager, {
       x: 18,
       y: 76,
-      maxWidth: 260,
+      maxWidth: node.cardWidth - 80,
       lineHeight: 15,
       maxLines: 1,
       size: 12,
@@ -417,23 +533,50 @@ function drawCard(svg, node) {
     appendWrappedText(group, node.position, {
       x: 18,
       y: node.manager ? 98 : 76,
-      maxWidth: 260,
+      maxWidth: node.cardWidth - 80,
       lineHeight: 15,
-      maxLines: 2,
+      maxLines: 1,
       size: 12,
       fill: COLORS.muted,
     });
   }
 
-  if (node.project) {
-    drawProject(group, node.project);
-  }
-
   if (node.count !== null && node.count !== undefined) {
-    drawCount(group, node.count);
+    drawCount(group, node.count, node.cardWidth, node.cardHeight);
+  }
+}
+
+function drawPersonContent(group, node) {
+  const title = node.type === "assistant"
+    ? `Административный ассистент — ${node.name || ""}`
+    : node.name || "Сотрудник";
+
+  appendWrappedText(group, title, {
+    x: 18,
+    y: 30,
+    maxWidth: node.cardWidth - 36,
+    lineHeight: 16,
+    maxLines: 2,
+    size: 13,
+    weight: 700,
+    fill: COLORS.text,
+  });
+
+  if (node.position) {
+    appendWrappedText(group, node.position, {
+      x: 18,
+      y: 66,
+      maxWidth: node.cardWidth - 36,
+      lineHeight: 14,
+      maxLines: 1,
+      size: 11,
+      fill: COLORS.muted,
+    });
   }
 
-  svg.appendChild(group);
+  if (node.project) {
+    drawProject(group, node.project, node.cardWidth, node.cardHeight);
+  }
 }
 
 function getCardStyles(node) {
@@ -456,7 +599,7 @@ function getCardStyles(node) {
   if (node.type === "assistant") {
     return {
       fill: "#f8fafc",
-      stroke: "#7a5af8",
+      stroke: COLORS.purple,
       strokeWidth: 2,
     };
   }
@@ -466,11 +609,6 @@ function getCardStyles(node) {
     stroke: COLORS.border,
     strokeWidth: 1.5,
   };
-}
-
-function getNodeTitle(node) {
-  if (node.type === "assistant") return `Административный ассистент${node.name ? ` — ${node.name}` : ""}`;
-  return node.name || "Без названия";
 }
 
 function drawScenarioBadge(group, state) {
@@ -498,13 +636,13 @@ function drawScenarioBadge(group, state) {
   });
 }
 
-function drawProject(group, project) {
+function drawProject(group, project, cardWidth, cardHeight) {
   group.appendChild(
     createSvgElement("rect", {
       x: 18,
-      y: CARD_HEIGHT - 38,
-      width: 210,
-      height: 22,
+      y: cardHeight - 30,
+      width: Math.min(210, cardWidth - 36),
+      height: 20,
       rx: 8,
       ry: 8,
       fill: "#f2f4f7",
@@ -513,8 +651,8 @@ function drawProject(group, project) {
 
   appendWrappedText(group, `Проект: ${project}`, {
     x: 28,
-    y: CARD_HEIGHT - 23,
-    maxWidth: 190,
+    y: cardHeight - 16,
+    maxWidth: Math.min(190, cardWidth - 56),
     lineHeight: 12,
     maxLines: 1,
     size: 10,
@@ -522,11 +660,11 @@ function drawProject(group, project) {
   });
 }
 
-function drawCount(group, count) {
+function drawCount(group, count, cardWidth, cardHeight) {
   group.appendChild(
     createSvgElement("rect", {
-      x: CARD_WIDTH - 62,
-      y: CARD_HEIGHT - 42,
+      x: cardWidth - 62,
+      y: cardHeight - 42,
       width: 44,
       height: 28,
       rx: 14,
@@ -536,8 +674,8 @@ function drawCount(group, count) {
   );
 
   appendText(group, String(count), {
-    x: CARD_WIDTH - 40,
-    y: CARD_HEIGHT - 23,
+    x: cardWidth - 40,
+    y: cardHeight - 23,
     size: 14,
     weight: 700,
     fill: COLORS.blue,
@@ -581,7 +719,8 @@ function wrapText(text, maxWidth, fontSize, maxLines) {
   let current = "";
 
   words.forEach(word => {
-    const next = current ? `${current} ${word}` : word;
+    const safeWord = word.length > maxChars ? truncateText(word, maxChars) : word;
+    const next = current ? `${current} ${safeWord}` : safeWord;
 
     if (next.length <= maxChars) {
       current = next;
@@ -589,7 +728,7 @@ function wrapText(text, maxWidth, fontSize, maxLines) {
     }
 
     if (current) lines.push(current);
-    current = word;
+    current = safeWord;
   });
 
   if (current) lines.push(current);
@@ -690,18 +829,38 @@ function loadImage(url) {
 }
 
 function walk(node, callback) {
+  if (!node) return;
   callback(node);
-  node.children.forEach(child => walk(child, callback));
+  (node.children || []).forEach(child => walk(child, callback));
+}
+
+function validateExportTree(root) {
+  const nodes = [];
+  walk(root, node => nodes.push(node));
+
+  const ids = new Set(nodes.map(node => node.id));
+
+  nodes.forEach(node => {
+    if (node !== root && !node.parentId) {
+      console.warn("PDF export warning: node without parentId", node);
+    }
+
+    if (node.parentId && !ids.has(node.parentId)) {
+      console.warn("PDF export warning: parentId not found", node);
+    }
+
+    if (node.type !== "department" && (node.children || []).length) {
+      console.warn("PDF export warning: employee/vacancy has children", node);
+    }
+  });
 }
 
 function findAdministrativeAssistantInSubtree(node) {
   const ownAssistant = findAdministrativeAssistant(node.users || []);
-
   if (ownAssistant) return ownAssistant;
 
   for (const child of node.children || []) {
     const childAssistant = findAdministrativeAssistantInSubtree(child);
-
     if (childAssistant) return childAssistant;
   }
 
@@ -714,9 +873,7 @@ function findAdministrativeAssistant(users) {
 
 function isAdministrativeAssistant(user) {
   if (!user || user.isVacancy) return false;
-
   const position = String(user.rawPosition || user.position || "").toLowerCase();
-
   return position.includes("административный ассистент");
 }
 
@@ -737,22 +894,10 @@ function getScenarioLabel(state) {
 }
 
 function getScenarioColors(state) {
-  if (state === "added") {
-    return { bg: "#dcfae6", text: "#067647" };
-  }
-
-  if (state === "changed") {
-    return { bg: "#dbeafe", text: "#1d4ed8" };
-  }
-
-  if (state === "moved") {
-    return { bg: "#f4e8ff", text: "#7e22ce" };
-  }
-
-  if (state === "removed") {
-    return { bg: "#fee4e2", text: "#b42318" };
-  }
-
+  if (state === "added") return { bg: "#dcfae6", text: "#067647" };
+  if (state === "changed") return { bg: "#dbeafe", text: "#1d4ed8" };
+  if (state === "moved") return { bg: "#f4e8ff", text: "#7e22ce" };
+  if (state === "removed") return { bg: "#fee4e2", text: "#b42318" };
   return { bg: "#f2f4f7", text: "#344054" };
 }
 
@@ -775,4 +920,98 @@ let fallbackIdCounter = 0;
 function createFallbackId() {
   fallbackIdCounter += 1;
   return `export-node-${fallbackIdCounter}`;
+}
+
+/**
+ * Компактный A4 PDF — оставляем отдельным независимым экспортом.
+ */
+export async function exportCompactA4ToPdf({
+  rootNodes = [],
+  title = "Организационная структура",
+  subtitle = "",
+  hideNames = false,
+  showVacancies = true,
+  viewMode = "to-be",
+} = {}) {
+  if (!rootNodes.length) {
+    alert("Нет диаграммы для экспорта");
+    return;
+  }
+
+  const exportButton = document.getElementById("exportPdf");
+  const originalButtonText = exportButton?.textContent;
+
+  if (exportButton) {
+    exportButton.disabled = true;
+    exportButton.textContent = "Экспорт компактного A4...";
+  }
+
+  try {
+    const exportTree = buildCompactA4ExportTree(rootNodes, { hideNames, showVacancies });
+    if (!exportTree) throw new Error("Нет данных для экспорта");
+
+    const compactTree = convertToCompactTree(exportTree);
+    const layoutResult = calculateCompactLayout(compactTree);
+
+    if (!layoutResult || !layoutResult.canFit) {
+      alert("Структуру невозможно уместить на один лист A4 без потери читаемости");
+      return;
+    }
+
+    const svg = renderCompactSvg(layoutResult, { title, subtitle });
+    await saveCompactSvgAsA4Pdf(svg, sanitizeFileName(title));
+  } catch (error) {
+    console.error("Ошибка экспорта компактного PDF:", error);
+    alert(`Не удалось экспортировать компактный PDF. ${error.message}`);
+  } finally {
+    if (exportButton) {
+      exportButton.disabled = false;
+      exportButton.textContent = originalButtonText || "📄 Экспорт в PDF";
+    }
+  }
+}
+
+function buildCompactA4ExportTree(rootNodes, { hideNames, showVacancies }) {
+  return buildExportTree(rootNodes, { hideNames, showVacancies });
+}
+
+async function saveCompactSvgAsA4Pdf(svg, fileName) {
+  const { width, height } = svg.viewBox.baseVal;
+
+  const serializer = new XMLSerializer();
+  const svgString = serializer.serializeToString(svg);
+
+  const svgBlob = new Blob([svgString], {
+    type: "image/svg+xml;charset=utf-8",
+  });
+
+  const url = URL.createObjectURL(svgBlob);
+
+  try {
+    const img = await loadImage(url);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width * 2;
+    canvas.height = height * 2;
+
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const imgData = canvas.toDataURL("image/png");
+
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "px",
+      format: [canvas.width, canvas.height],
+      compress: true,
+    });
+
+    pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+    pdf.save(`${fileName}_compact_A4.pdf`);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
