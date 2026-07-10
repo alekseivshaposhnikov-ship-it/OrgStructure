@@ -14,6 +14,7 @@ import {
 } from "./src/employee-modal.js";
 import { exportOrgChartToPdf, exportCompactA4ToPdf } from "./src/pdf-d3-export.js";
 import { initChangelog } from "./src/changelog.js";
+import { buildHorizontalFlatData } from "./src/horizontal-layout.js";
 
 import {
   createScenario,
@@ -383,6 +384,8 @@ function focusEntity(entityId) {
 }
 
 function getDepartmentNodeHeight(data) {
+  if (data.isVirtualLevel) return 0;
+
   if (!data.isDepartment) return 96;
 
   const assistantExtraHeight = data.assistant ? 44 : 0;
@@ -398,23 +401,28 @@ function getDepartmentNodeWidth() {
 }
 
 function createOrgChartInstance(containerSelector, flatData) {
-  const layout = layoutOrientation === "horizontal" ? "right" : "top";
+  const isHorizontal = layoutOrientation === "horizontal";
+  const layout = isHorizontal ? "top" : "top";
 
   const orgChart = new OrgChart()
     .container(containerSelector)
     .nodeHeight((d) => getDepartmentNodeHeight(d.data))
-    .nodeWidth(() => getDepartmentNodeWidth())
+    .nodeWidth((d) => (d.data.isVirtualLevel ? 0 : getDepartmentNodeWidth()))
     .layout(layout)
     .childrenMargin(() => 40)
     .compactMarginBetween(() => 20)
     .compactMarginPair(() => 60)
-    .nodeContent((d) =>
-      renderNodeContent(d.data, {
+    .nodeContent((d) => {
+      if (d.data.isVirtualLevel) {
+        return `<div data-virtual-level="true" style="display:none"></div>`;
+      }
+
+      return renderNodeContent(d.data, {
         cardDesign,
         showVacancies,
         viewMode,
-      }),
-    );
+      });
+    });
 
   orgChart.data(flatData).render();
 
@@ -434,7 +442,10 @@ function renderScreenOrgChart(rootNodes) {
     return;
   }
 
-  const flatData = convertToFlatData(rootNodes);
+  const isHorizontal = layoutOrientation === "horizontal";
+  const flatData = isHorizontal
+    ? buildHorizontalFlatData(rootNodes[0], { showVacancies })
+    : convertToFlatData(rootNodes);
 
   if (!flatData.length) {
     const container = document.getElementById("orgChart");
