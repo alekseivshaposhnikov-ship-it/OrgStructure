@@ -51,6 +51,22 @@
             <option value="compact-a4">Компактный A4</option>
           </select>
         </label>
+
+        <label class="design-switcher">
+          <span>Ширина карточек</span>
+          <div class="range-with-value">
+            <input id="cardWidth" type="range" min="180" max="500" step="10" value="350" />
+            <span id="cardWidthValue">350 px</span>
+          </div>
+        </label>
+
+        <label class="design-switcher">
+          <span>Ориентация диаграммы</span>
+          <select id="layoutOrientation">
+            <option value="vertical">Вертикальная</option>
+            <option value="horizontal">Горизонтальная</option>
+          </select>
+        </label>
       </div>
 
       <div class="scenario-panel" id="scenarioPanel">

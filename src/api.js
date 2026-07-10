@@ -1,3 +1,9 @@
+const EXCLUDED_DEPARTMENTS = ["Администрация+"];
+
+const RENAMED_DEPARTMENTS = {
+  "Дирекция по эксплуатации": "LEGENDA Comfort",
+};
+
 export async function fetchOrganizationStructure() {
   const url = '/api/getDepartmentVacancy';
 
@@ -9,12 +15,57 @@ export async function fetchOrganizationStructure() {
     }
 
     const apiData = await response.json();
-    return transformApiResponse(apiData);
+    let tree = transformApiResponse(apiData);
+    tree = tree.map(node => applyRenames(node));
+    tree = filterExcludedDepartments(tree);
+    tree = filterEmptyDepartments(tree);
+    return tree;
   } catch (error) {
     console.error('Не удалось загрузить данные структуры:', error);
     alert('Не удалось загрузить организационную структуру. Проверьте доступность сервера.');
     return [];
   }
+}
+
+export function filterExcludedDepartments(nodes) {
+  if (!Array.isArray(nodes)) return [];
+  return nodes
+    .filter(node => !EXCLUDED_DEPARTMENTS.includes(node.department_name || ""))
+    .map(node => ({
+      ...node,
+      children: filterExcludedDepartments(node.children || []),
+    }));
+}
+
+export function filterEmptyDepartments(nodes) {
+  if (!Array.isArray(nodes)) return [];
+  return nodes
+    .filter(node => !isDepartmentEmpty(node))
+    .map(node => ({
+      ...node,
+      children: filterEmptyDepartments(node.children || []),
+    }));
+}
+
+function isDepartmentEmpty(node) {
+  if ((node.staffCount || 0) > 0 || (node.vacancyCount || 0) > 0) return false;
+
+  const filteredChildren = (node.children || []).filter(
+    child => !isDepartmentEmpty(child),
+  );
+  return filteredChildren.length === 0;
+}
+
+export function applyRenames(node) {
+  if (!node) return node;
+  const name = node.department_name || "";
+  const newName = RENAMED_DEPARTMENTS[name] || name;
+
+  return {
+    ...node,
+    department_name: newName,
+    children: (node.children || []).map(child => applyRenames(child)),
+  };
 }
 
 function transformApiResponse(apiNodes) {

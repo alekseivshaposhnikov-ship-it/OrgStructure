@@ -197,14 +197,14 @@ button:hover {
 .chart-card--department {
   position: relative;
   padding: 16px 16px 32px 16px;
-  border: 1px solid var(--color-border);
+  border: 2px solid var(--color-primary);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
 }
 
 .chart-card--employee {
   padding: 12px;
-  border: 1px solid var(--color-border);
+  border: 2px solid var(--color-primary);
   background: var(--color-surface);
   cursor: pointer;
 }
@@ -916,7 +916,7 @@ body {
 
 .chart-card--assistant {
   padding: 10px;
-  border: 1px solid #d0d5dd;
+  border: 2px solid var(--color-primary);
   background: #fff;
   cursor: pointer;
 }
@@ -1549,4 +1549,31 @@ body {
 
 .changelog-group li + li {
   margin-top: 6px;
+}
+
+/* CR-006: card width slider */
+.range-with-value {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-with-value input[type="range"] {
+  flex: 1;
+  min-height: auto;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: #d0d5dd;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.range-with-value span {
+  min-width: 56px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: #344054;
 }

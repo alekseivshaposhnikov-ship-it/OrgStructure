@@ -30,10 +30,10 @@ describe('changelog.js', () => {
 
     const content = document.getElementById('changelogContent');
     expect(content.innerHTML).not.toBe('');
-    expect(content.innerHTML).toContain('1.7.0');
+    expect(content.innerHTML).toContain('1.8.0');
 
     const latestVersion = document.getElementById('changelogLatestVersion');
-    expect(latestVersion.textContent).toContain('1.7.0');
+    expect(latestVersion.textContent).toContain('1.8.0');
   });
 
   it('должен отображать badge для непросмотренной версии', () => {
@@ -59,11 +59,11 @@ describe('changelog.js', () => {
     const openButton = document.getElementById('openChangelog');
     openButton.click();
 
-    expect(localStorage.setItem).toHaveBeenCalledWith('orgAppLastSeenVersion', '1.7.0');
+    expect(localStorage.setItem).toHaveBeenCalledWith('orgAppLastSeenVersion', '1.8.0');
   });
 
   it('должен скрывать badge если версия уже просмотрена', () => {
-    localStorage.setItem('orgAppLastSeenVersion', '1.7.0');
+    localStorage.setItem('orgAppLastSeenVersion', '1.8.0');
 
     initChangelog();
 

@@ -45,6 +45,8 @@ let chart = null;
 let selectedNode = null;
 let showVacancies = true;
 let cardDesign = localStorage.getItem("orgCardDesign") || "classic";
+let cardWidth = Number(localStorage.getItem("orgCardWidth")) || 350;
+let layoutOrientation = localStorage.getItem("orgLayoutOrientation") || "vertical";
 let viewMode = "to-be";
 let isOrgChartDelegationBound = false;
 const SCENARIO_PANEL_COLLAPSED_KEY = "orgScenarioPanelCollapsed";
@@ -69,6 +71,8 @@ async function initApp() {
     selectedNode = createSyntheticRoot(getCurrentTree());
 
     initDesignSwitcher();
+    initCardWidthControl();
+    initLayoutOrientationControl();
     initEmployeeModal();
     initScenarioControls();
     initScenarioPanelToggle();
@@ -126,6 +130,35 @@ function initDesignSwitcher() {
   select.addEventListener("change", (event) => {
     cardDesign = event.target.value;
     localStorage.setItem("orgCardDesign", cardDesign);
+    renderApp();
+  });
+}
+
+function initCardWidthControl() {
+  const slider = document.getElementById("cardWidth");
+  const valueEl = document.getElementById("cardWidthValue");
+  if (!slider || !valueEl) return;
+
+  slider.value = cardWidth;
+  valueEl.textContent = `${cardWidth} px`;
+
+  slider.addEventListener("input", (event) => {
+    cardWidth = Number(event.target.value);
+    valueEl.textContent = `${cardWidth} px`;
+    localStorage.setItem("orgCardWidth", String(cardWidth));
+    renderApp();
+  });
+}
+
+function initLayoutOrientationControl() {
+  const select = document.getElementById("layoutOrientation");
+  if (!select) return;
+
+  select.value = layoutOrientation;
+
+  select.addEventListener("change", (event) => {
+    layoutOrientation = event.target.value;
+    localStorage.setItem("orgLayoutOrientation", layoutOrientation);
     renderApp();
   });
 }
@@ -361,17 +394,17 @@ function getDepartmentNodeHeight(data) {
 }
 
 function getDepartmentNodeWidth() {
-  if (cardDesign === "variant2") return 380;
-  if (cardDesign === "variant3") return 400;
-
-  return 350;
+  return cardWidth;
 }
 
 function createOrgChartInstance(containerSelector, flatData) {
+  const layout = layoutOrientation === "horizontal" ? "right" : "top";
+
   const orgChart = new OrgChart()
     .container(containerSelector)
     .nodeHeight((d) => getDepartmentNodeHeight(d.data))
     .nodeWidth(() => getDepartmentNodeWidth())
+    .layout(layout)
     .childrenMargin(() => 40)
     .compactMarginBetween(() => 20)
     .compactMarginPair(() => 60)

@@ -4,7 +4,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockFetch = vi.fn();
 
 // Импортируем после мока
-const { fetchOrganizationStructure } = await import('./api.js');
+const {
+  fetchOrganizationStructure,
+  filterExcludedDepartments,
+  filterEmptyDepartments,
+  applyRenames,
+} = await import('./api.js');
 
 describe('api.js', () => {
   beforeEach(() => {
@@ -250,7 +255,9 @@ describe('api.js', () => {
           id: 'dept-1',
           name: 'Отдел',
           manager: { id: 'mgr-1', full_name: 'Иван', position: 'Руководитель отдела / Юридический департамент' },
-          employees: [],
+          employees: [
+            { id: 'emp-1', full_name: 'Петр Петров', position: 'Разработчик', count: '1' },
+          ],
           vacancy_list: [],
           children: [],
         },
@@ -263,6 +270,212 @@ describe('api.js', () => {
 
       const result = await fetchOrganizationStructure();
       expect(result[0].department_manager_position).toBe('Руководитель отдела');
+    });
+  });
+
+  describe('filterExcludedDepartments', () => {
+    it('должен удалять подразделение «Администрация+»', () => {
+      const tree = [
+        {
+          department_guid: 'dept-1',
+          department_name: 'Отдел продаж',
+          children: [],
+        },
+        {
+          department_guid: 'dept-admin',
+          department_name: 'Администрация+',
+          children: [],
+        },
+      ];
+
+      const result = filterExcludedDepartments(tree);
+      expect(result).toHaveLength(1);
+      expect(result[0].department_name).toBe('Отдел продаж');
+    });
+
+    it('должен рекурсивно удалять «Администрация+» из дочерних узлов', () => {
+      const tree = [
+        {
+          department_guid: 'root',
+          department_name: 'Холдинг',
+          children: [
+            {
+              department_guid: 'admin',
+              department_name: 'Администрация+',
+              children: [],
+            },
+            {
+              department_guid: 'dept-ok',
+              department_name: 'Отдел кадров',
+              children: [],
+            },
+          ],
+        },
+      ];
+
+      const result = filterExcludedDepartments(tree);
+      expect(result[0].children).toHaveLength(1);
+      expect(result[0].children[0].department_name).toBe('Отдел кадров');
+    });
+
+    it('должен удалять всё поддерево исключённого подразделения', () => {
+      const tree = [
+        {
+          department_guid: 'admin',
+          department_name: 'Администрация+',
+          children: [
+            {
+              department_guid: 'sub',
+              department_name: 'Подотдел',
+              children: [],
+            },
+          ],
+          users: [{ id: 'u1', full_name: 'Сотрудник' }],
+        },
+      ];
+
+      const result = filterExcludedDepartments(tree);
+      expect(result).toHaveLength(0);
+    });
+
+    it('должен корректно работать с пустым массивом', () => {
+      expect(filterExcludedDepartments([])).toEqual([]);
+      expect(filterExcludedDepartments(null)).toEqual([]);
+    });
+  });
+
+  describe('filterEmptyDepartments', () => {
+    it('должен удалять подразделения без сотрудников и вакансий', () => {
+      const tree = [
+        {
+          department_guid: 'empty',
+          department_name: 'Пустой отдел',
+          staffCount: 0,
+          vacancyCount: 0,
+          users: [],
+          children: [],
+        },
+      ];
+
+      const result = filterEmptyDepartments(tree);
+      expect(result).toHaveLength(0);
+    });
+
+    it('должен сохранять подразделения с сотрудниками', () => {
+      const tree = [
+        {
+          department_guid: 'has-staff',
+          department_name: 'Отдел',
+          staffCount: 5,
+          vacancyCount: 0,
+          users: [],
+          children: [],
+        },
+      ];
+
+      const result = filterEmptyDepartments(tree);
+      expect(result).toHaveLength(1);
+    });
+
+    it('должен сохранять подразделения с вакансиями', () => {
+      const tree = [
+        {
+          department_guid: 'has-vac',
+          department_name: 'Отдел',
+          staffCount: 0,
+          vacancyCount: 3,
+          users: [],
+          children: [],
+        },
+      ];
+
+      const result = filterEmptyDepartments(tree);
+      expect(result).toHaveLength(1);
+    });
+
+    it('должен сохранять подразделение с непустыми дочерними узлами', () => {
+      const tree = [
+        {
+          department_guid: 'parent',
+          department_name: 'Родительский',
+          staffCount: 0,
+          vacancyCount: 0,
+          users: [],
+          children: [
+            {
+              department_guid: 'child',
+              department_name: 'Дочерний',
+              staffCount: 2,
+              vacancyCount: 0,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+      ];
+
+      const result = filterEmptyDepartments(tree);
+      expect(result).toHaveLength(1);
+      expect(result[0].department_name).toBe('Родительский');
+      expect(result[0].children).toHaveLength(1);
+    });
+
+    it('должен корректно работать с пустым массивом', () => {
+      expect(filterEmptyDepartments([])).toEqual([]);
+      expect(filterEmptyDepartments(null)).toEqual([]);
+    });
+  });
+
+  describe('applyRenames', () => {
+    it('должен переименовывать «Дирекция по эксплуатации» в «LEGENDA Comfort»', () => {
+      const node = {
+        department_guid: 'd1',
+        department_name: 'Дирекция по эксплуатации',
+        children: [],
+      };
+
+      const result = applyRenames(node);
+      expect(result.department_name).toBe('LEGENDA Comfort');
+    });
+
+    it('должен рекурсивно переименовывать вложенные узлы', () => {
+      const tree = {
+        department_guid: 'root',
+        department_name: 'Холдинг',
+        children: [
+          {
+            department_guid: 'd1',
+            department_name: 'Дирекция по эксплуатации',
+            children: [
+              {
+                department_guid: 'd2',
+                department_name: 'Дирекция по эксплуатации',
+                children: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = applyRenames(tree);
+      expect(result.department_name).toBe('Холдинг');
+      expect(result.children[0].department_name).toBe('LEGENDA Comfort');
+      expect(result.children[0].children[0].department_name).toBe('LEGENDA Comfort');
+    });
+
+    it('не должен менять названия других подразделений', () => {
+      const node = {
+        department_guid: 'd1',
+        department_name: 'Отдел разработки',
+        children: [],
+      };
+
+      const result = applyRenames(node);
+      expect(result.department_name).toBe('Отдел разработки');
+    });
+
+    it('должен корректно работать с null', () => {
+      expect(applyRenames(null)).toBeNull();
     });
   });
 });
