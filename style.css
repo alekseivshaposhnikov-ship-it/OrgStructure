@@ -248,6 +248,72 @@ button:hover {
   color: var(--color-primary);
 }
 
+.chart-card__sub-level-debug {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #98a2b3;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Единый layout (CR007) */
+
+.unified-orgchart {
+  display: block;
+  background: transparent;
+}
+
+.unified-card {
+  width: 100%;
+  height: 100%;
+}
+
+.employees-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  box-sizing: border-box;
+}
+
+.employees-column__header {
+  flex: 0 0 auto;
+  padding: 4px 6px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #475467;
+  text-align: center;
+}
+
+.employees-column__list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: visible;
+}
+
+.employees-column__item {
+  flex: 0 0 auto;
+}
+
+.employees-column__item .chart-card {
+  height: 100%;
+}
+
+.unified-node__toggle text {
+  user-select: none;
+}
+
 /* Вариант 2 — цветная шапка */
 
 .chart-card--department-v2 {

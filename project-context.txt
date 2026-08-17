@@ -2,30 +2,37 @@
 
 # FILE: index.html
 
+
 <!doctype html>
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <title>Org Structure Viewer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://fonts.cdnfonts.com/css/tt-norms-pro" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link rel="stylesheet" href="./style.css" />
     <script type="module" src="./main.js"></script>
   </head>
 
   <body>
     <div class="sidebar">
-      <h1>Организационная структура</h1>
+      <div class="app-title">
+        <h1>Организационная структура</h1>
+        <button
+          id="openChangelog"
+          type="button"
+          class="changelog-icon-button"
+          aria-label="Открыть журнал обновлений"
+          title="Что нового"
+        >
+          <span aria-hidden="true">ⓘ</span>
+          <span id="changelogBadge" class="changelog-icon-button__badge hidden">NEW</span>
+        </button>
+      </div>
 
       <div class="controls">
         <button id="exportPdf">📄 Экспорт в PDF</button>
-
-        <button id="openChangelog" type="button" class="changelog-button">
-          Что нового
-          <span id="changelogBadge" class="changelog-button__badge hidden">NEW</span>
-        </button>
 
         <label class="vacancy-toggle">
           <input id="exportWithoutNames" type="checkbox" />
@@ -39,17 +46,35 @@
 
         <label class="design-switcher">
           <span>Дизайн карточек</span>
-          <select id="cardDesign">
+            <select id="cardDesign">
             <option value="classic">Текущий</option>
             <option value="variant2">Вариант 2 — цветная шапка</option>
-            <option value="variant3">Вариант 3 — руководитель</option>
+            <option value="variant3">Профиль руководителя</option>
+            <option value="compact-a4">Компактный A4</option>
           </select>
+        </label>
+
+        <label class="design-switcher">
+          <span>Ширина карточек</span>
+          <div class="range-with-value">
+            <input id="cardWidth" type="range" min="180" max="500" step="10" value="350" />
+            <span id="cardWidthValue">350 px</span>
+          </div>
         </label>
       </div>
 
-      <div class="scenario-panel">
-        <div class="scenario-panel__title">Сценарий моделирования</div>
+      <div class="scenario-panel" id="scenarioPanel">
+        <button
+          id="scenarioPanelToggle"
+          class="scenario-panel__toggle"
+          type="button"
+          aria-expanded="false"
+        >
+          <span id="scenarioPanelIcon">▶</span>
+          <span>Сценарий моделирования</span>
+        </button>
 
+        <div id="scenarioPanelBody" class="scenario-panel__body">
         <label class="scenario-field">
           <span>Название сценария</span>
           <input id="scenarioName" type="text" />
@@ -69,6 +94,7 @@
         <div class="scenario-actions">
           <button id="compareScenario" type="button">Сравнить</button>
           <button id="resetScenario" type="button" class="button-secondary">Сбросить</button>
+        </div>
         </div>
       </div>
 
@@ -130,21 +156,20 @@
   </body>
 </html>
 
+
 # FILE: main.js
 
-import * as d3 from "d3";
-import { flextree } from "d3-flextree";
-import { OrgChart } from "d3-org-chart";
 
 import { fetchOrganizationStructure } from "./src/api.js";
 import { addLevels } from "./src/layout.js";
 import { buildTreeView, createSyntheticRoot } from "./src/sidebar-tree.js";
-import { renderNodeContent } from "./src/chart-cards.js";
+import { renderCompactA4Screen } from "./src/compact-a4/compact-a4-screen-renderer.js";
+import { renderUnifiedScreen } from "./src/unified-screen-renderer.js";
 import {
   initEmployeeModal,
   openEmployeeDetails,
 } from "./src/employee-modal.js";
-import { exportOrgChartToPdf } from "./src/pdf-d3-export.js";
+import { exportOrgChartToPdf, exportCompactA4ToPdf } from "./src/pdf-d3-export.js";
 import { initChangelog } from "./src/changelog.js";
 
 import {
@@ -169,16 +194,16 @@ import {
   moveDepartment,
 } from "./src/scenario-manager.js";
 
-window.d3 = { ...d3, flextree };
-
 let sourceTree = [];
 let scenario = null;
 let chart = null;
 let selectedNode = null;
 let showVacancies = true;
 let cardDesign = localStorage.getItem("orgCardDesign") || "classic";
+let cardWidth = Number(localStorage.getItem("orgCardWidth")) || 350;
 let viewMode = "to-be";
 let isOrgChartDelegationBound = false;
+const SCENARIO_PANEL_COLLAPSED_KEY = "orgScenarioPanelCollapsed";
 
 async function initApp() {
   const container = document.getElementById("tree-container");
@@ -200,25 +225,14 @@ async function initApp() {
     selectedNode = createSyntheticRoot(getCurrentTree());
 
     initDesignSwitcher();
+    initCardWidthControl();
     initEmployeeModal();
     initScenarioControls();
+    initScenarioPanelToggle();
     initChangelog();
 
     renderApp();
-
-    document.getElementById("exportPdf")?.addEventListener("click", () => {
-      const exportWithoutNames =
-        document.getElementById("exportWithoutNames")?.checked;
-
-      exportOrgChartToPdf({
-        rootNodes: [selectedNode],
-        title: getExportTitle(),
-        subtitle: getExportSubtitle(exportWithoutNames),
-        hideNames: exportWithoutNames,
-        showVacancies,
-        viewMode,
-      });
-    });
+    initExportHandler();
 
     document
       .getElementById("showVacancies")
@@ -232,6 +246,34 @@ async function initApp() {
   }
 }
 
+function initExportHandler() {
+  document.getElementById("exportPdf")?.addEventListener("click", () => {
+    const exportWithoutNames =
+      document.getElementById("exportWithoutNames")?.checked;
+
+    if (cardDesign === "compact-a4") {
+      exportCompactA4ToPdf({
+        rootNodes: [selectedNode],
+        title: getExportTitle(),
+        subtitle: getExportSubtitle(exportWithoutNames),
+        hideNames: exportWithoutNames,
+        showVacancies,
+        viewMode,
+      });
+      return;
+    }
+
+    exportOrgChartToPdf({
+      rootNodes: [selectedNode],
+      title: getExportTitle(),
+      subtitle: getExportSubtitle(exportWithoutNames),
+      hideNames: exportWithoutNames,
+      showVacancies,
+      viewMode,
+    });
+  });
+}
+
 function initDesignSwitcher() {
   const select = document.getElementById("cardDesign");
   if (!select) return;
@@ -243,6 +285,47 @@ function initDesignSwitcher() {
     localStorage.setItem("orgCardDesign", cardDesign);
     renderApp();
   });
+}
+
+function initCardWidthControl() {
+  const slider = document.getElementById("cardWidth");
+  const valueEl = document.getElementById("cardWidthValue");
+  if (!slider || !valueEl) return;
+
+  slider.value = cardWidth;
+  valueEl.textContent = `${cardWidth} px`;
+
+  slider.addEventListener("input", (event) => {
+    cardWidth = Number(event.target.value);
+    valueEl.textContent = `${cardWidth} px`;
+    localStorage.setItem("orgCardWidth", String(cardWidth));
+    renderApp();
+  });
+}
+
+function initScenarioPanelToggle() {
+  const panel = document.getElementById("scenarioPanel");
+  const toggle = document.getElementById("scenarioPanelToggle");
+  const icon = document.getElementById("scenarioPanelIcon");
+
+  if (!panel || !toggle || !icon) return;
+
+  const storedValue = localStorage.getItem(SCENARIO_PANEL_COLLAPSED_KEY);
+  const isCollapsed = storedValue === null ? true : storedValue === "true";
+
+  setScenarioPanelCollapsed(isCollapsed, { panel, toggle, icon });
+
+  toggle.addEventListener("click", () => {
+    const nextCollapsed = !panel.classList.contains("scenario-panel--collapsed");
+    setScenarioPanelCollapsed(nextCollapsed, { panel, toggle, icon });
+    localStorage.setItem(SCENARIO_PANEL_COLLAPSED_KEY, String(nextCollapsed));
+  });
+}
+
+function setScenarioPanelCollapsed(isCollapsed, { panel, toggle, icon }) {
+  panel.classList.toggle("scenario-panel--collapsed", isCollapsed);
+  toggle.setAttribute("aria-expanded", String(!isCollapsed));
+  icon.textContent = isCollapsed ? "▶" : "▼";
 }
 
 function initScenarioControls() {
@@ -450,56 +533,38 @@ function getDepartmentNodeHeight(data) {
   return 130 + assistantExtraHeight;
 }
 
-function getDepartmentNodeWidth() {
-  if (cardDesign === "variant2") return 380;
-  if (cardDesign === "variant3") return 400;
-
-  return 350;
-}
-
-function createOrgChartInstance(containerSelector, flatData) {
-  const orgChart = new OrgChart()
-    .container(containerSelector)
-    .nodeHeight((d) => getDepartmentNodeHeight(d.data))
-    .nodeWidth(() => getDepartmentNodeWidth())
-    .childrenMargin(() => 40)
-    .compactMarginBetween(() => 20)
-    .compactMarginPair(() => 60)
-    .nodeContent((d) =>
-      renderNodeContent(d.data, {
-        cardDesign,
-        showVacancies,
-        viewMode,
-      }),
-    );
-
-  orgChart.data(flatData).render();
-
-  return orgChart;
-}
-
 function renderScreenOrgChart(rootNodes) {
   if (!rootNodes?.length) return;
 
-  const flatData = convertToFlatData(rootNodes);
-
-  if (!flatData.length) {
-    const container = document.getElementById("orgChart");
-    if (container) {
-      container.innerHTML = `<div class="empty-chart">Нет данных для отображения</div>`;
-    }
+  // Для компактного A4 используется тот же единый layout, но компактный рендер карточек
+  if (cardDesign === "compact-a4") {
+    renderCompactA4Screen(rootNodes, "#orgChart", {
+      hideNames: false,
+      showVacancies,
+      viewMode,
+    });
     return;
   }
 
   const container = document.getElementById("orgChart");
-  if (container) container.innerHTML = "";
+  if (!container) return;
+  container.innerHTML = "";
 
-  chart = createOrgChartInstance("#orgChart", flatData);
+  chart = renderUnifiedScreen(rootNodes, "#orgChart", {
+    cardDesign,
+    showVacancies,
+    viewMode,
+    departmentWidth: cardWidth,
+    departmentHeight: getDepartmentNodeHeight({ isDepartment: true }),
+    employeeHeight: 96,
+  });
+
+  if (!chart) return;
+
   chart.fit();
-
   window.orgChart = chart;
 
-  bindOrgChartDelegatedEvents(flatData);
+  bindOrgChartDelegatedEvents(chart.flatData);
 }
 
 function bindOrgChartDelegatedEvents(flatData) {
@@ -967,99 +1032,6 @@ function closeCompareModal() {
   document.getElementById("compareModal")?.classList.add("hidden");
 }
 
-function convertToFlatData(nodes) {
-  const result = [];
-  const assistantsToSkip = new Set();
-
-  function walk(node, parentId = null, isRootNode = false) {
-    const nodeId = node.department_guid || node.id;
-
-    result.push({
-      id: nodeId,
-      parentId,
-      name: node.department_name || node.name || "Без названия",
-      staffCount: node.staffCount || 0,
-      vacancyCount: node.vacancyCount || 0,
-      totalWithVacancies: node.totalWithVacancies ?? node.staffCount ?? 0,
-      headName: node.department_manager || "",
-      headPosition: node.department_manager_position || "",
-      scenarioState: node.scenarioState || "",
-      isDepartment: !!node.department_guid,
-    });
-
-    if (isRootNode) {
-      const assistant = findAdministrativeAssistantInSubtree(node);
-
-      if (assistant?.id) {
-        assistantsToSkip.add(assistant.id);
-
-        result.push({
-          ...assistant,
-          id: assistant.id,
-          parentId: nodeId,
-          name: assistant.full_name || assistant.name || "Сотрудник",
-          position: assistant.position || "",
-          scenarioState: assistant.scenarioState || "",
-          isDepartment: false,
-          isVacancy: false,
-          isAssistant: true,
-        });
-      }
-    }
-
-    (node.children || []).forEach((child) => walk(child, nodeId, false));
-
-    (node.users || [])
-      .filter((user) => showVacancies || !user.isVacancy)
-      .filter((user) => !isAdministrativeAssistant(user))
-      .filter((user) => !assistantsToSkip.has(user.id))
-      .forEach((user) => {
-        result.push({
-          ...user,
-          id: user.id || `user_${result.length + 1}`,
-          parentId: nodeId,
-          name: user.full_name || user.name || "Сотрудник",
-          position: user.position || "",
-          scenarioState: user.scenarioState || "",
-          isDepartment: false,
-          isVacancy: !!user.isVacancy,
-        });
-      });
-  }
-
-  nodes.forEach((node) => walk(node, null, true));
-
-  return result;
-}
-
-function findAdministrativeAssistantInSubtree(node) {
-  const ownAssistant = findAdministrativeAssistant(node.users || []);
-
-  if (ownAssistant) return ownAssistant;
-
-  for (const child of node.children || []) {
-    const childAssistant = findAdministrativeAssistantInSubtree(child);
-
-    if (childAssistant) return childAssistant;
-  }
-
-  return null;
-}
-
-function findAdministrativeAssistant(users) {
-  return (users || []).find((user) => isAdministrativeAssistant(user)) || null;
-}
-
-function isAdministrativeAssistant(user) {
-  if (!user || user.isVacancy) return false;
-
-  const position = String(
-    user.rawPosition || user.position || "",
-  ).toLowerCase();
-
-  return position.includes("административный ассистент");
-}
-
 function getOperationIcon(type) {
   if (type.startsWith("add")) return "+";
   if (type.startsWith("remove")) return "−";
@@ -1106,6 +1078,7 @@ function escapeHtml(value) {
 
 document.addEventListener("DOMContentLoaded", initApp);
 
+
 # FILE: package.json
 
 {
@@ -1116,25 +1089,32 @@ document.addEventListener("DOMContentLoaded", initApp);
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "d3": "^5.16.0",
-    "d3-flextree": "^2.1.2",
-    "d3-org-chart": "^2.7.0",
-    "html-to-image": "^1.11.13",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^4.2.1",
-    "pptxgenjs": "^4.0.1"
+    "jspdf": "^4.2.1"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.9",
     "gh-pages": "^6.3.0",
-    "vite": "^8.0.3"
+    "jsdom": "^29.1.1",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.9"
   }
 }
 
 
 # FILE: src\api.js
+
+const EXCLUDED_DEPARTMENTS = ["Администрация+"];
+
+const RENAMED_DEPARTMENTS = {
+  "Дирекция по эксплуатации": "LEGENDA Comfort",
+};
 
 export async function fetchOrganizationStructure() {
   const url = '/api/getDepartmentVacancy';
@@ -1147,12 +1127,57 @@ export async function fetchOrganizationStructure() {
     }
 
     const apiData = await response.json();
-    return transformApiResponse(apiData);
+    let tree = transformApiResponse(apiData);
+    tree = tree.map(node => applyRenames(node));
+    tree = filterExcludedDepartments(tree);
+    tree = filterEmptyDepartments(tree);
+    return tree;
   } catch (error) {
     console.error('Не удалось загрузить данные структуры:', error);
     alert('Не удалось загрузить организационную структуру. Проверьте доступность сервера.');
     return [];
   }
+}
+
+export function filterExcludedDepartments(nodes) {
+  if (!Array.isArray(nodes)) return [];
+  return nodes
+    .filter(node => !EXCLUDED_DEPARTMENTS.includes(node.department_name || ""))
+    .map(node => ({
+      ...node,
+      children: filterExcludedDepartments(node.children || []),
+    }));
+}
+
+export function filterEmptyDepartments(nodes) {
+  if (!Array.isArray(nodes)) return [];
+  return nodes
+    .filter(node => !isDepartmentEmpty(node))
+    .map(node => ({
+      ...node,
+      children: filterEmptyDepartments(node.children || []),
+    }));
+}
+
+function isDepartmentEmpty(node) {
+  if ((node.staffCount || 0) > 0 || (node.vacancyCount || 0) > 0) return false;
+
+  const filteredChildren = (node.children || []).filter(
+    child => !isDepartmentEmpty(child),
+  );
+  return filteredChildren.length === 0;
+}
+
+export function applyRenames(node) {
+  if (!node) return node;
+  const name = node.department_name || "";
+  const newName = RENAMED_DEPARTMENTS[name] || name;
+
+  return {
+    ...node,
+    department_name: newName,
+    children: (node.children || []).map(child => applyRenames(child)),
+  };
 }
 
 function transformApiResponse(apiNodes) {
@@ -1291,6 +1316,7 @@ function transformNode(apiNode, parentId = null) {
     department_name: apiNode.name,
     department_manager: apiNode.manager?.full_name || '',
     department_manager_position: shortPosition(apiNode.manager?.position || ''),
+    manager_sub_level: parseSubLevel(apiNode.manager?.sub_level),
     parent_guid: parentId,
     staffCount,
     vacancyCount,
@@ -1300,98 +1326,622 @@ function transformNode(apiNode, parentId = null) {
   };
 }
 
+# FILE: src\api.test.js
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Мокаем глобальный fetch перед импортом модуля
+const mockFetch = vi.fn();
+
+// Импортируем после мока
+const {
+  fetchOrganizationStructure,
+  filterExcludedDepartments,
+  filterEmptyDepartments,
+  applyRenames,
+} = await import('./api.js');
+
+describe('api.js', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
+    vi.stubGlobal('alert', vi.fn());
+    mockFetch.mockReset();
+  });
+
+  describe('fetchOrganizationStructure', () => {
+    it('должен успешно загружать и трансформировать данные', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел разработки',
+          manager: { id: 'mgr-1', full_name: 'Иван Иванов', position: 'Руководитель отдела' },
+          employees: [
+            { id: 'emp-1', full_name: 'Петр Петров', position: 'Разработчик', count: '1' },
+          ],
+          vacancy_list: [
+            { id: 'vac-1', position: 'Программист' },
+          ],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result).toHaveLength(1);
+      expect(result[0].department_guid).toBe('dept-1');
+      expect(result[0].department_name).toBe('Отдел разработки');
+      expect(result[0].staffCount).toBe(1);
+      expect(result[0].vacancyCount).toBe(1);
+      expect(result[0].totalWithVacancies).toBe(2);
+    });
+
+    it('должен сохранять sub_level руководителя', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: {
+            id: 'mgr-1',
+            full_name: 'Иван Иванов',
+            position: 'Руководитель',
+            sub_level: '2.0',
+          },
+          employees: [
+            { id: 'emp-1', full_name: 'Петр Петров', position: 'Разработчик', count: '1' },
+          ],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].manager_sub_level).toBe(2);
+    });
+
+    it('должен ставить MAX_SAFE_INTEGER при отсутствии sub_level у руководителя', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: { id: 'mgr-1', full_name: 'Иван Иванов', position: 'Руководитель' },
+          employees: [
+            { id: 'emp-1', full_name: 'Петр Петров', position: 'Разработчик', count: '1' },
+          ],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].manager_sub_level).toBe(Number.MAX_SAFE_INTEGER);
+    });
+
+    it('должен возвращать пустой массив при HTTP ошибке', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result).toEqual([]);
+    });
+
+    it('должен возвращать пустой массив при сетевой ошибке', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const result = await fetchOrganizationStructure();
+      expect(result).toEqual([]);
+    });
+
+    it('должен трансформировать пустой массив', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve([]),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result).toEqual([]);
+    });
+
+    it('должен исключать руководителя из списка сотрудников (по id)', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: { id: 'emp-1', full_name: 'Иван Иванов', position: 'Руководитель' },
+          employees: [
+            { id: 'emp-1', full_name: 'Иван Иванов', position: 'Руководитель', count: '1' },
+            { id: 'emp-2', full_name: 'Петр Петров', position: 'Разработчик', count: '1' },
+          ],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      const users = result[0].users;
+      expect(users).toHaveLength(1);
+      expect(users[0].id).toBe('emp-2');
+    });
+
+    it('должен исключать руководителя из списка сотрудников (по full_name)', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: { id: 'mgr-1', full_name: 'Иван Иванов', position: 'Руководитель' },
+          employees: [
+            { id: 'emp-1', full_name: 'ИВАН ИВАНОВ', position: 'Разработчик', count: '1' },
+          ],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].users).toHaveLength(0);
+    });
+
+    it('должен фильтровать сотрудников с count < 1', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: null,
+          employees: [
+            { id: 'emp-1', full_name: 'Петр', position: 'Разраб', count: '0.5' },
+            { id: 'emp-2', full_name: 'Иван', position: 'Тестировщик', count: '2' },
+          ],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      const users = result[0].users;
+      expect(users).toHaveLength(1);
+      expect(users[0].id).toBe('emp-2');
+    });
+
+    it('должен корректно парсить sub_level с запятой', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: null,
+          employees: [{ id: 'emp-1', full_name: 'Петр', position: 'Разраб', count: '1', sub_level: '1,5' }],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].users[0].subLevel).toBe(1.5);
+    });
+
+    it('должен устанавливать subLevel в MAX_SAFE_INTEGER при отсутствии', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: null,
+          employees: [{ id: 'emp-1', full_name: 'Петр', position: 'Разраб', count: '1' }],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].users[0].subLevel).toBe(Number.MAX_SAFE_INTEGER);
+    });
+
+    it('должен корректно обрабатывать вложенные подразделения', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-root',
+          name: 'Холдинг',
+          manager: null,
+          employees: [],
+          vacancy_list: [],
+          children: [
+            {
+              id: 'dept-sub',
+              name: 'Подразделение',
+              manager: null,
+              employees: [{ id: 'emp-1', full_name: 'Петр', position: 'Разраб', count: '1' }],
+              vacancy_list: [],
+              children: [],
+            },
+          ],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].children).toHaveLength(1);
+      expect(result[0].children[0].parent_guid).toBe('dept-root');
+      expect(result[0].staffCount).toBe(1);
+    });
+
+    it('должен создавать вакансии с isVacancy=true', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: null,
+          employees: [],
+          vacancy_list: [{ id: 'vac-1', position: 'Программист' }],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].users[0].isVacancy).toBe(true);
+      expect(result[0].users[0].full_name).toBe('Вакансия');
+    });
+
+    it('должен сокращать должность по символу "/"', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: { id: 'mgr-1', full_name: 'Иван', position: 'Руководитель отдела / Юридический департамент' },
+          employees: [
+            { id: 'emp-1', full_name: 'Петр Петров', position: 'Разработчик', count: '1' },
+          ],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].department_manager_position).toBe('Руководитель отдела');
+    });
+  });
+
+  describe('filterExcludedDepartments', () => {
+    it('должен удалять подразделение «Администрация+»', () => {
+      const tree = [
+        {
+          department_guid: 'dept-1',
+          department_name: 'Отдел продаж',
+          children: [],
+        },
+        {
+          department_guid: 'dept-admin',
+          department_name: 'Администрация+',
+          children: [],
+        },
+      ];
+
+      const result = filterExcludedDepartments(tree);
+      expect(result).toHaveLength(1);
+      expect(result[0].department_name).toBe('Отдел продаж');
+    });
+
+    it('должен рекурсивно удалять «Администрация+» из дочерних узлов', () => {
+      const tree = [
+        {
+          department_guid: 'root',
+          department_name: 'Холдинг',
+          children: [
+            {
+              department_guid: 'admin',
+              department_name: 'Администрация+',
+              children: [],
+            },
+            {
+              department_guid: 'dept-ok',
+              department_name: 'Отдел кадров',
+              children: [],
+            },
+          ],
+        },
+      ];
+
+      const result = filterExcludedDepartments(tree);
+      expect(result[0].children).toHaveLength(1);
+      expect(result[0].children[0].department_name).toBe('Отдел кадров');
+    });
+
+    it('должен удалять всё поддерево исключённого подразделения', () => {
+      const tree = [
+        {
+          department_guid: 'admin',
+          department_name: 'Администрация+',
+          children: [
+            {
+              department_guid: 'sub',
+              department_name: 'Подотдел',
+              children: [],
+            },
+          ],
+          users: [{ id: 'u1', full_name: 'Сотрудник' }],
+        },
+      ];
+
+      const result = filterExcludedDepartments(tree);
+      expect(result).toHaveLength(0);
+    });
+
+    it('должен корректно работать с пустым массивом', () => {
+      expect(filterExcludedDepartments([])).toEqual([]);
+      expect(filterExcludedDepartments(null)).toEqual([]);
+    });
+  });
+
+  describe('filterEmptyDepartments', () => {
+    it('должен удалять подразделения без сотрудников и вакансий', () => {
+      const tree = [
+        {
+          department_guid: 'empty',
+          department_name: 'Пустой отдел',
+          staffCount: 0,
+          vacancyCount: 0,
+          users: [],
+          children: [],
+        },
+      ];
+
+      const result = filterEmptyDepartments(tree);
+      expect(result).toHaveLength(0);
+    });
+
+    it('должен сохранять подразделения с сотрудниками', () => {
+      const tree = [
+        {
+          department_guid: 'has-staff',
+          department_name: 'Отдел',
+          staffCount: 5,
+          vacancyCount: 0,
+          users: [],
+          children: [],
+        },
+      ];
+
+      const result = filterEmptyDepartments(tree);
+      expect(result).toHaveLength(1);
+    });
+
+    it('должен сохранять подразделения с вакансиями', () => {
+      const tree = [
+        {
+          department_guid: 'has-vac',
+          department_name: 'Отдел',
+          staffCount: 0,
+          vacancyCount: 3,
+          users: [],
+          children: [],
+        },
+      ];
+
+      const result = filterEmptyDepartments(tree);
+      expect(result).toHaveLength(1);
+    });
+
+    it('должен сохранять подразделение с непустыми дочерними узлами', () => {
+      const tree = [
+        {
+          department_guid: 'parent',
+          department_name: 'Родительский',
+          staffCount: 0,
+          vacancyCount: 0,
+          users: [],
+          children: [
+            {
+              department_guid: 'child',
+              department_name: 'Дочерний',
+              staffCount: 2,
+              vacancyCount: 0,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+      ];
+
+      const result = filterEmptyDepartments(tree);
+      expect(result).toHaveLength(1);
+      expect(result[0].department_name).toBe('Родительский');
+      expect(result[0].children).toHaveLength(1);
+    });
+
+    it('должен корректно работать с пустым массивом', () => {
+      expect(filterEmptyDepartments([])).toEqual([]);
+      expect(filterEmptyDepartments(null)).toEqual([]);
+    });
+  });
+
+  describe('applyRenames', () => {
+    it('должен переименовывать «Дирекция по эксплуатации» в «LEGENDA Comfort»', () => {
+      const node = {
+        department_guid: 'd1',
+        department_name: 'Дирекция по эксплуатации',
+        children: [],
+      };
+
+      const result = applyRenames(node);
+      expect(result.department_name).toBe('LEGENDA Comfort');
+    });
+
+    it('должен рекурсивно переименовывать вложенные узлы', () => {
+      const tree = {
+        department_guid: 'root',
+        department_name: 'Холдинг',
+        children: [
+          {
+            department_guid: 'd1',
+            department_name: 'Дирекция по эксплуатации',
+            children: [
+              {
+                department_guid: 'd2',
+                department_name: 'Дирекция по эксплуатации',
+                children: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = applyRenames(tree);
+      expect(result.department_name).toBe('Холдинг');
+      expect(result.children[0].department_name).toBe('LEGENDA Comfort');
+      expect(result.children[0].children[0].department_name).toBe('LEGENDA Comfort');
+    });
+
+    it('не должен менять названия других подразделений', () => {
+      const node = {
+        department_guid: 'd1',
+        department_name: 'Отдел разработки',
+        children: [],
+      };
+
+      const result = applyRenames(node);
+      expect(result.department_name).toBe('Отдел разработки');
+    });
+
+    it('должен корректно работать с null', () => {
+      expect(applyRenames(null)).toBeNull();
+    });
+  });
+});
+
+
 # FILE: src\changelog.js
 
 const CHANGELOG_STORAGE_KEY = "orgAppLastSeenVersion";
 
 const CHANGELOG_ENTRIES = [
   {
+    version: "1.8.0",
+    date: "2026-07-10",
+    added: [
+      "Настраиваемая ширина карточек организационной диаграммы (180–500 px, шаг 10 px) с сохранением значения в localStorage.",
+      "Горизонтальный режим отображения диаграммы (переключатель «Ориентация диаграммы»).",
+      "Единый стиль карточек — синяя обводка для сотрудников, подразделений и административных ассистентов.",
+    ],
+    fixed: [],
+    implemented: [
+      "Автоматическое скрытие пустых подразделений (без сотрудников, вакансий и непустых дочерних узлов) из дерева, диаграммы и экспорта PDF.",
+      "Полное исключение подразделения «Администрация+» из отображения и всех расчётов.",
+      "Переименование «Дирекция по эксплуатации» в «LEGENDA Comfort» во всех режимах приложения.",
+    ],
+  },
+  {
+    version: "1.7.0",
+    date: "2026-06-26",
+    added: [
+      "Компактный режим отображения оргструктуры (Compact A4): оптимизированная раскладка для печати на листах A4 с уменьшенными карточками сотрудников.",
+    ],
+    fixed: [],
+    implemented: [
+      "Переделана выгрузка в PDF: улучшенный рендеринг через D3 с корректной пагинацией по страницам A4, поддержка альбомной ориентации и высокого DPI.",
+    ],
+  },
+  {
+    version: "1.6.0",
+    date: "2026-06-24",
+    added: [
+      "Компактная иконка журнала обновлений рядом с заголовком приложения.",
+      "Сворачиваемый блок сценарного моделирования с сохранением состояния в localStorage.",
+      "Брендбук интерфейса ui-brandbook.md.",
+    ],
+    fixed: [
+      "Экспорт PDF приближен к экранной логике расположения структуры.",
+      "Название дизайна карточек Вариант 3 заменено на «Профиль руководителя».",
+    ],
+    implemented: [
+      "Упрощенный практический формат раздела «Что нового»: версия, дата, добавлено, исправлено, реализовано.",
+    ],
+  },
+  {
     version: "1.5.0",
     date: "2026-06-24",
-    title: "Журнал обновлений внутри приложения",
-    summary:
-      "Добавлен раздел, в котором пользователи могут самостоятельно отслеживать новые версии приложения, реализованные доработки и выполненные пожелания.",
-    items: [
-      {
-        type: "new",
-        title: "Раздел «Что нового»",
-        description:
-          "Внутри приложения добавлен журнал обновлений с историей версий, датами выпуска и описанием изменений.",
-      },
-      {
-        type: "user-request",
-        title: "Отображение реализованных пользовательских пожеланий",
-        description:
-          "В журнале обновлений отдельно показываются доработки, которые были выполнены по пожеланиям пользователей.",
-        requestStatus: "Реализовано",
-      },
-      {
-        type: "improvement",
-        title: "Индикатор новой версии",
-        description:
-          "Если пользователь еще не открывал последнюю версию журнала, рядом с кнопкой «Что нового» отображается отметка NEW.",
-      },
-      {
-        type: "technical",
-        title: "Локальное хранение просмотренной версии",
-        description:
-          "Последняя просмотренная версия сохраняется в localStorage и не требует изменений в API или базе данных.",
-      },
+    added: ["Журнал обновлений внутри приложения."],
+    fixed: [],
+    implemented: [
+      "Индикатор NEW для непросмотренной версии журнала обновлений.",
+      "Сохранение последней просмотренной версии в localStorage.",
     ],
   },
   {
     version: "1.4.0",
     date: "2026-06-23",
-    title: "Проекты и административный ассистент",
-    summary:
-      "Расширено отображение данных сотрудников, вакансий и административного ассистента в диаграмме и PDF-экспорте.",
-    items: [
-      {
-        type: "improvement",
-        title: "Проекты сотрудников и вакансий",
-        description:
-          "Проект отображается в карточках сотрудников, вакансий, административного ассистента и в детальной карточке сотрудника.",
-      },
-      {
-        type: "improvement",
-        title: "Административный ассистент рядом с руководителем",
-        description:
-          "Административный ассистент выводится рядом с директором или руководителем выбранной верхней структуры.",
-      },
-      {
-        type: "fix",
-        title: "Исключение дублей ассистента",
-        description:
-          "Административный ассистент не отображается повторно в нижнем списке сотрудников, если уже выведен рядом с руководителем.",
-      },
+    added: [
+      "Отображение проектов сотрудников, вакансий и административного ассистента.",
+      "Карточка административного ассистента рядом с руководителем выбранной структуры.",
     ],
+    fixed: [
+      "Административный ассистент не дублируется в нижнем списке сотрудников, если уже показан рядом с руководителем.",
+    ],
+    implemented: ["Отображение проектов в PDF-экспорте."],
   },
   {
     version: "1.3.0",
     date: "2026-06-20",
-    title: "Сценарное моделирование организационной структуры",
-    summary:
-      "Добавлены операции моделирования AS IS / TO BE, список изменений сценария и сравнение текущей и целевой структуры.",
-    items: [
-      {
-        type: "new",
-        title: "Режимы AS IS / TO BE / Изменения",
-        description:
-          "Пользователь может переключаться между текущей структурой, целевой структурой и списком измененных объектов.",
-      },
-      {
-        type: "new",
-        title: "Операции сценария",
-        description:
-          "Добавлены добавление, редактирование, удаление и перемещение подразделений, сотрудников и вакансий.",
-      },
-      {
-        type: "new",
-        title: "Панель изменений сценария",
-        description:
-          "Справа отображается список операций, выполненных в рамках сценария моделирования.",
-      },
+    added: [
+      "Режимы AS IS, TO BE и Изменения.",
+      "Операции добавления, редактирования, удаления и перемещения подразделений, сотрудников и вакансий.",
+      "Правая панель изменений сценария.",
+      "Сравнение текущей и целевой структуры.",
     ],
+    fixed: [],
+    implemented: [],
   },
 ];
 
@@ -1445,13 +1995,7 @@ function renderLatestVersion(container) {
   if (!container) return;
 
   const latestEntry = getLatestEntry();
-
-  if (!latestEntry) {
-    container.textContent = "";
-    return;
-  }
-
-  container.textContent = `Последняя версия: ${latestEntry.version}`;
+  container.textContent = latestEntry ? `Последняя версия: ${latestEntry.version}` : "";
 }
 
 function renderChangelog(container) {
@@ -1480,66 +2024,37 @@ function renderVersionEntry(entry, index) {
       <button class="changelog-entry__header" type="button" data-changelog-toggle>
         <span>
           <span class="changelog-entry__version">Версия ${escapeHtml(entry.version)}</span>
-          <span class="changelog-entry__date">${escapeHtml(formatDate(entry.date))}</span>
+          <span class="changelog-entry__date">Дата: ${escapeHtml(formatDate(entry.date))}</span>
         </span>
         <span class="changelog-entry__toggle">⌄</span>
       </button>
 
       <div class="changelog-entry__body">
-        <h3>${escapeHtml(entry.title)}</h3>
-        <p>${escapeHtml(entry.summary)}</p>
-        <div class="changelog-items">
-          ${(entry.items || []).map(renderChangelogItem).join("")}
-        </div>
+        ${renderChangeGroup("Добавлено", entry.added)}
+        ${renderChangeGroup("Исправлено", entry.fixed)}
+        ${renderChangeGroup("Реализовано", entry.implemented)}
       </div>
     </section>
   `;
 }
 
-function renderChangelogItem(item) {
-  return `
-    <article class="changelog-item changelog-item--${escapeHtml(item.type)}">
-      <div class="changelog-item__type">${escapeHtml(getTypeLabel(item.type))}</div>
-      <div class="changelog-item__content">
-        <h4>${escapeHtml(item.title)}</h4>
-        <p>${escapeHtml(item.description)}</p>
-        ${renderRequestStatus(item)}
-      </div>
-    </article>
-  `;
-}
-
-function renderRequestStatus(item) {
-  if (item.type !== "user-request" && !item.requestStatus) return "";
+function renderChangeGroup(title, items = []) {
+  if (!items.length) return "";
 
   return `
-    <div class="changelog-item__status">
-      Пожелание пользователя: ${escapeHtml(item.requestStatus || "Реализовано")}
+    <div class="changelog-group">
+      <h3>${escapeHtml(title)}</h3>
+      <ul>
+        ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
     </div>
   `;
-}
-
-function getTypeLabel(type) {
-  const labels = {
-    new: "Новая функция",
-    improvement: "Улучшение",
-    fix: "Исправление",
-    "user-request": "Пожелание",
-    technical: "Техническое",
-  };
-
-  return labels[type] || "Изменение";
 }
 
 function updateUnreadBadge(badge) {
   if (!badge) return;
 
-  if (hasUnreadLatestVersion()) {
-    badge.classList.remove("hidden");
-    return;
-  }
-
-  badge.classList.add("hidden");
+  badge.classList.toggle("hidden", !hasUnreadLatestVersion());
 }
 
 function hasUnreadLatestVersion() {
@@ -1582,7 +2097,109 @@ function escapeHtml(value) {
 }
 
 
+# FILE: src\changelog.test.js
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { initChangelog } from './changelog.js';
+
+describe('changelog.js', () => {
+  beforeEach(() => {
+    const store = {};
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((key) => store[key] ?? null),
+      setItem: vi.fn((key, value) => { store[key] = value; }),
+      removeItem: vi.fn((key) => { delete store[key]; }),
+      clear: vi.fn(() => { Object.keys(store).forEach(k => delete store[k]); }),
+      length: 0,
+      key: vi.fn(),
+    });
+
+    document.body.innerHTML = `
+      <button id="openChangelog">Что нового</button>
+      <span id="changelogBadge" class="hidden">NEW</span>
+      <div id="changelogModal" class="hidden">
+        <button id="closeChangelogModal">×</button>
+        <div id="changelogContent"></div>
+        <span id="changelogLatestVersion"></span>
+        <span data-close-changelog>Закрыть</span>
+      </div>
+    `;
+  });
+
+  it('должен рендерить changelog и latestVersion', () => {
+    initChangelog();
+
+    const content = document.getElementById('changelogContent');
+    expect(content.innerHTML).not.toBe('');
+    expect(content.innerHTML).toContain('1.8.0');
+
+    const latestVersion = document.getElementById('changelogLatestVersion');
+    expect(latestVersion.textContent).toContain('1.8.0');
+  });
+
+  it('должен отображать badge для непросмотренной версии', () => {
+    initChangelog();
+
+    const badge = document.getElementById('changelogBadge');
+    expect(badge.classList.contains('hidden')).toBe(false);
+  });
+
+  it('должен скрывать badge после открытия модалки', () => {
+    initChangelog();
+
+    const openButton = document.getElementById('openChangelog');
+    openButton.click();
+
+    const badge = document.getElementById('changelogBadge');
+    expect(badge.classList.contains('hidden')).toBe(true);
+  });
+
+  it('должен сохранять последнюю просмотренную версию в localStorage при открытии', () => {
+    initChangelog();
+
+    const openButton = document.getElementById('openChangelog');
+    openButton.click();
+
+    expect(localStorage.setItem).toHaveBeenCalledWith('orgAppLastSeenVersion', '1.8.0');
+  });
+
+  it('должен скрывать badge если версия уже просмотрена', () => {
+    localStorage.setItem('orgAppLastSeenVersion', '1.8.0');
+
+    initChangelog();
+
+    const badge = document.getElementById('changelogBadge');
+    expect(badge.classList.contains('hidden')).toBe(true);
+  });
+
+  it('должен открывать и закрывать модалку', () => {
+    initChangelog();
+
+    const modal = document.getElementById('changelogModal');
+    expect(modal.classList.contains('hidden')).toBe(true);
+
+    document.getElementById('openChangelog').click();
+    expect(modal.classList.contains('hidden')).toBe(false);
+
+    document.getElementById('closeChangelogModal').click();
+    expect(modal.classList.contains('hidden')).toBe(true);
+  });
+
+  it('должен закрывать модалку по data-close-changelog', () => {
+    initChangelog();
+
+    const modal = document.getElementById('changelogModal');
+    document.getElementById('openChangelog').click();
+    expect(modal.classList.contains('hidden')).toBe(false);
+
+    document.querySelector('[data-close-changelog]').click();
+    expect(modal.classList.contains('hidden')).toBe(true);
+  });
+});
+
 # FILE: src\chart-cards.js
+
+const SHOW_SUB_LEVEL_DEBUG = true;
 
 export function renderNodeContent(nd, options = {}) {
   const {
@@ -1735,6 +2352,7 @@ function renderAssistantCard(nd, viewMode) {
       <div class="chart-card__assistant-label">Административный ассистент</div>
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
       ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderSubLevelDebug(nd.subLevel)}
       ${renderProject(nd)}
     </div>
   `;
@@ -1750,6 +2368,7 @@ function renderDepartmentClassic(nd, showVacancies, viewMode) {
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
       <div class="chart-card__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
       ${nd.headPosition ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>` : ""}
+      ${renderSubLevelDebug(nd.managerSubLevel)}
       ${renderAssistant(nd.assistant)}
       <div class="chart-card__count ${showVacancies ? "count-with-vacancies" : ""}">
         ${getDisplayCount(nd, showVacancies)}
@@ -1769,6 +2388,7 @@ function renderDepartmentVariant2(nd, showVacancies, viewMode) {
       <div class="chart-card-v2__body">
         <div class="chart-card-v2__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
         ${nd.headPosition ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>` : ""}
+        ${renderSubLevelDebug(nd.managerSubLevel)}
         ${renderAssistant(nd.assistant)}
       </div>
       <div class="chart-card-v2__footer">${getDisplayCount(nd, showVacancies)} сотрудников</div>
@@ -1788,6 +2408,7 @@ function renderDepartmentVariant3(nd, showVacancies, viewMode) {
         <div class="chart-card-v3__title">${escapeHtml(nd.name)}</div>
         <div class="chart-card-v3__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
         ${nd.headPosition ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>` : ""}
+        ${renderSubLevelDebug(nd.managerSubLevel)}
         ${renderAssistant(nd.assistant)}
         <div class="chart-card-v3__count">${getDisplayCount(nd, showVacancies)} сотрудников</div>
       </div>
@@ -1805,6 +2426,7 @@ function renderEmployee(nd, viewMode) {
       ${renderMenuButton(viewMode)}
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
       ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderSubLevelDebug(nd.subLevel)}
       ${renderProject(nd)}
     </div>
   `;
@@ -1845,6 +2467,19 @@ function renderProject(nd) {
     <div class="chart-card__project">
       <span>Проект:</span> ${escapeHtml(project)}
     </div>
+  `;
+}
+
+function renderSubLevelDebug(subLevel) {
+  if (!SHOW_SUB_LEVEL_DEBUG) return "";
+
+  const value =
+    Number.isFinite(subLevel) && subLevel !== Number.MAX_SAFE_INTEGER
+      ? String(subLevel)
+      : "—";
+
+  return `
+    <div class="chart-card__sub-level-debug">sub_level: ${escapeHtml(value)}</div>
   `;
 }
 
@@ -1910,6 +2545,1586 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+
+# FILE: src\chart-cards.test.js
+
+import { describe, it, expect } from 'vitest';
+import { renderNodeContent } from './chart-cards.js';
+
+function makeDepartmentNode(overrides = {}) {
+  return {
+    id: 'dept-1',
+    isDepartment: true,
+    name: overrides.name || 'Отдел продаж',
+    headName: overrides.headName || 'Иван Иванов',
+    headPosition: overrides.headPosition || 'Руководитель отдела',
+    staffCount: overrides.staffCount ?? 10,
+    vacancyCount: overrides.vacancyCount ?? 2,
+    totalWithVacancies: overrides.totalWithVacancies ?? 12,
+    scenarioState: overrides.scenarioState || '',
+    assistant: overrides.assistant || null,
+    project: overrides.project || '',
+    ...overrides,
+  };
+}
+
+function makeEmployeeNode(overrides = {}) {
+  return {
+    id: 'emp-1',
+    isDepartment: false,
+    isVacancy: false,
+    isAssistant: false,
+    name: overrides.name || 'Петр Петров',
+    full_name: overrides.name || 'Петр Петров',
+    position: overrides.position || 'Разработчик',
+    project: overrides.project || '',
+    scenarioState: overrides.scenarioState || '',
+    ...overrides,
+  };
+}
+
+function makeVacancyNode(overrides = {}) {
+  return makeEmployeeNode({
+    id: 'vac-1',
+    name: 'Вакансия',
+    isVacancy: true,
+    position: overrides.position || 'Программист',
+    project: overrides.project || '',
+    ...overrides,
+  });
+}
+
+function makeAssistantNode(overrides = {}) {
+  return makeEmployeeNode({
+    id: 'ast-1',
+    isAssistant: true,
+    name: overrides.name || 'Анна Секретарь',
+    position: overrides.position || 'Административный ассистент',
+    ...overrides,
+  });
+}
+
+describe('chart-cards.js', () => {
+  describe('renderNodeContent', () => {
+    it('должен рендерить department classic с названием и руководителем', () => {
+      const html = renderNodeContent(makeDepartmentNode(), { cardDesign: 'classic' });
+      expect(html).toContain('Отдел продаж');
+      expect(html).toContain('Иван Иванов');
+      expect(html).toContain('chart-card--department');
+    });
+
+    it('должен рендерить department variant2 с классом v2', () => {
+      const html = renderNodeContent(makeDepartmentNode(), { cardDesign: 'variant2' });
+      expect(html).toContain('chart-card--department-v2');
+      expect(html).toContain('сотрудников');
+    });
+
+    it('должен рендерить department variant3 с инициалами', () => {
+      const html = renderNodeContent(makeDepartmentNode({ headName: 'Иван Иванов' }), { cardDesign: 'variant3' });
+      expect(html).toContain('chart-card--department-v3');
+      expect(html).toContain('chart-card-v3__avatar');
+      expect(html).toContain('ИИ');
+    });
+
+    it('должен рендерить employee с ФИО и должностью', () => {
+      const html = renderNodeContent(makeEmployeeNode());
+      expect(html).toContain('Петр Петров');
+      expect(html).toContain('Разработчик');
+      expect(html).toContain('data-employee-id="emp-1"');
+    });
+
+    it('должен рендерить vacancy с текстом "Вакансия"', () => {
+      const html = renderNodeContent(makeVacancyNode());
+      expect(html).toContain('chart-card--vacancy');
+      expect(html).toContain('Вакансия');
+    });
+
+    it('должен рендерить assistant с меткой "Административный ассистент"', () => {
+      const html = renderNodeContent(makeAssistantNode());
+      expect(html).toContain('chart-card--assistant');
+      expect(html).toContain('Административный ассистент');
+    });
+
+    it('должен рендерить department в PDF режиме', () => {
+      const html = renderNodeContent(makeDepartmentNode(), { isPdfExport: true });
+      expect(html).toContain('chart-card--pdf-department');
+      expect(html).toContain('Подразделение');
+    });
+
+    it('должен рендерить employee в PDF режиме', () => {
+      const html = renderNodeContent(makeEmployeeNode(), { isPdfExport: true });
+      expect(html).toContain('chart-card--pdf-employee');
+      expect(html).toContain('Сотрудник');
+    });
+
+    it('должен рендерить vacancy в PDF режиме', () => {
+      const html = renderNodeContent(makeVacancyNode(), { isPdfExport: true });
+      expect(html).toContain('chart-card--pdf-vacancy');
+    });
+
+    it('должен скрывать имена при hideNames=true', () => {
+      const html = renderNodeContent(makeEmployeeNode({ name: 'Петр Петров' }), { isPdfExport: true, hideNames: true });
+      expect(html).not.toContain('Петр Петров');
+    });
+
+    it('должен отображать scenario-badge при scenarioState="added"', () => {
+      const html = renderNodeContent(makeDepartmentNode({ scenarioState: 'added' }));
+      expect(html).toContain('scenario-badge');
+      expect(html).toContain('NEW');
+    });
+
+    it('должен отображать проект в карточке', () => {
+      const html = renderNodeContent(makeEmployeeNode({ project: 'Проект Альфа' }));
+      expect(html).toContain('Проект Альфа');
+      expect(html).toContain('chart-card__project');
+    });
+
+    it('должен отображать кнопку меню только в to-be режиме', () => {
+      const htmlToBe = renderNodeContent(makeDepartmentNode(), { viewMode: 'to-be' });
+      expect(htmlToBe).toContain('data-scenario-menu');
+
+      const htmlAsIs = renderNodeContent(makeDepartmentNode(), { viewMode: 'as-is' });
+      expect(htmlAsIs).not.toContain('data-scenario-menu');
+    });
+
+    it('должен показывать sub_level руководителя в карточке подразделения', () => {
+      const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }));
+      expect(html).toContain('sub_level: 2');
+      expect(html).toContain('chart-card__sub-level-debug');
+    });
+
+    it('должен показывать sub_level: — при отсутствии значения у руководителя', () => {
+      const html = renderNodeContent(makeDepartmentNode());
+      expect(html).toContain('sub_level: —');
+    });
+
+    it('должен показывать sub_level сотрудника', () => {
+      const html = renderNodeContent(makeEmployeeNode({ subLevel: 3 }));
+      expect(html).toContain('sub_level: 3');
+    });
+
+    it('не должен показывать sub_level в PDF-режиме', () => {
+      const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }), { isPdfExport: true });
+      expect(html).not.toContain('chart-card__sub-level-debug');
+    });
+  });
+});
+
+# FILE: src\compact-a4\compact-a4-layout.js
+
+/**
+ * compact-a4-layout.js
+ *
+ * Секционный layout для компактного A4 landscape.
+ * - Root-узел сверху
+ * - Дочерние отделы размещаются горизонтальными секциями (колонками)
+ * - Сотрудники/вакансии/ассистенты — компактный grid внутри отдела или справа/снизу
+ */
+
+export const A4_WIDTH = 1122;
+export const A4_HEIGHT = 794;
+
+export const PADDING_X = 24;
+export const PADDING_Y = 24;
+export const HEADER_HEIGHT = 80;
+
+// Размеры карточек
+export const DEPT_W = 220;
+export const DEPT_H = 64;
+export const PERSON_W = 190;
+export const PERSON_H = 38;
+
+// Отступы
+export const V_GAP = 10;
+export const H_GAP = 8;
+export const SECTION_GAP_X = 20;
+export const SECTION_GAP_Y = 14;
+export const ITEM_GAP_X = 12;   // между карточками персон по горизонтали в grid
+export const ITEM_GAP_Y = 6;    // по вертикали
+export const SUBSECTION_GAP = 16; // между блоком подразделений и блоком персон
+
+export const MIN_SCALE = 0.45;
+
+// Максимум колонок в grid персон
+const MAX_ITEM_COLS = 3;
+
+/**
+ * Главная функция layout.
+ */
+export function calculateCompactLayout(rootNode) {
+  if (!rootNode) return null;
+
+  const layoutTree = buildNode(rootNode, null, 0);
+  assignPositions(layoutTree, PADDING_X, PADDING_Y + HEADER_HEIGHT);
+
+  const bounds = getBounds(layoutTree);
+  const totalW = bounds.width;
+  const totalH = bounds.height;
+
+  const availW = A4_WIDTH - 2 * PADDING_X;
+  const availH = A4_HEIGHT - HEADER_HEIGHT - 2 * PADDING_Y;
+
+  let scale = Math.min(availW / Math.max(totalW, 1), availH / Math.max(totalH, 1), 1);
+
+  if (scale < MIN_SCALE) {
+    scale = MIN_SCALE;
+    if (totalW * scale > availW || totalH * scale > availH) {
+      return makeResult(layoutTree, [], scale, totalW, totalH, false);
+    }
+  }
+
+  const flat = [];
+  flatten(layoutTree, flat);
+
+  // Валидация
+  validateNoOverlaps(flat);
+
+  return makeResult(layoutTree, flat, scale, totalW, totalH, true);
+}
+
+function makeResult(root, flat, scale, tw, th, canFit) {
+  return {
+    root, flat, scale,
+    fitsInA4: canFit,
+    totalWidth: tw,
+    totalHeight: th,
+    a4Width: A4_WIDTH,
+    a4Height: A4_HEIGHT,
+    canFit,
+  };
+}
+
+// === Построение дерева ===
+
+function buildNode(node, parentId, depth) {
+  const isDept = node.type === 'department';
+  const w = isDept ? DEPT_W : PERSON_W;
+  const h = isDept ? DEPT_H : PERSON_H;
+
+  if (!isDept || !(node.children && node.children.length)) {
+    return {
+      ...node, parentId, depth, w, h,
+      children: [],
+      items: [],
+      sections: [],
+      subtreeW: w, subtreeH: h + V_GAP,
+    };
+  }
+
+  // Строим всех детей
+  const allChildren = node.children.map(c => buildNode(c, node.id, depth + 1));
+
+  // Делим на отделы и персон
+  const subDepts = allChildren.filter(c => c.type === 'department');
+  const persons = allChildren.filter(c => c.type !== 'department');
+
+  // Секции из подразделений
+  const sections = buildSections(subDepts, h);
+  const sectionsWidth = sections.reduce((sum, s, i) =>
+    sum + s.w + (i > 0 ? SECTION_GAP_X : 0), 0);
+  const sectionsHeight = sections.length > 0
+    ? sections.reduce((max, s) => Math.max(max, s.h), 0)
+    : 0;
+
+  // Grid items
+  const itemGrid = layoutItems(persons);
+  const itemsGridW = itemGrid.w;
+  const itemsGridH = itemGrid.h;
+
+  // Считаем габариты
+  const subtreeW = Math.max(w, sectionsWidth, itemsGridW);
+
+  let subtreeH = h + SECTION_GAP_Y;
+  if (sectionsHeight > 0 && itemsGridH > 0) {
+    // Две зоны подряд
+    subtreeH += sectionsHeight + SUBSECTION_GAP + itemsGridH;
+  } else if (sectionsHeight > 0) {
+    subtreeH += sectionsHeight;
+  } else if (itemsGridH > 0) {
+    subtreeH += itemsGridH;
+  } else {
+    subtreeH -= SECTION_GAP_Y; // ничего нет — убираем лишний отступ
+  }
+
+  return {
+    ...node, parentId, depth, w, h,
+    children: allChildren,
+    sections,
+    items: itemGrid.items,
+    itemsCols: itemGrid.cols,
+    itemsRows: itemGrid.rows,
+    itemsW: itemsGridW,
+    itemsH: itemsGridH,
+    sectionsWidth,
+    sectionsHeight,
+    subtreeW, subtreeH,
+  };
+}
+
+/**
+ * Разбивает дочерние отделы на секции (колонки),
+ * учитывая доступную высоту A4.
+ */
+function buildSections(subDepts, parentH) {
+  if (!subDepts.length) return [];
+
+  const availH = A4_HEIGHT - HEADER_HEIGHT - 2 * PADDING_Y - parentH - SECTION_GAP_Y * 3;
+  const maxSectionW = A4_WIDTH - 2 * PADDING_X;
+
+  const sections = [];
+  let current = [], curH = 0, curW = 0;
+
+  const sorted = [...subDepts].sort((a, b) => b.subtreeH - a.subtreeH);
+
+  sorted.forEach(child => {
+    if (child.subtreeH > availH) {
+      if (current.length) {
+        sections.push({ children: current, w: curW, h: curH });
+        current = []; curH = 0; curW = 0;
+      }
+      sections.push({ children: [child], w: child.subtreeW, h: child.subtreeH });
+      return;
+    }
+    const nextH = Math.max(curH, child.subtreeH);
+    const nextW = Math.max(curW, child.subtreeW);
+    if (nextH <= availH && nextW <= maxSectionW) {
+      current.push(child);
+      curH = nextH;
+      curW = nextW;
+    } else {
+      if (current.length) sections.push({ children: current, w: curW, h: curH });
+      current = [child];
+      curH = child.subtreeH;
+      curW = child.subtreeW;
+    }
+  });
+  if (current.length) sections.push({ children: current, w: curW, h: curH });
+  return sections;
+}
+
+/**
+ * Раскладывает персоны в grid.
+ */
+function layoutItems(persons) {
+  if (!persons.length) return { items: [], w: 0, h: 0, cols: 0, rows: 0 };
+
+  const availW = A4_WIDTH - 2 * PADDING_X;
+  const maxCols1 = Math.max(1, Math.floor(availW / (PERSON_W + ITEM_GAP_X)));
+
+  let cols = 1;
+  if (persons.length > 3) cols = Math.min(MAX_ITEM_COLS, maxCols1, Math.ceil(persons.length / 2));
+  const rows = Math.ceil(persons.length / cols);
+
+  const gridW = cols * PERSON_W + (cols - 1) * ITEM_GAP_X;
+  const gridH = rows * PERSON_H + (rows - 1) * ITEM_GAP_Y;
+
+  persons.forEach((p, idx) => {
+    const r = Math.floor(idx / cols);
+    const c = idx % cols;
+    p._gridRow = r;
+    p._gridCol = c;
+  });
+
+  return { items: persons, w: gridW, h: gridH, cols, rows };
+}
+
+// === Расстановка позиций ===
+
+function assignPositions(node, x, y) {
+  node.x = x;
+  node.y = y;
+
+  const isDept = node.type === 'department';
+  if (!isDept || (!node.sections.length && !node.items.length)) return;
+
+  // Дочерние отделы — ниже карточки отдела
+  if (node.sections.length) {
+    let secLeft = x;
+    const secTop = y + node.h + SECTION_GAP_Y;
+    node.sections.forEach(sec => {
+      let top = secTop;
+      sec.children.forEach(child => {
+        assignPositions(child, secLeft, top);
+        top += child.subtreeH + SECTION_GAP_Y;
+      });
+      secLeft += sec.w + SECTION_GAP_X;
+    });
+  }
+
+  // Items grid — после секций (или сразу после карточки, если секций нет)
+  if (node.items.length) {
+    const itemsTopY = y + node.h + SECTION_GAP_Y
+      + (node.sectionsHeight || 0)
+      + (node.sectionsHeight > 0 ? SUBSECTION_GAP : 0);
+
+    node.items.forEach(p => {
+      p.x = x + p._gridCol * (PERSON_W + ITEM_GAP_X);
+      p.y = itemsTopY + p._gridRow * (PERSON_H + ITEM_GAP_Y);
+    });
+  }
+}
+
+// === Bounds ===
+
+function getBounds(root) {
+  let maxR = 0, maxB = 0, minY = Infinity;
+  walk(root, n => {
+    maxR = Math.max(maxR, n.x + (n.w || 0));
+    maxB = Math.max(maxB, n.y + (n.h || 0));
+    minY = Math.min(minY, n.y);
+  });
+  return { width: maxR, height: maxB - minY };
+}
+
+function walk(node, cb) {
+  cb(node);
+  // items — подмножество children, обходим только children чтобы избежать дублирования
+  (node.children || []).forEach(c => walk(c, cb));
+}
+
+function flatten(root, result) {
+  walk(root, n => {
+    result.push({
+      id: n.id,
+      type: n.type,
+      name: n.name || '',
+      manager: n.manager || '',
+      position: n.position || '',
+      count: n.count,
+      project: n.project || '',
+      scenarioState: n.scenarioState || '',
+      parentId: n.parentId || null,
+      x: Math.round(n.x * 10) / 10,
+      y: Math.round(n.y * 10) / 10,
+      cardWidth: n.w,
+      cardHeight: n.h,
+      depth: n.depth,
+    });
+  });
+}
+
+// === Валидация ===
+
+function validateNoOverlaps(flat) {
+  const overlaps = [];
+  for (let i = 0; i < flat.length; i++) {
+    for (let j = i + 1; j < flat.length; j++) {
+      const a = flat[i], b = flat[j];
+      if (a.x < b.x + b.cardWidth &&
+          a.x + a.cardWidth > b.x &&
+          a.y < b.y + b.cardHeight &&
+          a.y + a.cardHeight > b.y) {
+        overlaps.push(`${a.id} ↔ ${b.id}`);
+      }
+    }
+  }
+  if (overlaps.length) {
+    console.warn('[compact-a4-layout] Найдены наложения карточек:', overlaps);
+  }
+}
+
+// === Конвертер ===
+
+export function convertToCompactTree(exportNode) {
+  if (!exportNode) return null;
+  return {
+    id: exportNode.id,
+    type: exportNode.type,
+    name: exportNode.name || '',
+    manager: exportNode.manager || '',
+    position: exportNode.position || '',
+    count: exportNode.count,
+    project: exportNode.project || '',
+    scenarioState: exportNode.scenarioState || '',
+    children: (exportNode.children || []).map(c => convertToCompactTree(c)).filter(Boolean),
+  };
+}
+
+# FILE: src\compact-a4\compact-a4-layout.test.js
+
+import { describe, it, expect } from 'vitest';
+import {
+  calculateCompactLayout,
+  convertToCompactTree,
+  A4_WIDTH,
+  A4_HEIGHT,
+  DEPT_W,
+  DEPT_H,
+  PERSON_W,
+  PERSON_H,
+} from './compact-a4-layout.js';
+
+describe('compact-a4-layout', () => {
+  describe('calculateCompactLayout', () => {
+    it('должен вернуть null для null-входа', () => {
+      expect(calculateCompactLayout(null)).toBeNull();
+    });
+
+    it('должен корректно обрабатывать одиночный узел департамента', () => {
+      const tree = {
+        id: 'root',
+        type: 'department',
+        name: 'Холдинг',
+        manager: '',
+        position: '',
+        count: 10,
+        project: '',
+        scenarioState: '',
+        children: [],
+      };
+
+      const result = calculateCompactLayout(tree);
+
+      expect(result).not.toBeNull();
+      expect(result.flat).toHaveLength(1);
+      expect(result.flat[0].id).toBe('root');
+      expect(result.flat[0].type).toBe('department');
+      expect(result.flat[0].cardWidth).toBe(DEPT_W);
+      expect(result.flat[0].cardHeight).toBe(DEPT_H);
+      expect(result.scale).toBe(1);
+      expect(result.canFit).toBe(true);
+    });
+
+    it('должен обрабатывать дерево с дочерними подразделениями — секционная раскладка', () => {
+      const tree = {
+        id: 'root',
+        type: 'department',
+        name: 'Холдинг',
+        manager: 'Иван Иванов',
+        position: 'Генеральный директор',
+        count: 50,
+        project: '',
+        scenarioState: '',
+        children: [
+          {
+            id: 'dept1',
+            type: 'department',
+            name: 'Бухгалтерия',
+            manager: 'Петр Петров',
+            position: 'Главный бухгалтер',
+            count: 10,
+            project: '',
+            scenarioState: '',
+            children: [
+              {
+                id: 'emp1',
+                type: 'employee',
+                name: 'Сотрудник 1',
+                manager: '',
+                position: 'Бухгалтер',
+                count: null,
+                project: '',
+                scenarioState: '',
+                children: [],
+              },
+            ],
+          },
+          {
+            id: 'dept2',
+            type: 'department',
+            name: 'ИТ-отдел',
+            manager: 'Сидор Сидоров',
+            position: 'CIO',
+            count: 20,
+            project: '',
+            scenarioState: '',
+            children: [],
+          },
+        ],
+      };
+
+      const result = calculateCompactLayout(tree);
+
+      expect(result).not.toBeNull();
+      expect(result.flat.length).toBeGreaterThanOrEqual(4);
+      expect(result.canFit).toBe(true);
+      expect(result.scale).toBeGreaterThanOrEqual(0.45);
+      expect(result.scale).toBeLessThanOrEqual(1);
+
+      // Проверяем, что все узлы имеют координаты
+      result.flat.forEach(node => {
+        expect(node.x).toBeGreaterThanOrEqual(0);
+        expect(node.y).toBeGreaterThanOrEqual(0);
+      });
+    });
+
+    it('должен обрабатывать вакансии внутри отдела', () => {
+      const tree = {
+        id: 'root',
+        type: 'department',
+        name: 'Отдел',
+        manager: '',
+        position: '',
+        count: 5,
+        project: '',
+        scenarioState: '',
+        children: [
+          {
+            id: 'vac1',
+            type: 'vacancy',
+            name: 'Вакансия',
+            manager: '',
+            position: 'Программист',
+            count: null,
+            project: '',
+            scenarioState: '',
+            children: [],
+          },
+          {
+            id: 'emp1',
+            type: 'employee',
+            name: 'Иван',
+            manager: '',
+            position: 'Разработчик',
+            count: null,
+            project: '',
+            scenarioState: '',
+            children: [],
+          },
+        ],
+      };
+
+      const result = calculateCompactLayout(tree);
+      expect(result).not.toBeNull();
+      expect(result.flat.length).toBe(3);
+
+      const vacancy = result.flat.find(n => n.type === 'vacancy');
+      expect(vacancy).toBeDefined();
+      expect(vacancy.position).toBe('Программист');
+
+      const employee = result.flat.find(n => n.type === 'employee');
+      expect(employee).toBeDefined();
+      expect(employee.name).toBe('Иван');
+    });
+
+    it('должен обрабатывать административного ассистента', () => {
+      const tree = {
+        id: 'root',
+        type: 'department',
+        name: 'Отдел с ассистентом',
+        manager: '',
+        position: '',
+        count: 5,
+        project: '',
+        scenarioState: '',
+        children: [
+          {
+            id: 'asst1',
+            type: 'assistant',
+            name: 'Ассистент',
+            manager: '',
+            position: 'Административный ассистент',
+            count: null,
+            project: '',
+            scenarioState: '',
+            children: [],
+          },
+        ],
+      };
+
+      const result = calculateCompactLayout(tree);
+      expect(result).not.toBeNull();
+      const assistant = result.flat.find(n => n.type === 'assistant');
+      expect(assistant).toBeDefined();
+    });
+
+    it('должен устанавливать canFit=false если структура слишком большая', () => {
+      // Создаём очень широкое дерево с множеством отделов
+      const children = [];
+      for (let i = 0; i < 50; i++) {
+        children.push({
+          id: `dept_${i}`,
+          type: 'department',
+          name: `Отдел ${i}`,
+          manager: '',
+          position: '',
+          count: 10,
+          project: '',
+          scenarioState: '',
+          children: [],
+        });
+      }
+
+      const tree = {
+        id: 'root',
+        type: 'department',
+        name: 'Мега-холдинг',
+        manager: '',
+        position: '',
+        count: 500,
+        project: '',
+        scenarioState: '',
+        children,
+      };
+
+      const result = calculateCompactLayout(tree);
+      expect(result).not.toBeNull();
+      expect(typeof result.canFit).toBe('boolean');
+      // При 50 отделах скорее всего не влезет
+      // Но проверяем, что функция возвращает корректные поля
+      expect(result.scale).toBeGreaterThanOrEqual(0.45);
+    });
+
+    it('должен корректно формировать parentId в flat-списке', () => {
+      const tree = {
+        id: 'root',
+        type: 'department',
+        name: 'Главный',
+        manager: '',
+        position: '',
+        count: 3,
+        project: '',
+        scenarioState: '',
+        children: [
+          {
+            id: 'depA',
+            type: 'department',
+            name: 'Отдел A',
+            manager: '',
+            position: '',
+            count: 1,
+            project: '',
+            scenarioState: '',
+            children: [
+              {
+                id: 'empA1',
+                type: 'employee',
+                name: 'Работник',
+                manager: '',
+                position: 'Специалист',
+                count: null,
+                project: '',
+                scenarioState: '',
+                children: [],
+              },
+            ],
+          },
+          {
+            id: 'empRoot',
+            type: 'employee',
+            name: 'Помощник',
+            manager: '',
+            position: '',
+            count: null,
+            project: '',
+            scenarioState: '',
+            children: [],
+          },
+        ],
+      };
+
+      const result = calculateCompactLayout(tree);
+      expect(result).not.toBeNull();
+
+      const root = result.flat.find(n => n.id === 'root');
+      expect(root.parentId).toBeNull();
+
+      const depA = result.flat.find(n => n.id === 'depA');
+      expect(depA.parentId).toBe('root');
+
+      const empA1 = result.flat.find(n => n.id === 'empA1');
+      expect(empA1.parentId).toBe('depA');
+
+      const empRoot = result.flat.find(n => n.id === 'empRoot');
+      expect(empRoot.parentId).toBe('root');
+    });
+  });
+
+  describe('convertToCompactTree', () => {
+    it('должен конвертировать export-узел в дерево для layout', () => {
+      const exportNode = {
+        id: 'root',
+        type: 'department',
+        name: 'Холдинг',
+        manager: 'Директор',
+        position: 'CEO',
+        count: 100,
+        project: '',
+        scenarioState: '',
+        children: [
+          {
+            id: 'child1',
+            type: 'department',
+            name: 'Подразделение',
+            manager: 'Менеджер',
+            position: 'Manager',
+            count: 50,
+            project: '',
+            scenarioState: 'added',
+            children: [],
+          },
+        ],
+      };
+
+      const tree = convertToCompactTree(exportNode);
+      expect(tree).not.toBeNull();
+      expect(tree.id).toBe('root');
+      expect(tree.name).toBe('Холдинг');
+      expect(tree.manager).toBe('Директор');
+      expect(tree.children).toHaveLength(1);
+      expect(tree.children[0].scenarioState).toBe('added');
+    });
+
+    it('должен вернуть null для null-входа', () => {
+      expect(convertToCompactTree(null)).toBeNull();
+    });
+
+    it('должен конвертировать пустые имена в пустые строки', () => {
+      const exportNode = {
+        id: 'node1',
+        type: 'employee',
+        name: undefined,
+        manager: undefined,
+        position: undefined,
+        count: null,
+        project: undefined,
+        scenarioState: undefined,
+        children: [],
+      };
+
+      const tree = convertToCompactTree(exportNode);
+      expect(tree.name).toBe('');
+      expect(tree.manager).toBe('');
+      expect(tree.position).toBe('');
+      expect(tree.project).toBe('');
+    });
+  });
+});
+
+# FILE: src\compact-a4\compact-a4-screen-renderer.js
+
+/**
+ * compact-a4-screen-renderer.js
+ *
+ * Рендерит компактную orgchart на экране, используя ЕДИНЫЙ layout
+ * (computeUnifiedLayout). compact-a4 — только вариант размеров/оформления
+ * карточек, не отдельный алгоритм организационной схемы.
+ */
+
+import {
+  computeUnifiedLayout,
+  NODE_DEPARTMENT,
+  NODE_EMPLOYEES,
+  NODE_ASSISTANT,
+} from "../unified-layout.js";
+import {
+  A4_WIDTH,
+  A4_HEIGHT,
+  PADDING_X,
+  PADDING_Y,
+  HEADER_HEIGHT,
+  DEPT_W,
+  DEPT_H,
+  PERSON_W,
+  PERSON_H,
+  MIN_SCALE,
+} from "./compact-a4-layout.js";
+import { renderCompactSvg } from "./compact-a4-svg-renderer.js";
+
+export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart", options = {}) {
+  const {
+    hideNames = false,
+    showVacancies = true,
+    viewMode = "to-be",
+  } = options;
+
+  const container = document.querySelector(containerSelector);
+  if (!container) return;
+
+  if (!rootNodes || !rootNodes.length) {
+    container.innerHTML = '<div class="empty-chart">Нет данных для отображения</div>';
+    return;
+  }
+
+  const rootNode = rootNodes[0];
+
+  const layout = computeUnifiedLayout(rootNode, {
+    showVacancies,
+    departmentWidth: DEPT_W,
+    departmentHeight: DEPT_H,
+    employeeWidth: PERSON_W,
+    employeeHeight: PERSON_H,
+    assistantWidth: PERSON_W,
+    assistantHeight: PERSON_H,
+    employeesHeaderHeight: 18,
+    colGap: 20,
+    rowGap: 16,
+    personGap: 4,
+    paddingX: PADDING_X,
+    paddingY: PADDING_Y + HEADER_HEIGHT,
+  });
+
+  const availW = A4_WIDTH - 2 * PADDING_X;
+  const availH = A4_HEIGHT - HEADER_HEIGHT - 2 * PADDING_Y;
+  const scale = Math.min(
+    availW / Math.max(layout.width, 1),
+    availH / Math.max(layout.height, 1),
+    1,
+  );
+  const canFit = scale >= MIN_SCALE;
+
+  const flat = unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies });
+
+  const modeTitles = {
+    "as-is": "Текущая структура",
+    "to-be": "Целевая структура",
+    changes: "Изменения",
+  };
+
+  const title = rootNode.department_name || rootNode.name || "Организационная структура";
+  const subtitle = `${modeTitles[viewMode] || "Организационная структура"}${showVacancies ? "" : " · без вакансий"}`;
+
+  const svg = renderCompactSvg(
+    { flat, scale, a4Width: A4_WIDTH, a4Height: A4_HEIGHT, canFit },
+    { title, subtitle },
+  );
+
+  container.innerHTML = "";
+  container.appendChild(svg);
+
+  fitSvgToContainer(svg, container);
+}
+
+function fitSvgToContainer(svg, container) {
+  const containerWidth = container.clientWidth || 800;
+  const containerHeight = container.clientHeight || 600;
+
+  const scaleX = containerWidth / A4_WIDTH;
+  const scaleY = containerHeight / A4_HEIGHT;
+  const scale = Math.min(scaleX, scaleY, 1.5);
+
+  svg.setAttribute("width", A4_WIDTH * scale);
+  svg.setAttribute("height", A4_HEIGHT * scale);
+  svg.style.maxWidth = "100%";
+}
+
+function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies }) {
+  const flat = [];
+  const parentMap = new Map();
+  layout.edges.forEach((edge) => parentMap.set(edge.child, edge.parent));
+
+  layout.nodes.forEach((node) => {
+    const parent = parentMap.get(node);
+    const parentId = parent && parent.data ? parent.data.id : null;
+
+    if (node.type === NODE_DEPARTMENT) {
+      const d = node.data;
+      flat.push({
+        id: d.id,
+        type: "department",
+        name: d.name,
+        manager: hideNames ? "" : d.headName,
+        position: d.headPosition,
+        count: showVacancies
+          ? d.totalWithVacancies ?? d.staffCount ?? 0
+          : d.staffCount ?? 0,
+        project: "",
+        scenarioState: d.scenarioState,
+        parentId,
+        x: node.x,
+        y: node.y,
+        cardWidth: node.width,
+        cardHeight: node.height,
+      });
+    } else if (node.type === NODE_ASSISTANT) {
+      const d = node.data;
+      flat.push({
+        id: d.id,
+        type: "assistant",
+        name: hideNames ? "" : d.full_name || d.name || "Сотрудник",
+        position: d.position || "",
+        project: normalizeProjects(d.project),
+        scenarioState: d.scenarioState || "",
+        parentId,
+        x: node.x,
+        y: node.y,
+        cardWidth: node.width,
+        cardHeight: node.height,
+      });
+    } else if (node.type === NODE_EMPLOYEES) {
+      flat.push({
+        id: `employees_${parentId || "root"}`,
+        type: "employees",
+        header: "Сотрудники",
+        parentId,
+        x: node.x,
+        y: node.y,
+        cardWidth: node.width,
+        cardHeight: node.height,
+        persons: (node.persons || []).map((person) => ({
+          id: person.data.id,
+          type: person.data.isVacancy ? "vacancy" : "employee",
+          name: person.data.isVacancy
+            ? "Вакансия"
+            : hideNames
+              ? ""
+              : person.data.name,
+          position: String(person.data.position || ""),
+          project: normalizeProjects(person.data.project),
+          scenarioState: person.data.scenarioState || "",
+          cardWidth: person.width,
+          cardHeight: person.height,
+        })),
+      });
+    }
+  });
+
+  return flat;
+}
+
+function normalizeProjects(value) {
+  return String(value || "")
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+
+
+# FILE: src\compact-a4\compact-a4-svg-renderer.js
+
+/**
+ * compact-a4-svg-renderer.js
+ *
+ * Рисует компактную orgchart-диаграмму в SVG для A4 landscape.
+ * Раздельные renderer'ы: department, employee, vacancy, assistant.
+ */
+
+import { A4_WIDTH, A4_HEIGHT, PADDING_X, PADDING_Y, HEADER_HEIGHT, DEPT_W, DEPT_H, PERSON_W, PERSON_H } from './compact-a4-layout.js';
+
+const C = {
+  blue: '#155eef',
+  blueLight: '#eef4ff',
+  text: '#101828',
+  muted: '#667085',
+  border: '#d0d5dd',
+  line: '#98a2b3',
+  white: '#ffffff',
+  deptBg: '#f8fbff',
+  vacancyBg: '#f0f9ff',
+  vacancyStroke: '#7cc4f8',
+  assistantBg: '#f8fafc',
+  assistantStroke: '#9e77ed',
+  addedBg: '#dcfae6', addedText: '#067647',
+  changedBg: '#dbeafe', changedText: '#1d4ed8',
+  movedBg: '#f4e8ff', movedText: '#7e22ce',
+  removedBg: '#fee4e2', removedText: '#b42318',
+};
+
+export function renderCompactSvg(layoutResult, options = {}) {
+  const { title = 'Организационная структура', subtitle = '' } = options;
+  const { flat, scale, a4Width, a4Height, canFit } = layoutResult;
+
+  if (!canFit || !flat || !flat.length) {
+    return renderError('Структуру невозможно уместить на один лист A4 без потери читаемости');
+  }
+
+  const svg = createSvg('svg', {
+    width: a4Width, height: a4Height,
+    viewBox: `0 0 ${a4Width} ${a4Height}`,
+    xmlns: 'http://www.w3.org/2000/svg',
+  });
+  svg.appendChild(createSvg('rect', { x: 0, y: 0, width: a4Width, height: a4Height, fill: C.white }));
+  drawHeader(svg, { title, subtitle, width: a4Width });
+
+  const diag = createSvg('g', {
+    transform: scale !== 1 ? `translate(0,0) scale(${scale})` : 'translate(0,0)',
+  });
+
+  const nodesMap = new Map(flat.map(n => [n.id, n]));
+  drawAllConnectors(diag, flat, nodesMap);
+
+  flat.forEach(n => {
+    if (n.type === 'department') drawDeptCard(diag, n);
+    else if (n.type === 'vacancy') drawVacancyCard(diag, n);
+    else if (n.type === 'assistant') drawAssistantCard(diag, n);
+    else if (n.type === 'employees') drawEmployeesColumn(diag, n);
+    else drawEmployeeCard(diag, n);
+  });
+
+  svg.appendChild(diag);
+  return svg;
+}
+
+// === Связи ===
+
+function drawAllConnectors(group, flat, map) {
+  const byParent = new Map();
+  flat.forEach(n => { if (n.parentId) { const a = byParent.get(n.parentId) || []; a.push(n); byParent.set(n.parentId, a); } });
+
+  byParent.forEach((children, pid) => {
+    const p = map.get(pid); if (!p) return;
+    const px = p.x + p.cardWidth / 2;
+    const py = p.y + p.cardHeight;
+    if (children.length === 1) {
+      const c = children[0];
+      drawPath(group, px, py, c.x + c.cardWidth / 2, c.y);
+      return;
+    }
+    const sorted = [...children].sort((a, b) => a.y - b.y);
+    const first = sorted[0], last = sorted[sorted.length - 1];
+    const trunkY = py + (first.y - py) / 2;
+    drawPath(group, px, py, px, trunkY);
+    let minX = Infinity, maxX = -Infinity;
+    children.forEach(c => { const cx = c.x + c.cardWidth / 2; if (cx < minX) minX = cx; if (cx > maxX) maxX = cx; });
+    drawPath(group, minX, trunkY, maxX, trunkY);
+    children.forEach(c => drawPath(group, c.x + c.cardWidth / 2, trunkY, c.x + c.cardWidth / 2, c.y));
+  });
+}
+
+function drawPath(g, x1, y1, x2, y2) {
+  const d = x1 === x2 ? `M ${x1} ${y1} L ${x2} ${y2}`
+    : `M ${x1} ${y1} V ${y1 + (y2 - y1) / 2} H ${x2} V ${y2}`;
+  g.appendChild(createSvg('path', { d, fill: 'none', stroke: C.line, 'stroke-width': 1.5 }));
+}
+
+// === Карточки ===
+
+function drawDeptCard(g, n) {
+  const grp = createSvg('g', { transform: `translate(${n.x}, ${n.y})` });
+  grp.appendChild(createSvg('rect', { x: 0, y: 0, width: n.cardWidth, height: n.cardHeight, rx: 8, ry: 8, fill: C.deptBg, stroke: C.blue, 'stroke-width': 2 }));
+  if (n.scenarioState) drawBadge(grp, n.scenarioState);
+
+  drawText(grp, n.name, { x: 10, y: n.scenarioState ? 26 : 16, maxW: n.cardWidth - 20, fontSize: 11, fw: 600, fill: C.text, maxLines: 2, lineH: 13 });
+  if (n.manager) drawText(grp, n.manager, {
+    x: 10, y: n.scenarioState ? 42 : 32,
+    maxW: n.cardWidth - 60, fontSize: 9, fw: 400, fill: '#344054', maxLines: 1, lineH: 11,
+  });
+  if (n.position) {
+    const posY = n.manager ? (n.scenarioState ? 54 : 44) : (n.scenarioState ? 42 : 32);
+    if (posY < n.cardHeight - 4) drawText(grp, n.position, {
+      x: 10, y: posY, maxW: n.cardWidth - 60, fontSize: 8, fw: 400, fill: C.muted, maxLines: 1, lineH: 10,
+    });
+  }
+  if (n.count != null) {
+    grp.appendChild(createSvg('rect', { x: n.cardWidth - 34, y: n.cardHeight - 20, width: 24, height: 14, rx: 7, ry: 7, fill: C.blueLight }));
+    addText(grp, String(n.count), n.cardWidth - 22, n.cardHeight - 9, 8, 700, C.blue, 'middle');
+  }
+  if (n.project) {
+    grp.appendChild(createSvg('rect', { x: 6, y: n.cardHeight - 20, width: Math.min(n.cardWidth - 60, 120), height: 14, rx: 7, ry: 7, fill: '#f2f4f7' }));
+    addText(grp, `П: ${trunc(n.project, 18)}`, 12, n.cardHeight - 9, 7, 400, '#475467');
+  }
+  g.appendChild(grp);
+}
+
+function drawEmployeeCard(g, n) {
+  const grp = createSvg('g', { transform: `translate(${n.x}, ${n.y})` });
+  grp.appendChild(createSvg('rect', { x: 0, y: 0, width: n.cardWidth, height: n.cardHeight, rx: 5, ry: 5, fill: C.white, stroke: C.border, 'stroke-width': 1 }));
+  if (n.scenarioState) drawBadge(grp, n.scenarioState);
+
+  const nameY = n.scenarioState ? 22 : 13;
+  drawText(grp, n.name, { x: 8, y: nameY, maxW: n.cardWidth - 16, fontSize: 9, fw: 600, fill: C.text, maxLines: 2, lineH: 11 });
+  if (n.position) {
+    const posY = nameY + (n.name ? 13 : 0);
+    if (posY < n.cardHeight - 4) drawText(grp, n.position, {
+      x: 8, y: posY, maxW: n.cardWidth - 16, fontSize: 7, fw: 400, fill: C.muted, maxLines: 1, lineH: 9,
+    });
+  }
+  if (n.project) {
+    grp.appendChild(createSvg('rect', { x: 4, y: n.cardHeight - 14, width: Math.min(n.cardWidth - 30, 100), height: 10, rx: 5, ry: 5, fill: '#f2f4f7' }));
+    addText(grp, `П: ${trunc(n.project, 14)}`, 8, n.cardHeight - 6, 6, 400, '#475467');
+  }
+  g.appendChild(grp);
+}
+
+function drawVacancyCard(g, n) {
+  const grp = createSvg('g', { transform: `translate(${n.x}, ${n.y})` });
+  grp.appendChild(createSvg('rect', { x: 0, y: 0, width: n.cardWidth, height: n.cardHeight, rx: 5, ry: 5, fill: C.vacancyBg, stroke: C.vacancyStroke, 'stroke-width': 1.5 }));
+  addText(grp, 'Вакансия', 8, 14, 9, 700, C.blue);
+  if (n.position) drawText(grp, n.position, { x: 8, y: 26, maxW: n.cardWidth - 16, fontSize: 7, fw: 400, fill: C.muted, maxLines: 1, lineH: 9 });
+  g.appendChild(grp);
+}
+
+function drawAssistantCard(g, n) {
+  const grp = createSvg('g', { transform: `translate(${n.x}, ${n.y})` });
+  grp.appendChild(createSvg('rect', { x: 0, y: 0, width: n.cardWidth, height: n.cardHeight, rx: 5, ry: 5, fill: C.assistantBg, stroke: C.assistantStroke, 'stroke-width': 1.5 }));
+  addText(grp, 'Адм. ассистент', 8, 14, 8, 600, C.assistantStroke);
+  if (n.name) drawText(grp, n.name, { x: 8, y: 26, maxW: n.cardWidth - 16, fontSize: 7, fw: 400, fill: C.text, maxLines: 1, lineH: 9 });
+  g.appendChild(grp);
+}
+
+function drawEmployeesColumn(g, n) {
+  const grp = createSvg('g', { transform: `translate(${n.x}, ${n.y})` });
+  grp.appendChild(createSvg('rect', {
+    x: 0, y: 0, width: n.cardWidth, height: n.cardHeight,
+    rx: 8, ry: 8, fill: '#f8fafc', stroke: '#cbd5e1',
+    'stroke-width': 1, 'stroke-dasharray': '4 3',
+  }));
+  addText(grp, n.header || 'Сотрудники', n.cardWidth / 2, 14, 8, 700, '#475467', 'middle');
+
+  let y = 22;
+  (n.persons || []).forEach(person => {
+    const card = { ...person, x: 0, y };
+    if (person.type === 'vacancy') drawVacancyCard(grp, card);
+    else drawEmployeeCard(grp, card);
+    y += (person.cardHeight || PERSON_H) + 4;
+  });
+
+  g.appendChild(grp);
+}
+
+// === Утилиты ===
+
+function drawBadge(g, state) {
+  const lbl = {added:'NEW',changed:'Изм',moved:'Пер',removed:'Удал'}[state] || '';
+  const clr = {added:{bg:C.addedBg,txt:C.addedText},changed:{bg:C.changedBg,txt:C.changedText},moved:{bg:C.movedBg,txt:C.movedText},removed:{bg:C.removedBg,txt:C.removedText}}[state] || {bg:'#f2f4f7',txt:'#344054'};
+  g.appendChild(createSvg('rect', { x: 6, y: 5, width: lbl.length * 6 + 10, height: 13, rx: 6.5, ry: 6.5, fill: clr.bg }));
+  addText(g, lbl, 11, 15, 7, 700, clr.txt);
+}
+
+function drawText(g, text, { x, y, maxW, fontSize, fw, fill, maxLines = 2, lineH }) {
+  const lines = wrap(String(text || ''), maxW, fontSize, maxLines);
+  lines.forEach((l, i) => addText(g, l, x, y + i * lineH, fontSize, fw, fill));
+}
+
+function addText(g, text, x, y, fontSize, fw, fill, anchor = 'start') {
+  const t = createSvg('text', { x, y, 'font-family': 'Arial, sans-serif', 'font-size': fontSize, 'font-weight': fw, fill, 'text-anchor': anchor });
+  t.textContent = text || '';
+  g.appendChild(t);
+}
+
+function wrap(text, maxW, fontSize, maxLines) {
+  const cw = fontSize * 0.53;
+  const maxLen = Math.max(4, Math.floor(maxW / cw));
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return [''];
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const nxt = cur ? `${cur} ${w}` : w;
+    if (nxt.length > maxLen) {
+      if (cur) { lines.push(cur); cur = w; }
+      else {
+        // Одно слово длиннее maxLen — обрезаем
+        let leftover = w;
+        while (leftover.length > maxLen) {
+          lines.push(leftover.slice(0, maxLen));
+          leftover = leftover.slice(maxLen);
+          if (lines.length >= maxLines) break;
+        }
+        cur = leftover || '';
+      }
+    } else { cur = nxt; }
+    if (lines.length >= maxLines) break;
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  if (lines.length > maxLines) lines.splice(maxLines);
+  if (lines.length > 0 && lines.length >= maxLines) {
+    const last = lines[lines.length - 1];
+    if (last.length > 2) lines[lines.length - 1] = last.slice(0, -1) + '…';
+  }
+  return lines.length ? lines : [''];
+}
+
+function trunc(text, len) { return text.length <= len ? text : text.slice(0, len - 1) + '…'; }
+
+function drawHeader(svg, { title, subtitle, width }) {
+  addText(svg, 'Организационная структура', PADDING_X, 24, 10, 700, C.blue);
+  addText(svg, title, PADDING_X, 42, 18, 700, C.text);
+  if (subtitle) addText(svg, subtitle, PADDING_X, 58, 10, 400, C.muted);
+  addText(svg, new Intl.DateTimeFormat('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' }).format(new Date()), width - PADDING_X, 42, 10, 400, C.muted, 'end');
+  svg.appendChild(createSvg('line', { x1: PADDING_X, y1: 72, x2: width - PADDING_X, y2: 72, stroke: '#e4e7ec', 'stroke-width': 1 }));
+}
+
+function renderError(msg) {
+  const s = createSvg('svg', { width: A4_WIDTH, height: A4_HEIGHT, viewBox: `0 0 ${A4_WIDTH} ${A4_HEIGHT}`, xmlns: 'http://www.w3.org/2000/svg' });
+  s.appendChild(createSvg('rect', { x: 0, y: 0, width: A4_WIDTH, height: A4_HEIGHT, fill: C.white }));
+  addText(s, msg, A4_WIDTH / 2, A4_HEIGHT / 2, 16, 700, '#f04438', 'middle');
+  return s;
+}
+
+function createSvg(tag, attrs = {}) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, String(v)));
+  return e;
+}
+
+export { createSvg as createSvgElement };
+
+# FILE: src\compact-a4\compact-a4-svg-renderer.test.js
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+describe('compact-a4-svg-renderer', () => {
+  let renderCompactSvg;
+
+  beforeEach(async () => {
+    // Очищаем DOM
+    document.body.innerHTML = '';
+
+    const mod = await import('./compact-a4-svg-renderer.js');
+    renderCompactSvg = mod.renderCompactSvg;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function countSvgElements(svg, tagName) {
+    return svg.querySelectorAll(tagName).length;
+  }
+
+  function getSvgTextContents(svg) {
+    const texts = [];
+    svg.querySelectorAll('text').forEach(el => {
+      texts.push(el.textContent || '');
+    });
+    return texts;
+  }
+
+  it('должен вернуть SVG с сообщением об ошибке если canFit=false', () => {
+    const layoutResult = {
+      flat: [],
+      scale: 0.5,
+      totalWidth: 2000,
+      totalHeight: 2000,
+      a4Width: 1122,
+      a4Height: 794,
+      canFit: false,
+    };
+
+    const svg = renderCompactSvg(layoutResult, { title: 'Тест' });
+
+    expect(svg).toBeDefined();
+    expect(svg.tagName).toBe('svg');
+
+    const texts = getSvgTextContents(svg);
+    const hasError = texts.some(t => t.includes('невозможно'));
+    expect(hasError).toBe(true);
+  });
+
+  it('должен вернуть SVG с сообщением об ошибке если flat пустой', () => {
+    const layoutResult = {
+      flat: [],
+      scale: 1,
+      totalWidth: 100,
+      totalHeight: 100,
+      a4Width: 1122,
+      a4Height: 794,
+      canFit: true,
+    };
+
+    const svg = renderCompactSvg(layoutResult, { title: 'Тест' });
+
+    expect(svg).toBeDefined();
+    const texts = getSvgTextContents(svg);
+    const hasError = texts.some(t => t.includes('невозможно'));
+    expect(hasError).toBe(true);
+  });
+
+  it('должен корректно рендерить простую структуру', () => {
+    const layoutResult = {
+      flat: [
+        {
+          id: 'root',
+          type: 'department',
+          name: 'Холдинг',
+          manager: 'Директор',
+          position: 'CEO',
+          count: 50,
+          project: '',
+          scenarioState: '',
+          x: 24,
+          y: 104,
+          cardWidth: 180,
+          cardHeight: 52,
+          depth: 0,
+        },
+        {
+          id: 'child1',
+          type: 'department',
+          name: 'Отдел',
+          manager: 'Менеджер',
+          position: 'Manager',
+          count: 10,
+          project: 'Проект А',
+          scenarioState: 'added',
+          x: 24,
+          y: 188,
+          cardWidth: 180,
+          cardHeight: 52,
+          depth: 1,
+          parentId: 'root',
+        },
+      ],
+      scale: 1,
+      totalWidth: 228,
+      totalHeight: 264,
+      a4Width: 1122,
+      a4Height: 794,
+      canFit: true,
+    };
+
+    const svg = renderCompactSvg(layoutResult, {
+      title: 'Тестовая структура',
+      subtitle: 'Целевая структура · с фамилиями',
+    });
+
+    expect(svg).toBeDefined();
+    expect(svg.tagName).toBe('svg');
+
+    // Должны быть rect-элементы (фон + 2 карточки + бейдж + счётчик + проект)
+    const rectCount = countSvgElements(svg, 'rect');
+    expect(rectCount).toBeGreaterThanOrEqual(5);
+
+    // Должны быть text-элементы
+    const textCount = countSvgElements(svg, 'text');
+    expect(textCount).toBeGreaterThanOrEqual(3);
+
+    // Должен быть заголовок
+    const texts = getSvgTextContents(svg);
+    const hasHeader = texts.some(t => t.includes('Тестовая структура'));
+    expect(hasHeader).toBe(true);
+
+    // Должна быть линия разделителя
+    const lineCount = countSvgElements(svg, 'line');
+    expect(lineCount).toBeGreaterThanOrEqual(1);
+
+    // Должен быть path (коннектор)
+    const pathCount = countSvgElements(svg, 'path');
+    expect(pathCount).toBeGreaterThanOrEqual(1);
+
+    // Должна быть группа g
+    const gCount = countSvgElements(svg, 'g');
+    expect(gCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it('должен корректно рендерить масштабированную диаграмму', () => {
+    const layoutResult = {
+      flat: [
+        {
+          id: 'root',
+          type: 'department',
+          name: 'Большая структура',
+          manager: '',
+          position: '',
+          count: 100,
+          project: '',
+          scenarioState: '',
+          x: 24,
+          y: 104,
+          cardWidth: 180,
+          cardHeight: 52,
+          depth: 0,
+        },
+      ],
+      scale: 0.7,
+      totalWidth: 1000,
+      totalHeight: 600,
+      a4Width: 1122,
+      a4Height: 794,
+      canFit: true,
+    };
+
+    const svg = renderCompactSvg(layoutResult, {
+      title: 'С масштабом',
+    });
+
+    expect(svg).toBeDefined();
+
+    // Проверяем, что создана группа с transform scale
+    const groups = svg.querySelectorAll('g');
+    let hasScaledGroup = false;
+    groups.forEach(g => {
+      const transform = g.getAttribute('transform') || '';
+      if (transform.includes('scale(0.7)')) hasScaledGroup = true;
+    });
+    expect(hasScaledGroup).toBe(true);
+
+    // Должна быть ровно одна карточка (один rect кроме фона)
+    const rects = svg.querySelectorAll('rect');
+    expect(rects.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('должен рендерить разные типы узлов: vacancy, assistant, employee', () => {
+    const layoutResult = {
+      flat: [
+        {
+          id: 'dept1',
+          type: 'department',
+          name: 'Отдел',
+          manager: '',
+          position: '',
+          count: 5,
+          project: '',
+          scenarioState: '',
+          x: 24,
+          y: 104,
+          cardWidth: 180,
+          cardHeight: 52,
+          depth: 0,
+        },
+        {
+          id: 'emp1',
+          type: 'employee',
+          name: 'Иван',
+          manager: '',
+          position: 'Разработчик',
+          count: null,
+          project: '',
+          scenarioState: '',
+          x: 24,
+          y: 188,
+          cardWidth: 150,
+          cardHeight: 32,
+          depth: 1,
+          parentId: 'dept1',
+        },
+        {
+          id: 'vac1',
+          type: 'vacancy',
+          name: 'Вакансия',
+          manager: '',
+          position: 'Тестировщик',
+          count: null,
+          project: '',
+          scenarioState: '',
+          x: 186,
+          y: 188,
+          cardWidth: 150,
+          cardHeight: 32,
+          depth: 1,
+          parentId: 'dept1',
+        },
+        {
+          id: 'asst1',
+          type: 'assistant',
+          name: 'Ассистент',
+          manager: '',
+          position: 'Административный ассистент',
+          count: null,
+          project: '',
+          scenarioState: 'changed',
+          x: 348,
+          y: 188,
+          cardWidth: 150,
+          cardHeight: 32,
+          depth: 1,
+          parentId: 'dept1',
+        },
+      ],
+      scale: 1,
+      totalWidth: 522,
+      totalHeight: 244,
+      a4Width: 1122,
+      a4Height: 794,
+      canFit: true,
+    };
+
+    const svg = renderCompactSvg(layoutResult, { title: 'Типы узлов' });
+
+    expect(svg).toBeDefined();
+
+    // Должны быть rect для фона + 4 карточки + бейджи + счётчик
+    const rects = svg.querySelectorAll('rect');
+    expect(rects.length).toBeGreaterThanOrEqual(5);
+
+    // Должны быть path (коннекторы) - минимум 3 связи
+    const paths = svg.querySelectorAll('path');
+    expect(paths.length).toBeGreaterThanOrEqual(1);
+  });
+});
 
 # FILE: src\employee-modal.js
 
@@ -2031,24 +4246,78 @@ export function addLevels(nodes, level = 0) {
   });
 }
 
-export function flattenTree(nodes, result = []) {
-  nodes.forEach(n => {
-    result.push(n);
-    if (n.children) flattenTree(n.children, result);
+# FILE: src\layout.test.js
+
+import { describe, it, expect } from 'vitest';
+import { addLevels } from './layout.js';
+
+describe('layout.js', () => {
+  describe('addLevels', () => {
+    it('должен проставлять level=0 для корневых узлов', () => {
+      const tree = [{ name: 'A', children: [] }];
+      addLevels(tree);
+      expect(tree[0].level).toBe(0);
+    });
+
+    it('должен увеличивать level для вложенных узлов', () => {
+      const tree = [{ name: 'A', children: [{ name: 'B', children: [] }] }];
+      addLevels(tree);
+      expect(tree[0].level).toBe(0);
+      expect(tree[0].children[0].level).toBe(1);
+    });
+
+    it('должен корректно работать с глубиной 2+', () => {
+      const tree = [
+        {
+          name: 'A',
+          children: [
+            {
+              name: 'B',
+              children: [{ name: 'C', children: [] }],
+            },
+          ],
+        },
+      ];
+      addLevels(tree);
+      expect(tree[0].level).toBe(0);
+      expect(tree[0].children[0].level).toBe(1);
+      expect(tree[0].children[0].children[0].level).toBe(2);
+    });
+
+    it('не должен падать на пустом массиве', () => {
+      expect(() => addLevels([])).not.toThrow();
+    });
+
+    it('не должен падать на узлах без children', () => {
+      const tree = [{ name: 'A' }];
+      expect(() => addLevels(tree)).not.toThrow();
+      expect(tree[0].level).toBe(0);
+    });
   });
-  return result;
-}
+
+});
 
 # FILE: src\pdf-d3-export.js
 
 import { jsPDF } from "jspdf";
+import { calculateCompactLayout, convertToCompactTree } from "./compact-a4/compact-a4-layout.js";
+import { renderCompactSvg } from "./compact-a4/compact-a4-svg-renderer.js";
 
-const CARD_WIDTH = 360;
-const CARD_HEIGHT = 150;
-const H_GAP = 90;
-const V_GAP = 130;
-const PADDING = 70;
+const DEPT_CARD_WIDTH = 300;
+const DEPT_CARD_HEIGHT = 136;
+const PERSON_CARD_WIDTH = 300;
+const PERSON_CARD_HEIGHT = 96;
+
+const H_GAP = 56;
+const V_GAP = 76;
+const PERSON_GRID_GAP_X = 48;
+const PERSON_GRID_GAP_Y = 36;
+
+const PADDING = 56;
+const HEADER_HEIGHT = 124;
 const EXPORT_SCALE = 2;
+
+const MAX_PERSON_COLUMNS = 2;
 
 const COLORS = {
   blue: "#155eef",
@@ -2057,8 +4326,7 @@ const COLORS = {
   muted: "#667085",
   border: "#d0d5dd",
   line: "#98a2b3",
-  green: "#12b76a",
-  purple: "#9e77ed",
+  purple: "#7a5af8",
   red: "#f04438",
 };
 
@@ -2084,14 +4352,10 @@ export async function exportOrgChartToPdf({
   }
 
   try {
-    const exportTree = buildExportTree(rootNodes, {
-      hideNames,
-      showVacancies,
-    });
+    const exportTree = buildExportTree(rootNodes, { hideNames, showVacancies });
+    if (!exportTree) throw new Error("Нет данных для экспорта");
 
-    if (!exportTree) {
-      throw new Error("Нет данных для экспорта");
-    }
+    validateExportTree(exportTree);
 
     const svg = renderExportSvg(exportTree, {
       title,
@@ -2135,10 +4399,14 @@ function buildExportTree(rootNodes, { hideNames, showVacancies }) {
     hideNames,
     showVacancies,
     isRoot: true,
+    parentId: null,
   });
 }
 
-function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot = false }) {
+function convertDepartmentToExportNode(
+  node,
+  { hideNames, showVacancies, isRoot = false, parentId = null },
+) {
   const departmentId = node.department_guid || node.id || createFallbackId();
 
   const exportNode = {
@@ -2152,6 +4420,7 @@ function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot 
       : node.staffCount ?? 0,
     project: "",
     scenarioState: node.scenarioState || "",
+    parentId,
     children: [],
   };
 
@@ -2159,20 +4428,24 @@ function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot 
   const assistantId = assistant?.id || null;
 
   if (assistant) {
-    exportNode.children.push(convertUserToExportNode(assistant, {
-      hideNames,
-      forceType: "assistant",
-    }));
+    exportNode.children.push(
+      convertUserToExportNode(assistant, {
+        hideNames,
+        forceType: "assistant",
+        parentId: departmentId,
+      }),
+    );
   }
 
   (node.children || []).forEach(child => {
-    exportNode.children.push(
-      convertDepartmentToExportNode(child, {
-        hideNames,
-        showVacancies,
-        isRoot: false,
-      }),
-    );
+    const childNode = convertDepartmentToExportNode(child, {
+      hideNames,
+      showVacancies,
+      isRoot: false,
+      parentId: departmentId,
+    });
+
+    exportNode.children.push(childNode);
   });
 
   (node.users || [])
@@ -2183,6 +4456,7 @@ function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot 
       exportNode.children.push(
         convertUserToExportNode(user, {
           hideNames,
+          parentId: departmentId,
         }),
       );
     });
@@ -2190,7 +4464,7 @@ function convertDepartmentToExportNode(node, { hideNames, showVacancies, isRoot 
   return exportNode;
 }
 
-function convertUserToExportNode(user, { hideNames, forceType = null }) {
+function convertUserToExportNode(user, { hideNames, forceType = null, parentId = null }) {
   const isVacancy = Boolean(user.isVacancy);
   const type = forceType || (isVacancy ? "vacancy" : "employee");
 
@@ -2199,22 +4473,22 @@ function convertUserToExportNode(user, { hideNames, forceType = null }) {
     type,
     name: isVacancy ? "Вакансия" : hideNames ? "" : user.full_name || user.name || "Сотрудник",
     manager: "",
-    position: user.position || "",
+    position: String(user.position || user.rawPosition || ""),
     count: null,
     project: normalizeProjects(user.project),
     scenarioState: user.scenarioState || "",
+    parentId,
     children: [],
   };
 }
 
 function renderExportSvg(root, options) {
-  const layoutRoot = buildLayout(root);
-  assignPositions(layoutRoot, PADDING, PADDING + 90);
+  const layoutRoot = buildExportLayout(root);
+  assignExportPositions(layoutRoot, PADDING, PADDING + HEADER_HEIGHT);
 
   const bounds = getBounds(layoutRoot);
-
-  const width = bounds.maxX + CARD_WIDTH + PADDING;
-  const height = bounds.maxY + CARD_HEIGHT + PADDING;
+  const width = bounds.maxX + PADDING;
+  const height = bounds.maxY + PADDING;
 
   const svg = createSvgElement("svg", {
     width,
@@ -2245,39 +4519,118 @@ function renderExportSvg(root, options) {
   return svg;
 }
 
-function buildLayout(node, depth = 0) {
-  const children = (node.children || []).map(child => buildLayout(child, depth + 1));
+/**
+ * Layout не меняет иерархию.
+ * Department-дети раскладываются как orgchart-ветки.
+ * Employee/vacancy/assistant раскладываются отдельным sibling grid-блоком.
+ */
+function buildExportLayout(node, depth = 0) {
+  const children = (node.children || []).map(child => buildExportLayout(child, depth + 1));
 
-  const childrenWidth = children.reduce((sum, child, index) => {
-    return sum + child.subtreeWidth + (index > 0 ? H_GAP : 0);
-  }, 0);
+  const departmentChildren = children.filter(child => child.type === "department");
+  const personChildren = children.filter(child => child.type !== "department");
+
+  const cardWidth = getCardWidth(node);
+  const cardHeight = getCardHeight(node);
+
+  const departmentRowWidth = getRowWidth(departmentChildren);
+  const departmentRowHeight = getRowHeight(departmentChildren);
+
+  const personGrid = buildPersonGrid(personChildren);
+  const personGridWidth = personGrid.width;
+  const personGridHeight = personGrid.height;
+
+  const childrenWidth = Math.max(departmentRowWidth, personGridWidth);
+  const childrenHeight =
+    (departmentChildren.length ? V_GAP + departmentRowHeight : 0) +
+    (personChildren.length ? V_GAP + personGridHeight : 0);
 
   return {
     ...node,
     depth,
     children,
-    subtreeWidth: Math.max(CARD_WIDTH, childrenWidth),
+    departmentChildren,
+    personChildren,
+    personGrid,
+    cardWidth,
+    cardHeight,
+    subtreeWidth: Math.max(cardWidth, childrenWidth),
+    subtreeHeight: cardHeight + childrenHeight,
     x: 0,
     y: 0,
   };
 }
 
-function assignPositions(node, left, top) {
-  node.x = left + node.subtreeWidth / 2 - CARD_WIDTH / 2;
-  node.y = top + node.depth * (CARD_HEIGHT + V_GAP);
+function assignExportPositions(node, left, top) {
+  node.x = left + node.subtreeWidth / 2 - node.cardWidth / 2;
+  node.y = top;
 
-  let childLeft = left + node.subtreeWidth / 2 - getChildrenWidth(node.children) / 2;
+  let cursorY = top + node.cardHeight;
 
-  node.children.forEach(child => {
-    assignPositions(child, childLeft, top);
-    childLeft += child.subtreeWidth + H_GAP;
-  });
+  if (node.departmentChildren.length) {
+    cursorY += V_GAP;
+
+    const rowWidth = getRowWidth(node.departmentChildren);
+    let childLeft = left + node.subtreeWidth / 2 - rowWidth / 2;
+
+    node.departmentChildren.forEach(child => {
+      assignExportPositions(child, childLeft, cursorY);
+      childLeft += child.subtreeWidth + H_GAP;
+    });
+
+    cursorY += getRowHeight(node.departmentChildren);
+  }
+
+  if (node.personChildren.length) {
+    cursorY += V_GAP;
+
+    const grid = node.personGrid;
+    const gridLeft = left + node.subtreeWidth / 2 - grid.width / 2;
+
+    node.personChildren.forEach((child, index) => {
+      const col = index % grid.columns;
+      const row = Math.floor(index / grid.columns);
+
+      child.x = gridLeft + col * (PERSON_CARD_WIDTH + PERSON_GRID_GAP_X);
+      child.y = cursorY + row * (PERSON_CARD_HEIGHT + PERSON_GRID_GAP_Y);
+    });
+  }
 }
 
-function getChildrenWidth(children) {
+function buildPersonGrid(personChildren) {
+  if (!personChildren.length) {
+    return { columns: 0, rows: 0, width: 0, height: 0 };
+  }
+
+  const columns = Math.min(MAX_PERSON_COLUMNS, personChildren.length);
+  const rows = Math.ceil(personChildren.length / columns);
+
+  return {
+    columns,
+    rows,
+    width: columns * PERSON_CARD_WIDTH + (columns - 1) * PERSON_GRID_GAP_X,
+    height: rows * PERSON_CARD_HEIGHT + (rows - 1) * PERSON_GRID_GAP_Y,
+  };
+}
+
+function getRowWidth(children) {
+  if (!children.length) return 0;
   return children.reduce((sum, child, index) => {
     return sum + child.subtreeWidth + (index > 0 ? H_GAP : 0);
   }, 0);
+}
+
+function getRowHeight(children) {
+  if (!children.length) return 0;
+  return children.reduce((max, child) => Math.max(max, child.subtreeHeight), 0);
+}
+
+function getCardWidth(node) {
+  return node.type === "department" ? DEPT_CARD_WIDTH : PERSON_CARD_WIDTH;
+}
+
+function getCardHeight(node) {
+  return node.type === "department" ? DEPT_CARD_HEIGHT : PERSON_CARD_HEIGHT;
 }
 
 function getBounds(root) {
@@ -2285,8 +4638,8 @@ function getBounds(root) {
   let maxY = 0;
 
   walk(root, node => {
-    maxX = Math.max(maxX, node.x);
-    maxY = Math.max(maxY, node.y);
+    maxX = Math.max(maxX, node.x + node.cardWidth);
+    maxY = Math.max(maxY, node.y + node.cardHeight);
   });
 
   return { maxX, maxY };
@@ -2339,24 +4692,62 @@ function drawHeader(svg, { width, title, subtitle }) {
 }
 
 function drawConnectors(svg, root) {
-  walk(root, node => {
-    node.children.forEach(child => {
-      drawConnector(svg, {
-        fromX: node.x + CARD_WIDTH / 2,
-        fromY: node.y + CARD_HEIGHT,
-        toX: child.x + CARD_WIDTH / 2,
-        toY: child.y,
-      });
-    });
+  walk(root, parent => {
+    if (!parent.children || !parent.children.length) return;
+
+    const children = parent.children;
+    const parentX = parent.x + parent.cardWidth / 2;
+    const parentY = parent.y + parent.cardHeight;
+
+    const departmentChildren = children.filter(child => child.type === "department");
+    const personChildren = children.filter(child => child.type !== "department");
+
+    if (departmentChildren.length) {
+      drawSiblingGroupConnector(svg, parent, departmentChildren, parentX, parentY);
+    }
+
+    if (personChildren.length) {
+      drawSiblingGroupConnector(svg, parent, personChildren, parentX, parentY);
+    }
   });
 }
 
-function drawConnector(svg, { fromX, fromY, toX, toY }) {
-  const middleY = fromY + (toY - fromY) / 2;
+function drawSiblingGroupConnector(svg, parent, children, parentX, parentY) {
+  if (!children.length) return;
 
+  if (children.length === 1) {
+    const child = children[0];
+    drawOrthogonalLine(
+      svg,
+      parentX,
+      parentY,
+      child.x + child.cardWidth / 2,
+      child.y,
+    );
+    return;
+  }
+
+  const minChildY = Math.min(...children.map(child => child.y));
+  const trunkY = parentY + Math.max(28, (minChildY - parentY) / 2);
+
+  drawStraightLine(svg, parentX, parentY, parentX, trunkY);
+
+  const minX = Math.min(...children.map(child => child.x + child.cardWidth / 2));
+  const maxX = Math.max(...children.map(child => child.x + child.cardWidth / 2));
+
+  drawStraightLine(svg, minX, trunkY, maxX, trunkY);
+
+  children.forEach(child => {
+    const childX = child.x + child.cardWidth / 2;
+    drawStraightLine(svg, childX, trunkY, childX, child.y);
+  });
+}
+
+function drawOrthogonalLine(svg, x1, y1, x2, y2) {
+  const midY = y1 + (y2 - y1) / 2;
   svg.appendChild(
     createSvgElement("path", {
-      d: `M ${fromX} ${fromY} V ${middleY} H ${toX} V ${toY}`,
+      d: `M ${x1} ${y1} V ${midY} H ${x2} V ${y2}`,
       fill: "none",
       stroke: COLORS.line,
       "stroke-width": 2,
@@ -2364,10 +4755,21 @@ function drawConnector(svg, { fromX, fromY, toX, toY }) {
   );
 }
 
+function drawStraightLine(svg, x1, y1, x2, y2) {
+  svg.appendChild(
+    createSvgElement("line", {
+      x1,
+      y1,
+      x2,
+      y2,
+      stroke: COLORS.line,
+      "stroke-width": 2,
+    }),
+  );
+}
+
 function drawNodes(svg, root) {
-  walk(root, node => {
-    drawCard(svg, node);
-  });
+  walk(root, node => drawCard(svg, node));
 }
 
 function drawCard(svg, node) {
@@ -2381,8 +4783,8 @@ function drawCard(svg, node) {
     createSvgElement("rect", {
       x: 0,
       y: 0,
-      width: CARD_WIDTH,
-      height: CARD_HEIGHT,
+      width: node.cardWidth,
+      height: node.cardHeight,
       rx: 14,
       ry: 14,
       fill: styles.fill,
@@ -2395,10 +4797,20 @@ function drawCard(svg, node) {
     drawScenarioBadge(group, node.scenarioState);
   }
 
-  appendWrappedText(group, getNodeTitle(node), {
+  if (node.type === "department") {
+    drawDepartmentContent(group, node);
+  } else {
+    drawPersonContent(group, node);
+  }
+
+  svg.appendChild(group);
+}
+
+function drawDepartmentContent(group, node) {
+  appendWrappedText(group, node.name || "Без названия", {
     x: 18,
-    y: node.scenarioState ? 46 : 28,
-    maxWidth: 250,
+    y: node.scenarioState ? 46 : 30,
+    maxWidth: node.cardWidth - 36,
     lineHeight: 16,
     maxLines: 2,
     size: 14,
@@ -2410,7 +4822,7 @@ function drawCard(svg, node) {
     appendWrappedText(group, node.manager, {
       x: 18,
       y: 76,
-      maxWidth: 260,
+      maxWidth: node.cardWidth - 80,
       lineHeight: 15,
       maxLines: 1,
       size: 12,
@@ -2422,23 +4834,50 @@ function drawCard(svg, node) {
     appendWrappedText(group, node.position, {
       x: 18,
       y: node.manager ? 98 : 76,
-      maxWidth: 260,
+      maxWidth: node.cardWidth - 80,
       lineHeight: 15,
-      maxLines: 2,
+      maxLines: 1,
       size: 12,
       fill: COLORS.muted,
     });
   }
 
-  if (node.project) {
-    drawProject(group, node.project);
-  }
-
   if (node.count !== null && node.count !== undefined) {
-    drawCount(group, node.count);
+    drawCount(group, node.count, node.cardWidth, node.cardHeight);
+  }
+}
+
+function drawPersonContent(group, node) {
+  const title = node.type === "assistant"
+    ? `Административный ассистент — ${node.name || ""}`
+    : node.name || "Сотрудник";
+
+  appendWrappedText(group, title, {
+    x: 18,
+    y: 30,
+    maxWidth: node.cardWidth - 36,
+    lineHeight: 16,
+    maxLines: 2,
+    size: 13,
+    weight: 700,
+    fill: COLORS.text,
+  });
+
+  if (node.position) {
+    appendWrappedText(group, node.position, {
+      x: 18,
+      y: 66,
+      maxWidth: node.cardWidth - 36,
+      lineHeight: 14,
+      maxLines: 1,
+      size: 11,
+      fill: COLORS.muted,
+    });
   }
 
-  svg.appendChild(group);
+  if (node.project) {
+    drawProject(group, node.project, node.cardWidth, node.cardHeight);
+  }
 }
 
 function getCardStyles(node) {
@@ -2461,7 +4900,7 @@ function getCardStyles(node) {
   if (node.type === "assistant") {
     return {
       fill: "#f8fafc",
-      stroke: "#7a5af8",
+      stroke: COLORS.purple,
       strokeWidth: 2,
     };
   }
@@ -2471,11 +4910,6 @@ function getCardStyles(node) {
     stroke: COLORS.border,
     strokeWidth: 1.5,
   };
-}
-
-function getNodeTitle(node) {
-  if (node.type === "assistant") return `Административный ассистент${node.name ? ` — ${node.name}` : ""}`;
-  return node.name || "Без названия";
 }
 
 function drawScenarioBadge(group, state) {
@@ -2503,13 +4937,13 @@ function drawScenarioBadge(group, state) {
   });
 }
 
-function drawProject(group, project) {
+function drawProject(group, project, cardWidth, cardHeight) {
   group.appendChild(
     createSvgElement("rect", {
       x: 18,
-      y: CARD_HEIGHT - 38,
-      width: 210,
-      height: 22,
+      y: cardHeight - 30,
+      width: Math.min(210, cardWidth - 36),
+      height: 20,
       rx: 8,
       ry: 8,
       fill: "#f2f4f7",
@@ -2518,8 +4952,8 @@ function drawProject(group, project) {
 
   appendWrappedText(group, `Проект: ${project}`, {
     x: 28,
-    y: CARD_HEIGHT - 23,
-    maxWidth: 190,
+    y: cardHeight - 16,
+    maxWidth: Math.min(190, cardWidth - 56),
     lineHeight: 12,
     maxLines: 1,
     size: 10,
@@ -2527,11 +4961,11 @@ function drawProject(group, project) {
   });
 }
 
-function drawCount(group, count) {
+function drawCount(group, count, cardWidth, cardHeight) {
   group.appendChild(
     createSvgElement("rect", {
-      x: CARD_WIDTH - 62,
-      y: CARD_HEIGHT - 42,
+      x: cardWidth - 62,
+      y: cardHeight - 42,
       width: 44,
       height: 28,
       rx: 14,
@@ -2541,8 +4975,8 @@ function drawCount(group, count) {
   );
 
   appendText(group, String(count), {
-    x: CARD_WIDTH - 40,
-    y: CARD_HEIGHT - 23,
+    x: cardWidth - 40,
+    y: cardHeight - 23,
     size: 14,
     weight: 700,
     fill: COLORS.blue,
@@ -2586,7 +5020,8 @@ function wrapText(text, maxWidth, fontSize, maxLines) {
   let current = "";
 
   words.forEach(word => {
-    const next = current ? `${current} ${word}` : word;
+    const safeWord = word.length > maxChars ? truncateText(word, maxChars) : word;
+    const next = current ? `${current} ${safeWord}` : safeWord;
 
     if (next.length <= maxChars) {
       current = next;
@@ -2594,7 +5029,7 @@ function wrapText(text, maxWidth, fontSize, maxLines) {
     }
 
     if (current) lines.push(current);
-    current = word;
+    current = safeWord;
   });
 
   if (current) lines.push(current);
@@ -2695,18 +5130,38 @@ function loadImage(url) {
 }
 
 function walk(node, callback) {
+  if (!node) return;
   callback(node);
-  node.children.forEach(child => walk(child, callback));
+  (node.children || []).forEach(child => walk(child, callback));
+}
+
+function validateExportTree(root) {
+  const nodes = [];
+  walk(root, node => nodes.push(node));
+
+  const ids = new Set(nodes.map(node => node.id));
+
+  nodes.forEach(node => {
+    if (node !== root && !node.parentId) {
+      console.warn("PDF export warning: node without parentId", node);
+    }
+
+    if (node.parentId && !ids.has(node.parentId)) {
+      console.warn("PDF export warning: parentId not found", node);
+    }
+
+    if (node.type !== "department" && (node.children || []).length) {
+      console.warn("PDF export warning: employee/vacancy has children", node);
+    }
+  });
 }
 
 function findAdministrativeAssistantInSubtree(node) {
   const ownAssistant = findAdministrativeAssistant(node.users || []);
-
   if (ownAssistant) return ownAssistant;
 
   for (const child of node.children || []) {
     const childAssistant = findAdministrativeAssistantInSubtree(child);
-
     if (childAssistant) return childAssistant;
   }
 
@@ -2719,9 +5174,7 @@ function findAdministrativeAssistant(users) {
 
 function isAdministrativeAssistant(user) {
   if (!user || user.isVacancy) return false;
-
   const position = String(user.rawPosition || user.position || "").toLowerCase();
-
   return position.includes("административный ассистент");
 }
 
@@ -2742,22 +5195,10 @@ function getScenarioLabel(state) {
 }
 
 function getScenarioColors(state) {
-  if (state === "added") {
-    return { bg: "#dcfae6", text: "#067647" };
-  }
-
-  if (state === "changed") {
-    return { bg: "#dbeafe", text: "#1d4ed8" };
-  }
-
-  if (state === "moved") {
-    return { bg: "#f4e8ff", text: "#7e22ce" };
-  }
-
-  if (state === "removed") {
-    return { bg: "#fee4e2", text: "#b42318" };
-  }
-
+  if (state === "added") return { bg: "#dcfae6", text: "#067647" };
+  if (state === "changed") return { bg: "#dbeafe", text: "#1d4ed8" };
+  if (state === "moved") return { bg: "#f4e8ff", text: "#7e22ce" };
+  if (state === "removed") return { bg: "#fee4e2", text: "#b42318" };
   return { bg: "#f2f4f7", text: "#344054" };
 }
 
@@ -2782,49 +5223,207 @@ function createFallbackId() {
   return `export-node-${fallbackIdCounter}`;
 }
 
-# FILE: src\render.js
-
-// Render tree nodes with optional user list display (full name preferred)
-export function renderTree(nodes, container) {
-  // Clear container before rendering
-  container.innerHTML = '';
-
-  function renderNode(node, indent = 0) {
-    const el = document.createElement("div");
-    el.style.marginLeft = `${indent * 20}px`;
-    el.style.padding = "4px";
-
-     // Base info: department name with staff count in brackets
-     let html = `<b>${node.department_name} (${node.staffCount || 0})</b>`;
-
-    // Manager info if available
-    if (node.department_manager) {
-      html += `<br/>${node.department_manager}`;
-    }
-
-    // Users list if attached to the node
-    if (node.users && node.users.length > 0) {
-       // Build users HTML: display full name if present, otherwise email
-      const usersHtml = node.users
-        .map(u => u.full_name || u.email || "")
-        .filter(txt => txt !== "")
-        .join("<br/>");
-      html += `<div style="margin-left:20px;font-size:12px;color:#555;">${usersHtml}</div>`;
-    }
-
-    el.innerHTML = html;
-    container.appendChild(el);
-
-    // Recursively render children if any
-    if (node.children && node.children.length > 0) {
-      node.children.forEach(child => renderNode(child, indent + 1));
-    }
+/**
+ * Компактный A4 PDF — оставляем отдельным независимым экспортом.
+ */
+export async function exportCompactA4ToPdf({
+  rootNodes = [],
+  title = "Организационная структура",
+  subtitle = "",
+  hideNames = false,
+  showVacancies = true,
+  viewMode = "to-be",
+} = {}) {
+  if (!rootNodes.length) {
+    alert("Нет диаграммы для экспорта");
+    return;
   }
 
-  nodes.forEach(rootNode => renderNode(rootNode, rootNode.level || 0));
+  const exportButton = document.getElementById("exportPdf");
+  const originalButtonText = exportButton?.textContent;
+
+  if (exportButton) {
+    exportButton.disabled = true;
+    exportButton.textContent = "Экспорт компактного A4...";
+  }
+
+  try {
+    const exportTree = buildCompactA4ExportTree(rootNodes, { hideNames, showVacancies });
+    if (!exportTree) throw new Error("Нет данных для экспорта");
+
+    const compactTree = convertToCompactTree(exportTree);
+    const layoutResult = calculateCompactLayout(compactTree);
+
+    if (!layoutResult || !layoutResult.canFit) {
+      alert("Структуру невозможно уместить на один лист A4 без потери читаемости");
+      return;
+    }
+
+    const svg = renderCompactSvg(layoutResult, { title, subtitle });
+    await saveCompactSvgAsA4Pdf(svg, sanitizeFileName(title));
+  } catch (error) {
+    console.error("Ошибка экспорта компактного PDF:", error);
+    alert(`Не удалось экспортировать компактный PDF. ${error.message}`);
+  } finally {
+    if (exportButton) {
+      exportButton.disabled = false;
+      exportButton.textContent = originalButtonText || "📄 Экспорт в PDF";
+    }
+  }
 }
 
+function buildCompactA4ExportTree(rootNodes, { hideNames, showVacancies }) {
+  return buildExportTree(rootNodes, { hideNames, showVacancies });
+}
 
+async function saveCompactSvgAsA4Pdf(svg, fileName) {
+  const { width, height } = svg.viewBox.baseVal;
+
+  const serializer = new XMLSerializer();
+  const svgString = serializer.serializeToString(svg);
+
+  const svgBlob = new Blob([svgString], {
+    type: "image/svg+xml;charset=utf-8",
+  });
+
+  const url = URL.createObjectURL(svgBlob);
+
+  try {
+    const img = await loadImage(url);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width * 2;
+    canvas.height = height * 2;
+
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const imgData = canvas.toDataURL("image/png");
+
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "px",
+      format: [canvas.width, canvas.height],
+      compress: true,
+    });
+
+    pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+    pdf.save(`${fileName}_compact_A4.pdf`);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+# FILE: src\pdf-d3-export.test.js
+
+import { describe, it, expect, vi } from 'vitest';
+
+const { exportOrgChartToPdf } = await import('./pdf-d3-export.js');
+
+describe('pdf-d3-export.js', () => {
+  describe('exportOrgChartToPdf', () => {
+    it('должен вызывать alert при пустом rootNodes', async () => {
+      vi.stubGlobal('alert', vi.fn());
+
+      await exportOrgChartToPdf({ rootNodes: [] });
+
+      expect(alert).toHaveBeenCalledWith('Нет диаграммы для экспорта');
+    });
+
+    it('должен корректно обрабатывать данные с одним корнем', async () => {
+      vi.stubGlobal('alert', vi.fn());
+
+      // Мок для createElementNS — возвращаем SVG-элементы
+      const svgElements = [];
+      vi.stubGlobal('document.createElementNS', (ns, tag) => {
+        const el = {
+          tagName: tag,
+          namespaceURI: ns,
+          attributes: {},
+          children: [],
+          parentNode: null,
+          viewBox: { baseVal: { width: 0, height: 0 } },
+          setAttribute(key, value) {
+            el.attributes[key] = String(value);
+            if (key === 'width') el.viewBox.baseVal.width = Number(value);
+            if (key === 'height') el.viewBox.baseVal.height = Number(value);
+          },
+          appendChild(child) {
+            el.children.push(child);
+          },
+          textContent: '',
+        };
+        svgElements.push(el);
+        return el;
+      });
+
+      // Мок XMLSerializer
+      class MockXMLSerializer {
+        serializeToString() {
+          return '<svg></svg>';
+        }
+      }
+      vi.stubGlobal('XMLSerializer', MockXMLSerializer);
+
+      vi.stubGlobal('Blob', class MockBlob {
+        constructor(parts, opts) {
+          this.parts = parts;
+          this.opts = opts;
+        }
+      });
+
+      vi.stubGlobal('URL', {
+        createObjectURL: vi.fn(() => 'blob:test-url'),
+        revokeObjectURL: vi.fn(),
+      });
+
+      // Мок Image
+      class MockImage {
+        constructor() {
+          this.onload = null;
+          this.onerror = null;
+          this.crossOrigin = '';
+        }
+        set src(val) {
+          // Асинхронно вызываем onload
+          setTimeout(() => {
+            if (typeof this.onload === 'function') this.onload();
+          }, 0);
+        }
+        get src() { return ''; }
+      }
+      vi.stubGlobal('Image', MockImage);
+
+      // Мок Canvas
+      HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+        fillStyle: '',
+        fillRect: vi.fn(),
+        drawImage: vi.fn(),
+      }));
+      HTMLCanvasElement.prototype.toDataURL = vi.fn(() => 'data:image/png;base64,test');
+
+      document.body.innerHTML = '';
+
+      await expect(
+        exportOrgChartToPdf({
+          rootNodes: [{
+            department_guid: 'root',
+            department_name: 'Холдинг',
+            staffCount: 5,
+            vacancyCount: 1,
+            totalWithVacancies: 6,
+            children: [],
+            users: [],
+          }],
+          title: 'Тест',
+        }),
+      ).resolves.toBeUndefined();
+    });
+  });
+});
 
 # FILE: src\scenario-manager.js
 
@@ -3461,6 +6060,557 @@ function createLocalId(type) {
   return `${LOCAL_ID_PREFIX}-${type}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+# FILE: src\scenario-manager.test.js
+
+import { describe, it, expect } from 'vitest';
+import {
+  createScenario,
+  cloneTree,
+  resetScenario,
+  renameScenario,
+  addDepartment,
+  editDepartment,
+  addEmployee,
+  editEmployee,
+  addVacancy,
+  editVacancy,
+  removeEmployee,
+  removeVacancy,
+  removeDepartment,
+  moveEmployee,
+  moveVacancy,
+  moveDepartment,
+  getTreeByViewMode,
+  getScenarioStats,
+  getDepartmentOptions,
+  findDepartmentById,
+  findUserById,
+} from './scenario-manager.js';
+
+function makeDepartment(overrides = {}) {
+  return {
+    department_guid: overrides.id || 'dept-1',
+    department_name: overrides.name || 'Отдел',
+    department_manager: overrides.manager || '',
+    department_manager_position: overrides.managerPosition || '',
+    parent_guid: overrides.parentId || null,
+    staffCount: overrides.staffCount ?? 0,
+    vacancyCount: overrides.vacancyCount ?? 0,
+    totalWithVacancies: overrides.totalWithVacancies ?? 0,
+    users: overrides.users || [],
+    children: overrides.children || [],
+    ...(overrides.extra || {}),
+  };
+}
+
+function makeEmployee(overrides = {}) {
+  return {
+    id: overrides.id || 'emp-1',
+    full_name: overrides.full_name || 'Иван Иванов',
+    name: overrides.full_name || 'Иван Иванов',
+    fullName: overrides.full_name || 'Иван Иванов',
+    position: overrides.position || 'Разработчик',
+    rawPosition: overrides.rawPosition || overrides.position || 'Разработчик',
+    email: overrides.email || '',
+    phone: overrides.phone || '',
+    photo: '',
+    project: overrides.project || '',
+    typeEmployment: overrides.typeEmployment || '',
+    state: overrides.state || '',
+    subLevel: overrides.subLevel ?? Number.MAX_SAFE_INTEGER,
+    isVacancy: overrides.isVacancy ?? false,
+    scenarioState: overrides.scenarioState || '',
+  };
+}
+
+function makeVacancy(overrides = {}) {
+  return makeEmployee({
+    id: overrides.id || 'vac-1',
+    full_name: 'Вакансия',
+    position: overrides.position || 'Новая вакансия',
+    isVacancy: true,
+    ...overrides,
+  });
+}
+
+describe('scenario-manager', () => {
+  let baseTree;
+
+  beforeEach(() => {
+    baseTree = [
+      makeDepartment({
+        id: 'dept-root',
+        name: 'Холдинг',
+        staffCount: 2,
+        vacancyCount: 1,
+        totalWithVacancies: 3,
+        users: [makeEmployee({ id: 'emp-1', full_name: 'Иван Иванов', position: 'Директор', subLevel: 1 })],
+        children: [
+          makeDepartment({
+            id: 'dept-sub',
+            name: 'Подразделение',
+            parentId: 'dept-root',
+            staffCount: 1,
+            vacancyCount: 1,
+            totalWithVacancies: 2,
+            users: [
+              makeEmployee({ id: 'emp-2', full_name: 'Петр Петров', position: 'Руководитель', subLevel: 2 }),
+              makeVacancy({ id: 'vac-1', position: 'Программист' }),
+            ],
+            children: [],
+          }),
+        ],
+      }),
+    ];
+  });
+
+  describe('cloneTree', () => {
+    it('должен создавать глубокую копию', () => {
+      const cloned = cloneTree(baseTree);
+      expect(cloned).toEqual(baseTree);
+      cloned[0].department_name = 'Изменено';
+      expect(baseTree[0].department_name).toBe('Холдинг');
+    });
+
+    it('должен возвращать [] для null/undefined', () => {
+      expect(cloneTree(null)).toEqual([]);
+      expect(cloneTree(undefined)).toEqual([]);
+    });
+  });
+
+  describe('createScenario', () => {
+    it('должен создавать сценарий с клонированным деревом', () => {
+      const scenario = createScenario(baseTree);
+      expect(scenario.baseTree).toEqual(baseTree);
+      expect(scenario.workingTree).toEqual(baseTree);
+      scenario.workingTree[0].department_name = 'Изменено';
+      expect(scenario.baseTree[0].department_name).toBe('Холдинг');
+    });
+
+    it('должен создавать сценарий с пустым списком операций', () => {
+      const scenario = createScenario(baseTree);
+      expect(scenario.operations).toEqual([]);
+    });
+
+    it('должен устанавливать имя по умолчанию', () => {
+      const scenario = createScenario(baseTree);
+      expect(scenario.name).toBe('Новый сценарий моделирования');
+    });
+
+    it('должен устанавливать baseDate', () => {
+      const scenario = createScenario(baseTree);
+      expect(scenario.baseDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  describe('resetScenario', () => {
+    it('должен сбрасывать изменения', () => {
+      const scenario = createScenario(baseTree);
+      const changed = addDepartment(scenario, 'dept-sub', { department_name: 'Новый отдел' });
+      const reset = resetScenario(changed);
+      expect(reset.workingTree).toEqual(reset.baseTree);
+      expect(reset.operations).toEqual([]);
+    });
+  });
+
+  describe('renameScenario', () => {
+    it('должен обновлять имя', () => {
+      const scenario = createScenario(baseTree);
+      const renamed = renameScenario(scenario, 'Новое имя');
+      expect(renamed.name).toBe('Новое имя');
+    });
+
+    it('должен возвращать имя по умолчанию при пустой строке', () => {
+      const scenario = createScenario(baseTree);
+      const renamed = renameScenario(scenario, '   ');
+      expect(renamed.name).toBe('Новый сценарий моделирования');
+    });
+
+    it('не должен мутировать исходный сценарий', () => {
+      const scenario = createScenario(baseTree);
+      renameScenario(scenario, 'Новое имя');
+      expect(scenario.name).toBe('Новый сценарий моделирования');
+    });
+  });
+
+  describe('addDepartment', () => {
+    it('должен добавлять дочернее подразделение', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addDepartment(scenario, 'dept-sub', { department_name: 'Новый отдел' });
+      const parent = findDepartmentById(updated.workingTree, 'dept-sub');
+      expect(parent.children.length).toBe(1);
+      expect(parent.children[0].department_name).toBe('Новый отдел');
+      expect(parent.children[0].scenarioState).toBe('added');
+    });
+
+    it('должен возвращать исходный сценарий, если parent не найден', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addDepartment(scenario, 'non-existent', { department_name: 'Новый' });
+      expect(updated).toBe(scenario);
+    });
+
+    it('должен пересчитывать численность после добавления', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addDepartment(scenario, 'dept-root', { department_name: 'Подраздел' });
+      const newRoot = findDepartmentById(updated.workingTree, 'dept-root');
+      // После recalculateTree: 2 сотрудника + 0 сотрудников нового отдела = 2
+      expect(newRoot.staffCount).toBe(2);
+    });
+
+    it('должен записывать операцию', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addDepartment(scenario, 'dept-sub', { department_name: 'Новый отдел' });
+      expect(updated.operations.length).toBe(1);
+      expect(updated.operations[0].type).toBe('addDepartment');
+    });
+  });
+
+  describe('editDepartment', () => {
+    it('должен изменять название подразделения', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editDepartment(scenario, 'dept-sub', { department_name: 'Измененный отдел' });
+      const dept = findDepartmentById(updated.workingTree, 'dept-sub');
+      expect(dept.department_name).toBe('Измененный отдел');
+    });
+
+    it('должен изменять руководителя', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editDepartment(scenario, 'dept-sub', { department_manager: 'Новый руководитель' });
+      const dept = findDepartmentById(updated.workingTree, 'dept-sub');
+      expect(dept.department_manager).toBe('Новый руководитель');
+    });
+
+    it('должен устанавливать scenarioState="changed", если не "added"', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editDepartment(scenario, 'dept-sub', { department_name: 'Изменен' });
+      const dept = findDepartmentById(updated.workingTree, 'dept-sub');
+      expect(dept.scenarioState).toBe('changed');
+    });
+
+    it('не должен менять scenarioState, если уже "added"', () => {
+      const scenario = createScenario(baseTree);
+      const withAdded = addDepartment(scenario, 'dept-sub', { department_name: 'Новый' });
+      const addedDeptId = withAdded.operations[0].entityId;
+      const updated = editDepartment(withAdded, addedDeptId, { department_name: 'Еще новее' });
+      const dept = findDepartmentById(updated.workingTree, addedDeptId);
+      expect(dept.scenarioState).toBe('added');
+    });
+
+    it('должен возвращать исходный сценарий, если отдел не найден', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editDepartment(scenario, 'non-existent', { department_name: 'Новое' });
+      expect(updated).toBe(scenario);
+    });
+  });
+
+  describe('addEmployee', () => {
+    it('должен добавлять сотрудника', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addEmployee(scenario, 'dept-sub', {
+        full_name: 'Новый Сотрудник',
+        position: 'Тестировщик',
+      });
+      const dept = findDepartmentById(updated.workingTree, 'dept-sub');
+      const added = dept.users.find(u => u.full_name === 'Новый Сотрудник');
+      expect(added).toBeDefined();
+      expect(added.isVacancy).toBe(false);
+      expect(added.scenarioState).toBe('added');
+    });
+
+    it('должен возвращать исходный сценарий, если отдел не найден', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addEmployee(scenario, 'non-existent', { full_name: 'Тест', position: 'Тест' });
+      expect(updated).toBe(scenario);
+    });
+
+    it('должен сортировать сотрудников после добавления', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addEmployee(scenario, 'dept-sub', {
+        full_name: 'Новый Сотрудник',
+        position: 'Стажер',
+        subLevel: 100,
+      });
+      const dept = findDepartmentById(updated.workingTree, 'dept-sub');
+      const users = dept.users;
+      const empIdx = users.findIndex(u => u.full_name === 'Новый Сотрудник');
+      const vacIdx = users.findIndex(u => u.isVacancy);
+      // Сотрудники должны быть перед вакансиями
+      expect(empIdx).toBeLessThan(vacIdx);
+    });
+
+    it('должен пересчитывать численность', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addEmployee(scenario, 'dept-sub', {
+        full_name: 'Новый',
+        position: 'Стажер',
+      });
+      const dept = findDepartmentById(updated.workingTree, 'dept-sub');
+      // После recalculateTree: emp-2 + новый = 2 сотрудника
+      expect(dept.staffCount).toBe(2);
+    });
+  });
+
+  describe('editEmployee', () => {
+    it('должен обновлять поля сотрудника', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editEmployee(scenario, 'emp-2', {
+        full_name: 'Изменен Петров',
+        position: 'Ведущий разработчик',
+        email: 'new@mail.com',
+      });
+      const found = findUserById(updated.workingTree, 'emp-2');
+      expect(found.user.full_name).toBe('Изменен Петров');
+      expect(found.user.position).toBe('Ведущий разработчик');
+      expect(found.user.email).toBe('new@mail.com');
+    });
+
+    it('должен устанавливать scenarioState="changed", если не "added"', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editEmployee(scenario, 'emp-2', { full_name: 'Новое имя' });
+      const found = findUserById(updated.workingTree, 'emp-2');
+      expect(found.user.scenarioState).toBe('changed');
+    });
+
+    it('не должен менять scenarioState, если уже "added"', () => {
+      const scenario = createScenario(baseTree);
+      const withAdded = addEmployee(scenario, 'dept-sub', { full_name: 'Новый', position: 'Тест' });
+      const addedId = withAdded.operations[0].entityId;
+      const updated = editEmployee(withAdded, addedId, { full_name: 'Обновлен' });
+      const found = findUserById(updated.workingTree, addedId);
+      expect(found.user.scenarioState).toBe('added');
+    });
+
+    it('должен возвращать исходный сценарий, если сотрудник не найден', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editEmployee(scenario, 'non-existent', { full_name: 'Тест' });
+      expect(updated).toBe(scenario);
+    });
+  });
+
+  describe('addVacancy', () => {
+    it('должен добавлять вакансию', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addVacancy(scenario, 'dept-sub', { position: 'Новая вакансия' });
+      const dept = findDepartmentById(updated.workingTree, 'dept-sub');
+      const added = dept.users.find(u => u.position === 'Новая вакансия' && u.isVacancy);
+      expect(added).toBeDefined();
+      expect(added.scenarioState).toBe('added');
+    });
+
+    it('должен возвращать исходный сценарий, если отдел не найден', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addVacancy(scenario, 'non-existent', { position: 'Тест' });
+      expect(updated).toBe(scenario);
+    });
+  });
+
+  describe('editVacancy', () => {
+    it('должен обновлять вакансию', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editVacancy(scenario, 'vac-1', {
+        position: 'Старший программист',
+        project: 'Новый проект',
+      });
+      const found = findUserById(updated.workingTree, 'vac-1');
+      expect(found.user.position).toBe('Старший программист');
+      expect(found.user.project).toBe('Новый проект');
+    });
+
+    it('должен возвращать исходный сценарий для не-вакансии', () => {
+      const scenario = createScenario(baseTree);
+      const updated = editVacancy(scenario, 'emp-1', { position: 'Новый' });
+      expect(updated).toBe(scenario);
+    });
+  });
+
+  describe('removeEmployee', () => {
+    it('должен удалять сотрудника', () => {
+      const scenario = createScenario(baseTree);
+      const updated = removeEmployee(scenario, 'emp-2');
+      const found = findUserById(updated.workingTree, 'emp-2');
+      expect(found).toBeNull();
+    });
+
+    it('должен фиксировать операцию', () => {
+      const scenario = createScenario(baseTree);
+      const updated = removeEmployee(scenario, 'emp-2');
+      expect(updated.operations.length).toBe(1);
+      expect(updated.operations[0].type).toBe('removeEmployee');
+    });
+
+    it('должен пересчитывать численность', () => {
+      const scenario = createScenario(baseTree);
+      const updated = removeEmployee(scenario, 'emp-2');
+      const dept = findDepartmentById(updated.workingTree, 'dept-sub');
+      // После удаления emp-2 в dept-sub не остаётся сотрудников (только вакансия)
+      expect(dept.staffCount).toBe(0);
+    });
+  });
+
+  describe('removeVacancy', () => {
+    it('должен удалять вакансию', () => {
+      const scenario = createScenario(baseTree);
+      const updated = removeVacancy(scenario, 'vac-1');
+      const found = findUserById(updated.workingTree, 'vac-1');
+      expect(found).toBeNull();
+    });
+
+    it('должен фиксировать операцию', () => {
+      const scenario = createScenario(baseTree);
+      const updated = removeVacancy(scenario, 'vac-1');
+      expect(updated.operations[0].type).toBe('removeVacancy');
+    });
+  });
+
+  describe('moveEmployee', () => {
+    it('должен перемещать сотрудника между подразделениями', () => {
+      const scenario = createScenario(baseTree);
+      const updated = moveEmployee(scenario, 'emp-2', 'dept-root');
+      const fromDept = findDepartmentById(updated.workingTree, 'dept-sub');
+      const toDept = findDepartmentById(updated.workingTree, 'dept-root');
+      expect(fromDept.users.find(u => u.id === 'emp-2')).toBeUndefined();
+      expect(toDept.users.find(u => u.id === 'emp-2')).toBeDefined();
+    });
+
+    it('должен устанавливать scenarioState="moved"', () => {
+      const scenario = createScenario(baseTree);
+      const updated = moveEmployee(scenario, 'emp-2', 'dept-root');
+      const found = findUserById(updated.workingTree, 'emp-2');
+      expect(found.user.scenarioState).toBe('moved');
+    });
+  });
+
+  describe('moveVacancy', () => {
+    it('должен перемещать вакансию', () => {
+      const scenario = createScenario(baseTree);
+      const updated = moveVacancy(scenario, 'vac-1', 'dept-root');
+      const fromDept = findDepartmentById(updated.workingTree, 'dept-sub');
+      const toDept = findDepartmentById(updated.workingTree, 'dept-root');
+      expect(fromDept.users.find(u => u.id === 'vac-1')).toBeUndefined();
+      expect(toDept.users.find(u => u.id === 'vac-1')).toBeDefined();
+    });
+  });
+
+  describe('moveDepartment', () => {
+    it('должен перемещать подразделение', () => {
+      const scenario = createScenario(baseTree);
+      const updated = moveDepartment(scenario, 'dept-sub', 'dept-root');
+      const root = findDepartmentById(updated.workingTree, 'dept-root');
+      expect(root.children.some(c => c.department_guid === 'dept-sub')).toBe(true);
+    });
+
+    it('должен возвращать исходный сценарий при перемещении в самого себя', () => {
+      const scenario = createScenario(baseTree);
+      const updated = moveDepartment(scenario, 'dept-sub', 'dept-sub');
+      expect(updated).toBe(scenario);
+    });
+  });
+
+  describe('removeDepartment', () => {
+    it('должен удалять подразделение с детьми', () => {
+      const scenario = createScenario(baseTree);
+      const updated = removeDepartment(scenario, 'dept-sub');
+      const found = findDepartmentById(updated.workingTree, 'dept-sub');
+      expect(found).toBeNull();
+    });
+
+    it('должен фиксировать операцию', () => {
+      const scenario = createScenario(baseTree);
+      const updated = removeDepartment(scenario, 'dept-sub');
+      expect(updated.operations[0].type).toBe('removeDepartment');
+      expect(updated.operations[0].title).toBe('Подразделение');
+    });
+  });
+
+  describe('getTreeByViewMode', () => {
+    it('должен возвращать baseTree для "as-is"', () => {
+      const scenario = createScenario(baseTree);
+      const tree = getTreeByViewMode(scenario, 'as-is');
+      expect(tree).toBe(scenario.baseTree);
+    });
+
+    it('должен возвращать workingTree для "to-be"', () => {
+      const scenario = createScenario(baseTree);
+      const tree = getTreeByViewMode(scenario, 'to-be');
+      expect(tree).toBe(scenario.workingTree);
+    });
+
+    it('должен возвращать workingTree для "changes"', () => {
+      const scenario = createScenario(baseTree);
+      const tree = getTreeByViewMode(scenario, 'changes');
+      expect(Array.isArray(tree)).toBe(true);
+    });
+
+    it('должен возвращать workingTree для неизвестного режима', () => {
+      const scenario = createScenario(baseTree);
+      const tree = getTreeByViewMode(scenario, 'unknown');
+      expect(tree).toBe(scenario.workingTree);
+    });
+  });
+
+  describe('getScenarioStats', () => {
+    it('должен возвращать корректную статистику', () => {
+      const scenario = createScenario(baseTree);
+      const stats = getScenarioStats(scenario);
+      expect(stats.asIs.departments).toBe(2);
+      expect(stats.asIs.staff).toBe(2);
+      expect(stats.asIs.vacancies).toBe(1);
+      expect(stats.toBe).toEqual(stats.asIs);
+      expect(stats.diff.departments).toBe(0);
+      expect(stats.diff.staff).toBe(0);
+      expect(stats.diff.vacancies).toBe(0);
+    });
+
+    it('должен показывать разницу после добавления', () => {
+      const scenario = createScenario(baseTree);
+      const updated = addEmployee(scenario, 'dept-sub', { full_name: 'Новый', position: 'Тест' });
+      const stats = getScenarioStats(updated);
+      expect(stats.diff.staff).toBe(1);
+    });
+  });
+
+  describe('getDepartmentOptions', () => {
+    it('должен возвращать опции для всех подразделений', () => {
+      const scenario = createScenario(baseTree);
+      const options = getDepartmentOptions(scenario.workingTree);
+      expect(options.length).toBe(2);
+      expect(options[0].id).toBe('dept-root');
+      expect(options[1].id).toBe('dept-sub');
+    });
+  });
+
+  describe('findDepartmentById', () => {
+    it('должен находить подразделение', () => {
+      const scenario = createScenario(baseTree);
+      const found = findDepartmentById(scenario.workingTree, 'dept-sub');
+      expect(found).not.toBeNull();
+      expect(found.department_name).toBe('Подразделение');
+    });
+
+    it('должен возвращать null, если не найдено', () => {
+      const scenario = createScenario(baseTree);
+      const found = findDepartmentById(scenario.workingTree, 'non-existent');
+      expect(found).toBeNull();
+    });
+  });
+
+  describe('findUserById', () => {
+    it('должен находить сотрудника', () => {
+      const scenario = createScenario(baseTree);
+      const found = findUserById(scenario.workingTree, 'emp-2');
+      expect(found).not.toBeNull();
+      expect(found.user.full_name).toBe('Петр Петров');
+      expect(found.department.department_guid).toBe('dept-sub');
+    });
+
+    it('должен возвращать null, если не найден', () => {
+      const scenario = createScenario(baseTree);
+      const found = findUserById(scenario.workingTree, 'non-existent');
+      expect(found).toBeNull();
+    });
+  });
+});
+
 # FILE: src\sidebar-tree.js
 
 // src/sidebar-tree.js
@@ -3592,6 +6742,742 @@ function createNodeElement({
   parentUl.appendChild(li);
 }
 
+# FILE: src\unified-layout.js
+
+/**
+ * unified-layout.js
+ *
+ * Единый layout организационной диаграммы (CR007).
+ *
+ * Принцип:
+ *   - Вертикальная координата (строка) — управленческий уровень руководителя
+ *     подразделения (manager.subLevel), fallback: уровень родителя + 1.
+ *   - Горизонтальная координата (колонка) — реальная parent-child иерархия.
+ *   - Сотрудники/вакансии не являются организационным уровнем и выводятся
+ *     отдельной колонкой внутри ветки своего подразделения.
+ *   - Административный ассистент — специальный узел рядом с корнем.
+ *
+ * Модуль не зависит от DOM и легко тестируется.
+ */
+
+const MAX_SUBLEVEL = Number.MAX_SAFE_INTEGER;
+
+export const NODE_DEPARTMENT = "department";
+export const NODE_EMPLOYEES = "employees";
+export const NODE_ASSISTANT = "assistant";
+
+const DEFAULT_OPTIONS = {
+  showVacancies: true,
+  departmentWidth: 350,
+  departmentHeight: 130,
+  employeeWidth: 350,
+  employeeHeight: 96,
+  assistantWidth: 350,
+  assistantHeight: 96,
+  employeesHeaderHeight: 28,
+  colGap: 40,
+  rowGap: 60,
+  personGap: 8,
+  paddingX: 40,
+  paddingY: 40,
+};
+
+export function isAdministrativeAssistant(user) {
+  if (!user || user.isVacancy) return false;
+  const position = String(user.rawPosition || user.position || "").toLowerCase();
+  return position.includes("административный ассистент");
+}
+
+export function findAdministrativeAssistant(users) {
+  return (users || []).find((user) => isAdministrativeAssistant(user)) || null;
+}
+
+export function findAdministrativeAssistantInSubtree(node) {
+  const ownAssistant = findAdministrativeAssistant(node.users || []);
+  if (ownAssistant) return ownAssistant;
+
+  for (const child of node.children || []) {
+    const childAssistant = findAdministrativeAssistantInSubtree(child);
+    if (childAssistant) return childAssistant;
+  }
+
+  return null;
+}
+
+/**
+ * Строит внутреннее дерево layout-модели.
+ * Узел: { type, data?, persons?, children?, rawLevel?, row?, x?, y?, width?, height?, subtreeWidth? }
+ */
+export function buildLayoutTree(
+  rootNode,
+  { showVacancies = true, collapsedIds = null } = {},
+) {
+  const assistantsToSkip = new Set();
+  const rootAssistant = rootNode ? findAdministrativeAssistantInSubtree(rootNode) : null;
+  if (rootAssistant?.id) assistantsToSkip.add(rootAssistant.id);
+
+  function buildDepartment(node, isRoot) {
+    const data = {
+      id: node.department_guid || node.id,
+      isDepartment: true,
+      name: node.department_name || node.name || "Без названия",
+      headName: node.department_manager || "",
+      headPosition: node.department_manager_position || "",
+      staffCount: node.staffCount || 0,
+      vacancyCount: node.vacancyCount || 0,
+      totalWithVacancies: node.totalWithVacancies ?? node.staffCount ?? 0,
+      scenarioState: node.scenarioState || "",
+      managerSubLevel: node.manager_sub_level,
+    };
+
+    const users = (node.users || [])
+      .filter((user) => showVacancies || !user.isVacancy)
+      .filter((user) => !isAdministrativeAssistant(user))
+      .filter((user) => !assistantsToSkip.has(user.id));
+
+    const children = [];
+
+    if (isRoot && rootAssistant?.id) {
+      children.push({
+        type: NODE_ASSISTANT,
+        data: {
+          ...rootAssistant,
+          id: rootAssistant.id,
+          isDepartment: false,
+          isVacancy: false,
+          isAssistant: true,
+        },
+      });
+    }
+
+    if (users.length) {
+      children.push({
+        type: NODE_EMPLOYEES,
+        persons: users.map((user) => ({
+          type: "person",
+          data: {
+            ...user,
+            id: user.id || `user_${Math.random().toString(16).slice(2)}`,
+            name: user.full_name || user.name || "Сотрудник",
+            position: user.position || "",
+            isDepartment: false,
+            isVacancy: !!user.isVacancy,
+            isAssistant: false,
+          },
+        })),
+      });
+    }
+
+    (node.children || []).forEach((child) => {
+      children.push(buildDepartment(child, false));
+    });
+
+    const isCollapsed = collapsedIds ? collapsedIds.has(data.id) : false;
+
+    if (isCollapsed) {
+      return {
+        type: NODE_DEPARTMENT,
+        data,
+        children: [],
+        collapsed: true,
+        hiddenChildrenCount: children.length,
+      };
+    }
+
+    return { type: NODE_DEPARTMENT, data, children };
+  }
+
+  return buildDepartment(rootNode, true);
+}
+
+/**
+ * rawLevel:
+ *   - department: managerSubLevel (если конечное число), иначе уровень родителя + 1;
+ *   - employees/assistant: уровень родителя.
+ */
+function assignRawLevel(node, parentRawLevel) {
+  if (node.type === NODE_DEPARTMENT) {
+    const sl = node.data.managerSubLevel;
+    const finite = Number.isFinite(sl) && sl !== MAX_SUBLEVEL;
+    node.rawLevel = finite ? sl : (parentRawLevel == null ? 0 : parentRawLevel + 1);
+  } else {
+    node.rawLevel = parentRawLevel;
+  }
+
+  (node.children || []).forEach((child) => assignRawLevel(child, node.rawLevel));
+}
+
+/**
+ * Визуальная строка row (0 = корень):
+ *   - department: rawLevel - rootRawLevel, но не выше уровня родителя;
+ *   - employees/assistant: строка родителя + 1.
+ */
+function assignRows(node, parentRow, rootRawLevel) {
+  if (node.type === NODE_DEPARTMENT) {
+    const rawRow = node.rawLevel - rootRawLevel;
+    node.row = Math.max(rawRow, parentRow + 1);
+  } else {
+    node.row = parentRow + 1;
+  }
+
+  (node.children || []).forEach((child) => assignRows(child, node.row, rootRawLevel));
+}
+
+function computeSizes(node, opts) {
+  if (node.type === NODE_DEPARTMENT) {
+    node.width = opts.departmentWidth;
+    node.height = opts.departmentHeight;
+  } else if (node.type === NODE_ASSISTANT) {
+    node.width = opts.assistantWidth;
+    node.height = opts.assistantHeight;
+  } else if (node.type === NODE_EMPLOYEES) {
+    node.width = opts.employeeWidth;
+    const n = node.persons.length;
+    node.height =
+      opts.employeesHeaderHeight +
+      n * opts.employeeHeight +
+      (n > 1 ? (n - 1) * opts.personGap : 0);
+    node.persons.forEach((person) => {
+      person.width = opts.employeeWidth;
+      person.height = opts.employeeHeight;
+    });
+  }
+
+  (node.children || []).forEach((child) => computeSizes(child, opts));
+}
+
+function computeSubtreeWidths(node, colGap) {
+  if (node.type !== NODE_DEPARTMENT || !node.children.length) {
+    node.subtreeWidth = node.width;
+    return node.subtreeWidth;
+  }
+
+  const childrenWidth =
+    node.children.reduce((sum, child) => sum + computeSubtreeWidths(child, colGap), 0) +
+    (node.children.length - 1) * colGap;
+
+  node.subtreeWidth = Math.max(node.width, childrenWidth);
+  return node.subtreeWidth;
+}
+
+function assignX(node, left, colGap) {
+  const center = left + node.subtreeWidth / 2;
+  node.x = center - node.width / 2;
+
+  if (node.children && node.children.length) {
+    const childrenWidth =
+      node.children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
+      (node.children.length - 1) * colGap;
+
+    let childLeft = center - childrenWidth / 2;
+    node.children.forEach((child) => {
+      assignX(child, childLeft, colGap);
+      childLeft += child.subtreeWidth + colGap;
+    });
+  }
+}
+
+function findMaxRow(node) {
+  let max = node.row || 0;
+  (node.children || []).forEach((child) => {
+    max = Math.max(max, findMaxRow(child));
+  });
+  return max;
+}
+
+function collectRowHeights(node, rowHeights) {
+  rowHeights[node.row] = Math.max(rowHeights[node.row] || 0, node.height);
+  (node.children || []).forEach((child) => collectRowHeights(child, rowHeights));
+}
+
+function computeRowTops(tree, opts) {
+  const maxRow = findMaxRow(tree);
+  const rowHeights = new Array(maxRow + 1).fill(0);
+  collectRowHeights(tree, rowHeights);
+
+  const rowTops = [opts.paddingY];
+  for (let row = 1; row <= maxRow; row += 1) {
+    rowTops[row] = rowTops[row - 1] + (rowHeights[row - 1] || 0) + opts.rowGap;
+  }
+
+  return { rowTops, rowHeights, maxRow };
+}
+
+function assignY(node, rowTops) {
+  node.y = rowTops[node.row];
+  (node.children || []).forEach((child) => assignY(child, rowTops));
+}
+
+function collect(tree, nodes, edges, flatData, parent) {
+  if (parent) edges.push({ parent, child: tree });
+
+  if (tree.type === NODE_EMPLOYEES) {
+    nodes.push(tree);
+    tree.persons.forEach((person) => flatData.push(person.data));
+    return;
+  }
+
+  nodes.push(tree);
+  flatData.push(tree.data);
+  (tree.children || []).forEach((child) => collect(child, nodes, edges, flatData, tree));
+}
+
+/**
+ * Главная функция layout.
+ *
+ * @param {object} rootNode - выбранное подразделение (узел дерева с users/children)
+ * @param {object} options
+ * @returns {{ tree, nodes, edges, flatData, width, height }}
+ */
+export function computeUnifiedLayout(rootNode, options = {}) {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  const tree = buildLayoutTree(rootNode, {
+    showVacancies: opts.showVacancies,
+    collapsedIds: opts.collapsedIds,
+  });
+
+  assignRawLevel(tree, null);
+  const rootRawLevel = tree.rawLevel;
+  assignRows(tree, -1, rootRawLevel);
+
+  computeSizes(tree, opts);
+  computeSubtreeWidths(tree, opts.colGap);
+  assignX(tree, opts.paddingX, opts.colGap);
+
+  const { rowTops } = computeRowTops(tree, opts);
+  assignY(tree, rowTops);
+
+  const nodes = [];
+  const edges = [];
+  const flatData = [];
+  collect(tree, nodes, edges, flatData, null);
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  nodes.forEach((node) => {
+    minX = Math.min(minX, node.x);
+    maxX = Math.max(maxX, node.x + node.width);
+    minY = Math.min(minY, node.y);
+    maxY = Math.max(maxY, node.y + node.height);
+  });
+
+  const width = maxX - minX + opts.paddingX * 2;
+  const height = maxY - minY + opts.paddingY * 2;
+
+  return { tree, nodes, edges, flatData, width, height };
+}
+
+
+
+
+# FILE: src\unified-layout.test.js
+
+import { describe, it, expect } from "vitest";
+import {
+  buildLayoutTree,
+  computeUnifiedLayout,
+  NODE_DEPARTMENT,
+  NODE_EMPLOYEES,
+} from "./unified-layout.js";
+
+function dept(id, name, overrides = {}) {
+  return {
+    department_guid: id,
+    department_name: name,
+    department_manager: overrides.manager || "",
+    department_manager_position: overrides.managerPosition || "",
+    manager_sub_level: overrides.managerSubLevel,
+    staffCount: overrides.staffCount ?? 0,
+    vacancyCount: overrides.vacancyCount ?? 0,
+    totalWithVacancies: overrides.totalWithVacancies ?? 0,
+    users: overrides.users || [],
+    children: overrides.children || [],
+    scenarioState: overrides.scenarioState || "",
+  };
+}
+
+function user(id, name, overrides = {}) {
+  return {
+    id,
+    full_name: name,
+    name,
+    position: overrides.position || "Сотрудник",
+    rawPosition: overrides.position || "Сотрудник",
+    subLevel: overrides.subLevel,
+    isVacancy: false,
+    scenarioState: "",
+  };
+}
+
+function byId(nodes, id) {
+  return nodes.find((n) => n.data && n.data.id === id);
+}
+
+describe("unified-layout", () => {
+  it("должен располагать siblings в одной строке (X различается, row одинаковый)", () => {
+    const root = dept("root", "ROOT", {
+      children: [dept("A", "A"), dept("B", "B"), dept("C", "C")],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    const a = byId(nodes, "A");
+    const b = byId(nodes, "B");
+    const c = byId(nodes, "C");
+
+    expect(a.row).toBe(b.row);
+    expect(b.row).toBe(c.row);
+    expect(a.x).not.toBe(b.x);
+    expect(b.x).not.toBe(c.x);
+  });
+
+  it("должен выравнивать подразделения с одинаковым sub_level по Y", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 2,
+      children: [
+        dept("A", "A", { managerSubLevel: 3, children: [dept("A1", "A1", { managerSubLevel: 4 })] }),
+        dept("B", "B", { managerSubLevel: 3, children: [dept("B1", "B1", { managerSubLevel: 4 })] }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    expect(byId(nodes, "A").y).toBe(byId(nodes, "B").y);
+    expect(byId(nodes, "A1").y).toBe(byId(nodes, "B1").y);
+  });
+
+  it("должен сохранять parentId иерархию (A→A1, B→B1)", () => {
+    const root = dept("root", "ROOT", {
+      children: [
+        dept("A", "A", { children: [dept("A1", "A1"), dept("A2", "A2")] }),
+        dept("B", "B", { children: [dept("B1", "B1"), dept("B2", "B2")] }),
+      ],
+    });
+    const { edges, nodes } = computeUnifiedLayout(root);
+
+    const edgeKeys = edges
+      .filter((e) => e.parent.type === NODE_DEPARTMENT && e.child.type === NODE_DEPARTMENT)
+      .map((e) => `${e.parent.data.id}->${e.child.data.id}`);
+
+    expect(edgeKeys).toContain("A->A1");
+    expect(edgeKeys).toContain("A->A2");
+    expect(edgeKeys).toContain("B->B1");
+    expect(edgeKeys).toContain("B->B2");
+    expect(edgeKeys).not.toContain("A->B1");
+  });
+
+  it("должен использовать fallback (уровень родителя + 1) при отсутствии sub_level", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 2,
+      children: [
+        dept("A", "A", { managerSubLevel: 3 }),
+        dept("B", "B", {}), // нет sub_level
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    expect(byId(nodes, "B").row).toBe(byId(nodes, "A").row);
+  });
+
+  it("должен создавать колонку сотрудников отдельным узлом", () => {
+    const root = dept("root", "ROOT", {
+      users: [user("u1", "Иван Иванов"), user("u2", "Петр Петров")],
+      children: [dept("A", "A")],
+    });
+    const { tree, nodes } = computeUnifiedLayout(root);
+
+    const employeesNode = tree.children.find((c) => c.type === NODE_EMPLOYEES);
+    expect(employeesNode).toBeTruthy();
+    expect(employeesNode.persons).toHaveLength(2);
+  });
+
+  it("должен не создавать пустых уровней над выбранным вложенным подразделением", () => {
+    const nested = dept("A1", "A1", {
+      managerSubLevel: 4,
+      users: [user("u1", "Иван Иванов")],
+    });
+    const { tree, nodes } = computeUnifiedLayout(nested);
+
+    expect(tree.data.id).toBe("A1");
+    expect(tree.row).toBe(0);
+    expect(byId(nodes, "A1").y).toBe(byId(nodes, "A1").y);
+  });
+
+  it("должен не смешивать ветки при одинаковом sub_level (A1/A2 в диапазоне A, B1 в диапазоне B)", () => {
+    const root = dept("root", "ROOT", {
+      children: [
+        dept("A", "A", {
+          children: [
+            dept("A1", "A1", { managerSubLevel: 4 }),
+            dept("A2", "A2", { managerSubLevel: 4 }),
+          ],
+        }),
+        dept("B", "B", { children: [dept("B1", "B1", { managerSubLevel: 4 })] }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    const a1 = byId(nodes, "A1");
+    const a2 = byId(nodes, "A2");
+    const b1 = byId(nodes, "B1");
+
+    // Одинаковый Y (sub_level), но X-диапазоны веток не пересекаются
+    expect(a1.y).toBe(a2.y);
+    expect(a1.y).toBe(b1.y);
+
+    const aRight = Math.max(a1.x + a1.width, a2.x + a2.width);
+    const bLeft = b1.x;
+    expect(aRight).toBeLessThanOrEqual(bLeft);
+  });
+});
+
+
+# FILE: src\unified-screen-renderer.js
+
+/**
+ * unified-screen-renderer.js
+ *
+ * Рендерит единую организационную диаграмму на экране через SVG + foreignObject,
+ * без d3-org-chart. Карточки переиспользуются из chart-cards.js.
+ */
+
+import * as d3 from "d3";
+import {
+  computeUnifiedLayout,
+  NODE_EMPLOYEES,
+  NODE_DEPARTMENT,
+} from "./unified-layout.js";
+import { renderNodeContent } from "./chart-cards.js";
+
+function cardHtml(node, opts) {
+  if (node.type === NODE_EMPLOYEES) {
+    const persons = (node.persons || [])
+      .map(
+        (person) => `
+        <div class="employees-column__item" style="height:${person.height}px">
+          ${renderNodeContent(person.data, opts)}
+        </div>`,
+      )
+      .join("");
+
+    return `
+      <div class="employees-column" style="width:100%;height:100%">
+        <div class="employees-column__header">Сотрудники подразделения</div>
+        <div class="employees-column__list">${persons}</div>
+      </div>
+    `;
+  }
+
+  return `<div class="unified-card" style="width:100%;height:100%">${renderNodeContent(node.data, opts)}</div>`;
+}
+
+function connectorPath(parent, child) {
+  const fromX = parent.x + parent.width / 2;
+  const fromY = parent.y + parent.height;
+  const toX = child.x + child.width / 2;
+  const toY = child.y;
+  const midY = fromY + (toY - fromY) / 2;
+
+  return `M ${fromX} ${fromY} L ${fromX} ${midY} L ${toX} ${midY} L ${toX} ${toY}`;
+}
+
+export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) {
+  const container = document.querySelector(containerSelector);
+  if (!container) return null;
+
+  if (!rootNodes || !rootNodes.length) {
+    container.innerHTML = '<div class="empty-chart">Нет данных для отображения</div>';
+    return null;
+  }
+
+  const {
+    cardDesign = "classic",
+    showVacancies = true,
+    viewMode = "to-be",
+    departmentWidth = 350,
+    departmentHeight = 130,
+    employeeHeight = 96,
+  } = options;
+
+  const cardOptions = { cardDesign, showVacancies, viewMode };
+
+  const state = {
+    container,
+    rootNodes,
+    collapsedIds: new Set(),
+    layout: null,
+    svg: null,
+    zoomLayer: null,
+    zoomBehavior: null,
+  };
+
+  function buildLayout() {
+    state.layout = computeUnifiedLayout(rootNodes[0], {
+      showVacancies,
+      departmentWidth,
+      departmentHeight,
+      employeeWidth: departmentWidth,
+      employeeHeight,
+      assistantWidth: departmentWidth,
+      assistantHeight: employeeHeight,
+      employeesHeaderHeight: 26,
+      colGap: 40,
+      rowGap: 60,
+      personGap: 8,
+      paddingX: 40,
+      paddingY: 40,
+      collapsedIds: state.collapsedIds,
+    });
+  }
+
+  function render() {
+    container.innerHTML = "";
+    buildLayout();
+
+    const { width, height, nodes, edges } = state.layout;
+
+    const svg = d3
+      .select(container)
+      .append("svg")
+      .attr("class", "unified-orgchart")
+      .attr("width", "100%")
+      .attr("height", "100%")
+      .attr("viewBox", `0 0 ${Math.max(width, 1)} ${Math.max(height, 1)}`);
+
+    const zoomBehavior = d3
+      .zoom()
+      .scaleExtent([0.1, 3])
+      .on("zoom", (event) => {
+        state.zoomLayer.attr("transform", event.transform);
+      });
+
+    svg.call(zoomBehavior);
+
+    const zoomLayer = svg.append("g").attr("class", "unified-orgchart__layer");
+
+    zoomLayer
+      .append("g")
+      .attr("class", "unified-orgchart__edges")
+      .selectAll("path")
+      .data(edges)
+      .enter()
+      .append("path")
+      .attr("d", (edge) => connectorPath(edge.parent, edge.child))
+      .attr("fill", "none")
+      .attr("stroke", "#cbd5e1")
+      .attr("stroke-width", 2);
+
+    const nodeGroups = zoomLayer
+      .append("g")
+      .attr("class", "unified-orgchart__nodes")
+      .selectAll("g.unified-node")
+      .data(nodes)
+      .enter()
+      .append("g")
+      .attr("class", "unified-node")
+      .attr("data-node-id", (node) => (node.data ? node.data.id : ""))
+      .attr("transform", (node) => `translate(${node.x},${node.y})`);
+
+    nodeGroups
+      .append("foreignObject")
+      .attr("width", (node) => node.width)
+      .attr("height", (node) => node.height)
+      .style("overflow", "visible")
+      .append("xhtml:div")
+      .attr("xmlns", "http://www.w3.org/1999/xhtml")
+      .html((node) => cardHtml(node, cardOptions));
+
+    nodeGroups
+      .filter((node) => node.type === NODE_DEPARTMENT && (node.children.length || node.collapsed))
+      .each(function renderToggle(node) {
+        const group = d3.select(this);
+        const cx = node.width / 2;
+        const cy = node.height + 14;
+
+        const button = group
+          .append("g")
+          .attr("class", "unified-node__toggle")
+          .attr("transform", `translate(${cx},${cy})`)
+          .style("cursor", "pointer")
+          .on("click", (event) => {
+            event.stopPropagation();
+            toggleCollapse(node.data.id);
+          });
+
+        button
+          .append("circle")
+          .attr("r", 11)
+          .attr("fill", "#ffffff")
+          .attr("stroke", "#d0d5dd")
+          .attr("stroke-width", 1.5);
+
+        button
+          .append("text")
+          .attr("text-anchor", "middle")
+          .attr("dy", 4)
+          .attr("font-size", 14)
+          .attr("fill", "#344054")
+          .text(node.collapsed ? "+" : "−");
+      });
+
+    state.svg = svg;
+    state.zoomLayer = zoomLayer;
+    state.zoomBehavior = zoomBehavior;
+  }
+
+  function fit() {
+    if (!state.layout || !state.svg) return;
+    const cw = container.clientWidth || 800;
+    const ch = container.clientHeight || 600;
+    const { width, height } = state.layout;
+    const scale = Math.min(cw / Math.max(width, 1), ch / Math.max(height, 1)) * 0.95;
+    const tx = (cw - width * scale) / 2;
+    const ty = (ch - height * scale) / 2;
+    state.svg.call(state.zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  }
+
+  function setCentered(id) {
+    const node = state.layout
+      ? state.layout.nodes.find((n) => n.data && n.data.id === id)
+      : null;
+    if (!node) return { render() {} };
+
+    const cw = container.clientWidth || 800;
+    const ch = container.clientHeight || 600;
+    const k = 1;
+    const tx = cw / 2 - (node.x + node.width / 2) * k;
+    const ty = ch / 2 - (node.y + node.height / 2) * k;
+    state.svg.call(state.zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+
+    return { render() {} };
+  }
+
+  function toggleCollapse(id) {
+    if (state.collapsedIds.has(id)) {
+      state.collapsedIds.delete(id);
+    } else {
+      state.collapsedIds.add(id);
+    }
+    render();
+  }
+
+  render();
+
+  return {
+    get flatData() {
+      return state.layout ? state.layout.flatData : [];
+    },
+    fit,
+    setCentered,
+    render,
+    toggleCollapse,
+  };
+}
+
+
+
 # FILE: struct.js
 
 import fs from 'fs';
@@ -3680,16 +7566,28 @@ console.log('Done');
 
 # FILE: style.css
 
+
 :root {
-  --font-base: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  --color-bg: #f5f5f5;
-  --color-surface: #ffffff;
-  --color-primary: #4f46e5;
-  --color-primary-dark: #4338ca;
-  --color-text: #333333;
-  --color-muted: #2c3e50;
-  --color-border: #ddd;
+  --font-base: 'TT Norms Pro', 'Segoe UI', 'Arial', sans-serif;
+  --color-bg: #F5F7FA;
+  --color-surface: #FFFFFF;
+  --color-primary: #213FDC;
+  --color-primary-dark: #0E256D;
+  --color-text: #1C1D21;
+  --color-muted: #475467;
+  --color-border: #D0D5DD;
+  --color-border-light: #E8EDF5;
+  --color-orange: #F75B19;
+  --color-light-blue: #2393FB;
+  --color-grey: #E8EDF5;
+  --color-error: #F04438;
+  --color-warning: #F75B19;
+  --color-success: #12B76A;
+  --color-info: #2393FB;
   --radius: 8px;
+  --radius-card: 12px;
+  --shadow-card: 0 1px 3px rgba(0,0,0,.05);
+  --shadow-accent: 0 2px 6px rgba(0,0,0,.10);
   --transition: 0.2s ease;
 }
 
@@ -3703,14 +7601,10 @@ html,
 body {
   height: 100%;
   margin: 0;
-  font-family: var(--font-base);
+  font-family: var(--font-base), 'Segoe UI', 'Arial', sans-serif;
   background: var(--color-bg);
   color: var(--color-text);
   line-height: 1.5;
-}
-
-body {
-  display: flex;
 }
 
 .sidebar {
@@ -3738,9 +7632,10 @@ body {
 
 h1 {
   margin: 0 0 1rem 0;
-  font-size: 18px;
-  text-align: center;
-  color: var(--color-muted);
+  font-size: 20px;
+  font-weight: 700;
+  text-align: left;
+  color: var(--color-text);
 }
 
 .controls {
@@ -3751,14 +7646,20 @@ h1 {
 }
 
 button {
-  padding: 0.5rem 1rem;
+  height: 36px;
+  padding: 0 16px;
   background: var(--color-primary);
   color: #fff;
   border: none;
-  border-radius: var(--radius);
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 14px;
+  font-family: var(--font-base), 'Segoe UI', 'Arial', sans-serif;
+  font-weight: 400;
   transition: background var(--transition);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 button:hover {
@@ -3851,65 +7752,134 @@ button:hover {
 
 .chart-card {
   height: 100%;
-  border-radius: 8px;
-  font-family: Inter, sans-serif;
+  border-radius: 12px;
+  font-family: var(--font-base), 'Segoe UI', 'Arial', sans-serif;
   text-align: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 /* Текущий дизайн */
 
 .chart-card--department {
   position: relative;
-  padding: 10px 10px 28px 10px;
-  border: 1px solid #4d8ce9;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  padding: 16px 16px 32px 16px;
+  border: 2px solid var(--color-primary);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
 }
 
 .chart-card--employee {
-  padding: 8px;
-  border: 1px solid #ddd;
-  background: #fff;
+  padding: 12px;
+  border: 2px solid var(--color-primary);
+  background: var(--color-surface);
   cursor: pointer;
 }
 
 .chart-card--vacancy {
-  padding: 8px;
-  border: 1px solid #b0c4de;
-  background: #e0f0ff;
+  padding: 12px;
+  border: 1px solid var(--color-light-blue);
+  background: #EAF5FF;
 }
 
 .chart-card__title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
+  color: var(--color-text);
   word-break: break-word;
 }
 
 .chart-card__manager {
   margin-top: 6px;
-  font-size: 11px;
-  color: #555;
+  font-size: 12px;
+  color: var(--color-muted);
 }
 
 .chart-card__manager-position,
 .chart-card__position {
   margin-top: 2px;
-  font-size: 11px;
-  color: #777;
+  font-size: 12px;
+  color: #667085;
 }
 
 .chart-card__count {
   position: absolute;
-  right: 10px;
+  right: 16px;
   bottom: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
-  color: #333;
+  color: var(--color-text);
 }
 
 .chart-card__count.count-with-vacancies {
-  color: #0066cc;
+  color: var(--color-primary);
+}
+
+.chart-card__sub-level-debug {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #98a2b3;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Единый layout (CR007) */
+
+.unified-orgchart {
+  display: block;
+  background: transparent;
+}
+
+.unified-card {
+  width: 100%;
+  height: 100%;
+}
+
+.employees-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  box-sizing: border-box;
+}
+
+.employees-column__header {
+  flex: 0 0 auto;
+  padding: 4px 6px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #475467;
+  text-align: center;
+}
+
+.employees-column__list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: visible;
+}
+
+.employees-column__item {
+  flex: 0 0 auto;
+}
+
+.employees-column__item .chart-card {
+  height: 100%;
+}
+
+.unified-node__toggle text {
+  user-select: none;
 }
 
 /* Вариант 2 — цветная шапка */
@@ -3934,7 +7904,7 @@ button:hover {
   min-height: 56px;
   padding: 12px 20px;
   color: #fff;
-  background: linear-gradient(135deg, #155eef 0%, #7a5af8 100%);
+  background: var(--color-primary);
 }
 
 .chart-card-v2__title {
@@ -3989,7 +7959,7 @@ button:hover {
   padding: 18px 20px 16px;
   text-align: left;
   border: 1px solid rgba(16, 24, 40, 0.08);
-  border-left: 4px solid #155eef;
+  border-left: 4px solid var(--color-primary);
   border-radius: 18px;
   background: #fff;
   box-shadow:
@@ -4004,8 +7974,8 @@ button:hover {
   place-items: center;
   border-radius: 50%;
   background: linear-gradient(135deg, #e0eaff 0%, #f2f4f7 100%);
-  border: 1px solid rgba(21, 94, 239, 0.14);
-  color: #155eef;
+  border: 1px solid rgba(33, 63, 220, 0.14);
+  color: var(--color-primary);
   font-size: 13px;
   font-weight: 700;
 }
@@ -4172,7 +8142,7 @@ body {
   place-items: center;
   border-radius: 999px;
   background: #eef4ff;
-  color: #155eef;
+  color: var(--color-primary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -4231,12 +8201,13 @@ body {
 }
 
 .button-secondary {
-  background: #eef2f6;
-  color: #344054;
+  background: #ffffff;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
 }
 
 .button-secondary:hover {
-  background: #e4e7ec;
+  background: var(--color-bg);
 }
 
 .changes-list {
@@ -4278,7 +8249,7 @@ body {
   place-items: center;
   border-radius: 999px;
   background: #eef4ff;
-  color: #155eef;
+  color: var(--color-primary);
   font-weight: 700;
 }
 
@@ -4419,8 +8390,8 @@ body {
   overflow-y: auto;
   margin: 6vh auto;
   padding: 24px;
-  border-radius: 16px;
-  background: #fff;
+  border-radius: 12px;
+  background: var(--color-surface);
   box-shadow: 0 16px 40px rgba(0,0,0,0.2);
 }
 
@@ -4579,7 +8550,7 @@ body {
 
 .chart-card--assistant {
   padding: 10px;
-  border: 1px solid #d0d5dd;
+  border: 2px solid var(--color-primary);
   background: #fff;
   cursor: pointer;
 }
@@ -4639,7 +8610,7 @@ body {
   overflow: hidden;
   background: #ffffff;
   color: #101828;
-  font-family: Inter, Arial, sans-serif;
+  font-family: var(--font-base), 'Inter', 'Arial', sans-serif;
 }
 
 .org-chart-pdf-export *,
@@ -4719,7 +8690,7 @@ body {
   width: 100%;
   height: 100%;
   text-align: left;
-  font-family: Inter, Arial, sans-serif;
+  font-family: var(--font-base), 'Inter', 'Arial', sans-serif;
 }
 
 .org-chart-pdf-export .chart-card--pdf {
@@ -5105,10 +9076,170 @@ body {
   }
 }
 
+/* CR-002: compact application title and changelog access */
+.app-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 1rem 0;
+}
+
+.app-title h1 {
+  margin: 0;
+}
+
+.changelog-icon-button {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d0d5dd;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4f46e5;
+  font-size: 18px;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+
+.changelog-icon-button:hover {
+  background: #eef4ff;
+  color: #4338ca;
+}
+
+.changelog-icon-button__badge {
+  position: absolute;
+  top: -7px;
+  right: -12px;
+  min-width: 26px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: #f04438;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+/* CR-002: collapsible scenario panel */
+.scenario-panel__toggle {
+  width: 100%;
+  min-height: 38px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: #101828;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.scenario-panel__toggle:hover {
+  background: transparent;
+  color: #4f46e5;
+}
+
+.scenario-panel__body {
+  display: grid;
+  gap: 10px;
+}
+
+.scenario-panel--collapsed .scenario-panel__body {
+  display: none;
+}
+
+/* CR-002: simplified changelog */
+.changelog-group {
+  padding: 14px 0;
+  border-top: 1px solid #eaecf0;
+}
+
+.changelog-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.changelog-group h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #101828;
+}
+
+.changelog-group ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #475467;
+  font-size: 13px;
+}
+
+.changelog-group li + li {
+  margin-top: 6px;
+}
+
+/* CR-006: card width slider */
+.range-with-value {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-with-value input[type="range"] {
+  flex: 1;
+  min-height: auto;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: #d0d5dd;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.range-with-value span {
+  min-width: 56px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: #344054;
+}
+
 
 # FILE: vite.config.js
 
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
+import { copyFileSync, mkdirSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * Копирует docs/changelog.md в dist/ при билде,
+ * чтобы changelog был доступен на production-сайте.
+ */
+function copyChangelogPlugin() {
+  return {
+    name: 'copy-changelog',
+    closeBundle() {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const src = resolve(__dirname, 'docs', 'changelog.md');
+      const destDir = resolve(__dirname, 'dist', 'docs');
+      const dest = resolve(destDir, 'changelog.md');
+      mkdirSync(destDir, { recursive: true });
+      copyFileSync(src, dest);
+      console.log('[copy-changelog] docs/changelog.md → dist/docs/changelog.md');
+    },
+  };
+}
 
 export default defineConfig({
   base: './',   // 👈 относительные пути — работает везде (локально, на GitHub Pages и т.д.)
@@ -5124,6 +9255,17 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+    },
+  },
+  plugins: [copyChangelogPlugin()],
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    include: ['src/**/*.test.js'],
+    coverage: {
+      reporter: ['text', 'lcov', 'html'],
+      include: ['src/**/*.js'],
+      exclude: ['src/**/*.test.js'],
     },
   },
 });

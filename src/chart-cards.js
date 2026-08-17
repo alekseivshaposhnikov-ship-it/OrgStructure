@@ -1,3 +1,5 @@
+const SHOW_SUB_LEVEL_DEBUG = true;
+
 export function renderNodeContent(nd, options = {}) {
   const {
     cardDesign = "classic",
@@ -149,6 +151,7 @@ function renderAssistantCard(nd, viewMode) {
       <div class="chart-card__assistant-label">Административный ассистент</div>
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
       ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderSubLevelDebug(nd.subLevel)}
       ${renderProject(nd)}
     </div>
   `;
@@ -164,6 +167,7 @@ function renderDepartmentClassic(nd, showVacancies, viewMode) {
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
       <div class="chart-card__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
       ${nd.headPosition ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>` : ""}
+      ${renderSubLevelDebug(nd.managerSubLevel)}
       ${renderAssistant(nd.assistant)}
       <div class="chart-card__count ${showVacancies ? "count-with-vacancies" : ""}">
         ${getDisplayCount(nd, showVacancies)}
@@ -183,6 +187,7 @@ function renderDepartmentVariant2(nd, showVacancies, viewMode) {
       <div class="chart-card-v2__body">
         <div class="chart-card-v2__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
         ${nd.headPosition ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>` : ""}
+        ${renderSubLevelDebug(nd.managerSubLevel)}
         ${renderAssistant(nd.assistant)}
       </div>
       <div class="chart-card-v2__footer">${getDisplayCount(nd, showVacancies)} сотрудников</div>
@@ -202,6 +207,7 @@ function renderDepartmentVariant3(nd, showVacancies, viewMode) {
         <div class="chart-card-v3__title">${escapeHtml(nd.name)}</div>
         <div class="chart-card-v3__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
         ${nd.headPosition ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>` : ""}
+        ${renderSubLevelDebug(nd.managerSubLevel)}
         ${renderAssistant(nd.assistant)}
         <div class="chart-card-v3__count">${getDisplayCount(nd, showVacancies)} сотрудников</div>
       </div>
@@ -219,6 +225,7 @@ function renderEmployee(nd, viewMode) {
       ${renderMenuButton(viewMode)}
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
       ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderSubLevelDebug(nd.subLevel)}
       ${renderProject(nd)}
     </div>
   `;
@@ -259,6 +266,19 @@ function renderProject(nd) {
     <div class="chart-card__project">
       <span>Проект:</span> ${escapeHtml(project)}
     </div>
+  `;
+}
+
+function renderSubLevelDebug(subLevel) {
+  if (!SHOW_SUB_LEVEL_DEBUG) return "";
+
+  const value =
+    Number.isFinite(subLevel) && subLevel !== Number.MAX_SAFE_INTEGER
+      ? String(subLevel)
+      : "—";
+
+  return `
+    <div class="chart-card__sub-level-debug">sub_level: ${escapeHtml(value)}</div>
   `;
 }
 

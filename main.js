@@ -1,20 +1,15 @@
 
-import * as d3 from "d3";
-import { flextree } from "d3-flextree";
-import { OrgChart } from "d3-org-chart";
-
 import { fetchOrganizationStructure } from "./src/api.js";
 import { addLevels } from "./src/layout.js";
 import { buildTreeView, createSyntheticRoot } from "./src/sidebar-tree.js";
-import { renderNodeContent } from "./src/chart-cards.js";
 import { renderCompactA4Screen } from "./src/compact-a4/compact-a4-screen-renderer.js";
+import { renderUnifiedScreen } from "./src/unified-screen-renderer.js";
 import {
   initEmployeeModal,
   openEmployeeDetails,
 } from "./src/employee-modal.js";
 import { exportOrgChartToPdf, exportCompactA4ToPdf } from "./src/pdf-d3-export.js";
 import { initChangelog } from "./src/changelog.js";
-import { buildHorizontalFlatData } from "./src/horizontal-layout.js";
 
 import {
   createScenario,
@@ -38,8 +33,6 @@ import {
   moveDepartment,
 } from "./src/scenario-manager.js";
 
-window.d3 = { ...d3, flextree };
-
 let sourceTree = [];
 let scenario = null;
 let chart = null;
@@ -47,7 +40,6 @@ let selectedNode = null;
 let showVacancies = true;
 let cardDesign = localStorage.getItem("orgCardDesign") || "classic";
 let cardWidth = Number(localStorage.getItem("orgCardWidth")) || 350;
-let layoutOrientation = localStorage.getItem("orgLayoutOrientation") || "vertical";
 let viewMode = "to-be";
 let isOrgChartDelegationBound = false;
 const SCENARIO_PANEL_COLLAPSED_KEY = "orgScenarioPanelCollapsed";
@@ -73,7 +65,6 @@ async function initApp() {
 
     initDesignSwitcher();
     initCardWidthControl();
-    initLayoutOrientationControl();
     initEmployeeModal();
     initScenarioControls();
     initScenarioPanelToggle();
@@ -147,19 +138,6 @@ function initCardWidthControl() {
     cardWidth = Number(event.target.value);
     valueEl.textContent = `${cardWidth} px`;
     localStorage.setItem("orgCardWidth", String(cardWidth));
-    renderApp();
-  });
-}
-
-function initLayoutOrientationControl() {
-  const select = document.getElementById("layoutOrientation");
-  if (!select) return;
-
-  select.value = layoutOrientation;
-
-  select.addEventListener("change", (event) => {
-    layoutOrientation = event.target.value;
-    localStorage.setItem("orgLayoutOrientation", layoutOrientation);
     renderApp();
   });
 }
@@ -384,8 +362,6 @@ function focusEntity(entityId) {
 }
 
 function getDepartmentNodeHeight(data) {
-  if (data.isVirtualLevel) return 0;
-
   if (!data.isDepartment) return 96;
 
   const assistantExtraHeight = data.assistant ? 44 : 0;
@@ -396,43 +372,10 @@ function getDepartmentNodeHeight(data) {
   return 130 + assistantExtraHeight;
 }
 
-function getDepartmentNodeWidth() {
-  return cardWidth;
-}
-
-function createOrgChartInstance(containerSelector, flatData) {
-  const isHorizontal = layoutOrientation === "horizontal";
-  const layout = isHorizontal ? "top" : "top";
-
-  const orgChart = new OrgChart()
-    .container(containerSelector)
-    .nodeHeight((d) => getDepartmentNodeHeight(d.data))
-    .nodeWidth((d) => (d.data.isVirtualLevel ? 0 : getDepartmentNodeWidth()))
-    .layout(layout)
-    .childrenMargin(() => 40)
-    .compactMarginBetween(() => 20)
-    .compactMarginPair(() => 60)
-    .nodeContent((d) => {
-      if (d.data.isVirtualLevel) {
-        return `<div data-virtual-level="true" style="display:none"></div>`;
-      }
-
-      return renderNodeContent(d.data, {
-        cardDesign,
-        showVacancies,
-        viewMode,
-      });
-    });
-
-  orgChart.data(flatData).render();
-
-  return orgChart;
-}
-
 function renderScreenOrgChart(rootNodes) {
   if (!rootNodes?.length) return;
 
-  // Для компактного A4 используем отдельный рендерер
+  // Для компактного A4 используется тот же единый layout, но компактный рендер карточек
   if (cardDesign === "compact-a4") {
     renderCompactA4Screen(rootNodes, "#orgChart", {
       hideNames: false,
@@ -442,28 +385,25 @@ function renderScreenOrgChart(rootNodes) {
     return;
   }
 
-  const isHorizontal = layoutOrientation === "horizontal";
-  const flatData = isHorizontal
-    ? buildHorizontalFlatData(rootNodes[0], { showVacancies })
-    : convertToFlatData(rootNodes);
-
-  if (!flatData.length) {
-    const container = document.getElementById("orgChart");
-    if (container) {
-      container.innerHTML = `<div class="empty-chart">Нет данных для отображения</div>`;
-    }
-    return;
-  }
-
   const container = document.getElementById("orgChart");
-  if (container) container.innerHTML = "";
+  if (!container) return;
+  container.innerHTML = "";
 
-  chart = createOrgChartInstance("#orgChart", flatData);
+  chart = renderUnifiedScreen(rootNodes, "#orgChart", {
+    cardDesign,
+    showVacancies,
+    viewMode,
+    departmentWidth: cardWidth,
+    departmentHeight: getDepartmentNodeHeight({ isDepartment: true }),
+    employeeHeight: 96,
+  });
+
+  if (!chart) return;
+
   chart.fit();
-
   window.orgChart = chart;
 
-  bindOrgChartDelegatedEvents(flatData);
+  bindOrgChartDelegatedEvents(chart.flatData);
 }
 
 function bindOrgChartDelegatedEvents(flatData) {
@@ -929,99 +869,6 @@ function openCompareModal() {
 
 function closeCompareModal() {
   document.getElementById("compareModal")?.classList.add("hidden");
-}
-
-function convertToFlatData(nodes) {
-  const result = [];
-  const assistantsToSkip = new Set();
-
-  function walk(node, parentId = null, isRootNode = false) {
-    const nodeId = node.department_guid || node.id;
-
-    result.push({
-      id: nodeId,
-      parentId,
-      name: node.department_name || node.name || "Без названия",
-      staffCount: node.staffCount || 0,
-      vacancyCount: node.vacancyCount || 0,
-      totalWithVacancies: node.totalWithVacancies ?? node.staffCount ?? 0,
-      headName: node.department_manager || "",
-      headPosition: node.department_manager_position || "",
-      scenarioState: node.scenarioState || "",
-      isDepartment: !!node.department_guid,
-    });
-
-    if (isRootNode) {
-      const assistant = findAdministrativeAssistantInSubtree(node);
-
-      if (assistant?.id) {
-        assistantsToSkip.add(assistant.id);
-
-        result.push({
-          ...assistant,
-          id: assistant.id,
-          parentId: nodeId,
-          name: assistant.full_name || assistant.name || "Сотрудник",
-          position: assistant.position || "",
-          scenarioState: assistant.scenarioState || "",
-          isDepartment: false,
-          isVacancy: false,
-          isAssistant: true,
-        });
-      }
-    }
-
-    (node.children || []).forEach((child) => walk(child, nodeId, false));
-
-    (node.users || [])
-      .filter((user) => showVacancies || !user.isVacancy)
-      .filter((user) => !isAdministrativeAssistant(user))
-      .filter((user) => !assistantsToSkip.has(user.id))
-      .forEach((user) => {
-        result.push({
-          ...user,
-          id: user.id || `user_${result.length + 1}`,
-          parentId: nodeId,
-          name: user.full_name || user.name || "Сотрудник",
-          position: user.position || "",
-          scenarioState: user.scenarioState || "",
-          isDepartment: false,
-          isVacancy: !!user.isVacancy,
-        });
-      });
-  }
-
-  nodes.forEach((node) => walk(node, null, true));
-
-  return result;
-}
-
-function findAdministrativeAssistantInSubtree(node) {
-  const ownAssistant = findAdministrativeAssistant(node.users || []);
-
-  if (ownAssistant) return ownAssistant;
-
-  for (const child of node.children || []) {
-    const childAssistant = findAdministrativeAssistantInSubtree(child);
-
-    if (childAssistant) return childAssistant;
-  }
-
-  return null;
-}
-
-function findAdministrativeAssistant(users) {
-  return (users || []).find((user) => isAdministrativeAssistant(user)) || null;
-}
-
-function isAdministrativeAssistant(user) {
-  if (!user || user.isVacancy) return false;
-
-  const position = String(
-    user.rawPosition || user.position || "",
-  ).toLowerCase();
-
-  return position.includes("административный ассистент");
 }
 
 function getOperationIcon(type) {

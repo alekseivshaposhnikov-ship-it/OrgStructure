@@ -136,5 +136,26 @@ describe('chart-cards.js', () => {
       const htmlAsIs = renderNodeContent(makeDepartmentNode(), { viewMode: 'as-is' });
       expect(htmlAsIs).not.toContain('data-scenario-menu');
     });
+
+    it('должен показывать sub_level руководителя в карточке подразделения', () => {
+      const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }));
+      expect(html).toContain('sub_level: 2');
+      expect(html).toContain('chart-card__sub-level-debug');
+    });
+
+    it('должен показывать sub_level: — при отсутствии значения у руководителя', () => {
+      const html = renderNodeContent(makeDepartmentNode());
+      expect(html).toContain('sub_level: —');
+    });
+
+    it('должен показывать sub_level сотрудника', () => {
+      const html = renderNodeContent(makeEmployeeNode({ subLevel: 3 }));
+      expect(html).toContain('sub_level: 3');
+    });
+
+    it('не должен показывать sub_level в PDF-режиме', () => {
+      const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }), { isPdfExport: true });
+      expect(html).not.toContain('chart-card__sub-level-debug');
+    });
   });
 });

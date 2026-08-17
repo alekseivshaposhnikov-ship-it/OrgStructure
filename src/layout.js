@@ -6,11 +6,3 @@ export function addLevels(nodes, level = 0) {
     }
   });
 }
-
-export function flattenTree(nodes, result = []) {
-  nodes.forEach(n => {
-    result.push(n);
-    if (n.children) flattenTree(n.children, result);
-  });
-  return result;
-}

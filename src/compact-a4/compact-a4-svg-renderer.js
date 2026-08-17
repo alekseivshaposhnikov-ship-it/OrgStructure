@@ -53,6 +53,7 @@ export function renderCompactSvg(layoutResult, options = {}) {
     if (n.type === 'department') drawDeptCard(diag, n);
     else if (n.type === 'vacancy') drawVacancyCard(diag, n);
     else if (n.type === 'assistant') drawAssistantCard(diag, n);
+    else if (n.type === 'employees') drawEmployeesColumn(diag, n);
     else drawEmployeeCard(diag, n);
   });
 
@@ -154,6 +155,26 @@ function drawAssistantCard(g, n) {
   grp.appendChild(createSvg('rect', { x: 0, y: 0, width: n.cardWidth, height: n.cardHeight, rx: 5, ry: 5, fill: C.assistantBg, stroke: C.assistantStroke, 'stroke-width': 1.5 }));
   addText(grp, 'Адм. ассистент', 8, 14, 8, 600, C.assistantStroke);
   if (n.name) drawText(grp, n.name, { x: 8, y: 26, maxW: n.cardWidth - 16, fontSize: 7, fw: 400, fill: C.text, maxLines: 1, lineH: 9 });
+  g.appendChild(grp);
+}
+
+function drawEmployeesColumn(g, n) {
+  const grp = createSvg('g', { transform: `translate(${n.x}, ${n.y})` });
+  grp.appendChild(createSvg('rect', {
+    x: 0, y: 0, width: n.cardWidth, height: n.cardHeight,
+    rx: 8, ry: 8, fill: '#f8fafc', stroke: '#cbd5e1',
+    'stroke-width': 1, 'stroke-dasharray': '4 3',
+  }));
+  addText(grp, n.header || 'Сотрудники', n.cardWidth / 2, 14, 8, 700, '#475467', 'middle');
+
+  let y = 22;
+  (n.persons || []).forEach(person => {
+    const card = { ...person, x: 0, y };
+    if (person.type === 'vacancy') drawVacancyCard(grp, card);
+    else drawEmployeeCard(grp, card);
+    y += (person.cardHeight || PERSON_H) + 4;
+  });
+
   g.appendChild(grp);
 }
 

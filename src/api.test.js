@@ -50,6 +50,57 @@ describe('api.js', () => {
       expect(result[0].totalWithVacancies).toBe(2);
     });
 
+    it('должен сохранять sub_level руководителя', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: {
+            id: 'mgr-1',
+            full_name: 'Иван Иванов',
+            position: 'Руководитель',
+            sub_level: '2.0',
+          },
+          employees: [
+            { id: 'emp-1', full_name: 'Петр Петров', position: 'Разработчик', count: '1' },
+          ],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].manager_sub_level).toBe(2);
+    });
+
+    it('должен ставить MAX_SAFE_INTEGER при отсутствии sub_level у руководителя', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: { id: 'mgr-1', full_name: 'Иван Иванов', position: 'Руководитель' },
+          employees: [
+            { id: 'emp-1', full_name: 'Петр Петров', position: 'Разработчик', count: '1' },
+          ],
+          vacancy_list: [],
+          children: [],
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].manager_sub_level).toBe(Number.MAX_SAFE_INTEGER);
+    });
+
     it('должен возвращать пустой массив при HTTP ошибке', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,

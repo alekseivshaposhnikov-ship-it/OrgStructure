@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addLevels, flattenTree } from './layout.js';
+import { addLevels } from './layout.js';
 
 describe('layout.js', () => {
   describe('addLevels', () => {
@@ -45,50 +45,4 @@ describe('layout.js', () => {
     });
   });
 
-  describe('flattenTree', () => {
-    it('должен возвращать все узлы в плоском массиве', () => {
-      const tree = [
-        {
-          name: 'A',
-          children: [
-            { name: 'B', children: [{ name: 'C', children: [] }] },
-          ],
-        },
-      ];
-      const flat = flattenTree(tree);
-      expect(flat).toHaveLength(3);
-      expect(flat[0].name).toBe('A');
-      expect(flat[1].name).toBe('B');
-      expect(flat[2].name).toBe('C');
-    });
-
-    it('должен соблюдать порядок DFS (сначала родитель, потом дети)', () => {
-      const tree = [
-        {
-          name: 'A',
-          children: [
-            { name: 'B', children: [] },
-            { name: 'C', children: [] },
-          ],
-        },
-      ];
-      const flat = flattenTree(tree);
-      expect(flat[0].name).toBe('A');
-      expect(flat[1].name).toBe('B');
-      expect(flat[2].name).toBe('C');
-    });
-
-    it('должен возвращать пустой массив для пустого входа', () => {
-      expect(flattenTree([])).toEqual([]);
-    });
-
-    it('должен работать с несколькими корнями', () => {
-      const tree = [
-        { name: 'A', children: [{ name: 'A1', children: [] }] },
-        { name: 'B', children: [] },
-      ];
-      const flat = flattenTree(tree);
-      expect(flat).toHaveLength(3);
-    });
-  });
 });
