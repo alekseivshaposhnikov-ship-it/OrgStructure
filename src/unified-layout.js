@@ -32,6 +32,7 @@ const DEFAULT_OPTIONS = {
   colGap: 40,
   rowGap: 60,
   personGap: 8,
+  contentGap: 30,
   paddingX: 40,
   paddingY: 40,
 };
@@ -231,35 +232,50 @@ function assignX(node, left, colGap) {
   }
 }
 
-function findMaxRow(node) {
-  let max = node.row || 0;
-  (node.children || []).forEach((child) => {
-    max = Math.max(max, findMaxRow(child));
-  });
-  return max;
+function buildRowIndexMap(tree) {
+  const rows = new Set();
+  (function walk(node) {
+    if (node.type === NODE_DEPARTMENT) {
+      rows.add(node.row);
+    }
+    (node.children || []).forEach(walk);
+  })(tree);
+  const sorted = [...rows].sort((a, b) => a - b);
+  const map = new Map();
+  sorted.forEach((value, index) => map.set(value, index));
+  return map;
 }
 
-function collectRowHeights(node, rowHeights) {
-  rowHeights[node.row] = Math.max(rowHeights[node.row] || 0, node.height);
-  (node.children || []).forEach((child) => collectRowHeights(child, rowHeights));
+function collectRowHeights(node, rowHeights, rowIndexMap) {
+  if (node.type === NODE_DEPARTMENT) {
+    const index = rowIndexMap.get(node.row);
+    rowHeights[index] = Math.max(rowHeights[index] || 0, node.height);
+  }
+  (node.children || []).forEach((child) => collectRowHeights(child, rowHeights, rowIndexMap));
 }
 
 function computeRowTops(tree, opts) {
-  const maxRow = findMaxRow(tree);
-  const rowHeights = new Array(maxRow + 1).fill(0);
-  collectRowHeights(tree, rowHeights);
+  const rowIndexMap = buildRowIndexMap(tree);
+  const rowCount = rowIndexMap.size;
+  const rowHeights = new Array(rowCount).fill(0);
+  collectRowHeights(tree, rowHeights, rowIndexMap);
 
-  const rowTops = [opts.paddingY];
-  for (let row = 1; row <= maxRow; row += 1) {
-    rowTops[row] = rowTops[row - 1] + (rowHeights[row - 1] || 0) + opts.rowGap;
+  const rowTops = new Array(rowCount);
+  rowTops[0] = opts.paddingY;
+  for (let index = 1; index < rowCount; index += 1) {
+    rowTops[index] = rowTops[index - 1] + (rowHeights[index - 1] || 0) + opts.rowGap;
   }
 
-  return { rowTops, rowHeights, maxRow };
+  return { rowTops, rowIndexMap, rowCount };
 }
 
-function assignY(node, rowTops) {
-  node.y = rowTops[node.row];
-  (node.children || []).forEach((child) => assignY(child, rowTops));
+function assignY(node, rowTops, rowIndexMap, parent, opts) {
+  if (node.type === NODE_DEPARTMENT) {
+    node.y = rowTops[rowIndexMap.get(node.row)];
+  } else {
+    node.y = parent.y + parent.height + opts.contentGap;
+  }
+  (node.children || []).forEach((child) => assignY(child, rowTops, rowIndexMap, node, opts));
 }
 
 function collect(tree, nodes, edges, flatData, parent) {
@@ -299,8 +315,8 @@ export function computeUnifiedLayout(rootNode, options = {}) {
   computeSubtreeWidths(tree, opts.colGap);
   assignX(tree, opts.paddingX, opts.colGap);
 
-  const { rowTops } = computeRowTops(tree, opts);
-  assignY(tree, rowTops);
+  const { rowTops, rowIndexMap } = computeRowTops(tree, opts);
+  assignY(tree, rowTops, rowIndexMap, null, opts);
 
   const nodes = [];
   const edges = [];

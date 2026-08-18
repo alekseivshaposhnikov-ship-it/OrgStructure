@@ -131,6 +131,28 @@ function isSamePerson(emp, manager) {
   return empName && managerName && empName === managerName;
 }
 
+function getManagerSubLevel(apiNode) {
+  const manager = apiNode.manager;
+
+  if (!manager) {
+    return parseSubLevel(undefined);
+  }
+
+  if (
+    manager.sub_level !== undefined &&
+    manager.sub_level !== null &&
+    manager.sub_level !== ""
+  ) {
+    return parseSubLevel(manager.sub_level);
+  }
+
+  const managerEmployee = (apiNode.employees || []).find((emp) =>
+    isSamePerson(emp, manager),
+  );
+
+  return parseSubLevel(managerEmployee?.sub_level);
+}
+
 function positionWeight(user) {
   if (Number.isFinite(user.subLevel)) return user.subLevel;
 
@@ -226,7 +248,7 @@ function transformNode(apiNode, parentId = null) {
     department_name: apiNode.name,
     department_manager: apiNode.manager?.full_name || "",
     department_manager_position: shortPosition(apiNode.manager?.position || ""),
-    manager_sub_level: parseSubLevel(apiNode.manager?.sub_level),
+    manager_sub_level: getManagerSubLevel(apiNode),
     parent_guid: parentId,
     staffCount,
     vacancyCount,

@@ -101,6 +101,77 @@ describe('api.js', () => {
       expect(result[0].manager_sub_level).toBe(Number.MAX_SAFE_INTEGER);
     });
 
+    it('должен брать sub_level из employees, если у manager.sub_level нет (кейс Зуевой)', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел клиентского сопровождения',
+          manager: {
+            full_name: 'Зуева Наталья Сергеевна',
+            position: 'Руководитель отдела',
+            projects: ''
+          },
+          employees: [
+            {
+              full_name: 'Зуева Наталья Сергеевна',
+              position: 'Руководитель отдела',
+              sub_level: '4.0',
+              count: '1'
+            }
+          ],
+          vacancy_list: [],
+          children: []
+        }
+      ];
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(apiResponse) });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].manager_sub_level).toBe(4);
+      expect(result[0].users).toHaveLength(0);
+    });
+
+    it('должен сопоставлять руководителя и сотрудника по id', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: { id: 'mgr-99', full_name: 'Мария Смирнова', position: 'Руководитель' },
+          employees: [
+            { id: 'mgr-99', full_name: 'Мария Смирнова', position: 'Руководитель', sub_level: '3.5', count: '1' },
+            { id: 'emp-1', full_name: 'Петр Петров', position: 'Разработчик', count: '1' }
+          ],
+          vacancy_list: [],
+          children: []
+        }
+      ];
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(apiResponse) });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].manager_sub_level).toBe(3.5);
+    });
+
+    it('должен сопоставлять руководителя по full_name (trim, без учета регистра)', async () => {
+      const apiResponse = [
+        {
+          id: 'dept-1',
+          name: 'Отдел',
+          manager: { full_name: '  Анна Орлова ', position: 'Руководитель' },
+          employees: [
+            { full_name: 'АННА ОРЛОВА', position: 'Руководитель', sub_level: '5.0', count: '1' }
+          ],
+          vacancy_list: [],
+          children: []
+        }
+      ];
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(apiResponse) });
+
+      const result = await fetchOrganizationStructure();
+      expect(result[0].manager_sub_level).toBe(5);
+    });
+
     it('должен возвращать пустой массив при HTTP ошибке', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,

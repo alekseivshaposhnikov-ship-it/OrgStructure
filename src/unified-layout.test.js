@@ -153,4 +153,71 @@ describe("unified-layout", () => {
     const bLeft = b1.x;
     expect(aRight).toBeLessThanOrEqual(bLeft);
   });
+
+  it("не должен падать при дробном sub_level и выравнивать одинаковые уровни по Y", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 2,
+      children: [
+        dept("A", "A", { managerSubLevel: 3.5 }),
+        dept("B", "B", { managerSubLevel: 3.5 }),
+        dept("C", "C", { managerSubLevel: 4 }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    expect(byId(nodes, "A").y).toBe(byId(nodes, "B").y);
+    expect(byId(nodes, "A").y).not.toBe(byId(nodes, "C").y);
+  });
+
+  it("Y следующего уровня не зависит от числа сотрудников в другой ветке", () => {
+    const make = (n) => dept("root", "ROOT", { managerSubLevel: 2, children: [
+      dept("A", "A", { managerSubLevel: 3, users: Array.from({ length: n }, (_, i) => user("u" + i, "Emp " + i)) }),
+      dept("B", "B", { managerSubLevel: 3, children: [dept("B1", "B1", { managerSubLevel: 4 })] }),
+    ] });
+    const y1 = byId(computeUnifiedLayout(make(1)).nodes, "B1").y;
+    const y20 = byId(computeUnifiedLayout(make(20)).nodes, "B1").y;
+    expect(y20).toBe(y1);
+  });
+
+  it("employee-column не пересекается с дочерними подразделениями", () => {
+    const root = dept("root", "ROOT", { managerSubLevel: 2,
+      users: [user("u1", "Emp 1"), user("u2", "Emp 2"), user("u3", "Emp 3")],
+      children: [dept("A1", "A1", { managerSubLevel: 3 })],
+    });
+    const { tree, nodes } = computeUnifiedLayout(root);
+    const emp = tree.children.find((c) => c.type === NODE_EMPLOYEES);
+    expect(emp).toBeTruthy();
+    expect(emp.y).toBe(tree.y + tree.height + 30);
+    const a1 = byId(nodes, "A1");
+    expect(emp.x + emp.width).toBeLessThanOrEqual(a1.x);
+  });
+
+  it("ассистент не влияет на строки подразделений", () => {
+    const withAst = dept("root", "ROOT", { managerSubLevel: 2,
+      users: [user("ast-1", "Anna", { position: "Административный ассистент" })],
+      children: [
+        dept("A", "A", { managerSubLevel: 3 }),
+        dept("B", "B", { managerSubLevel: 3, children: [dept("B1", "B1", { managerSubLevel: 4 })] }),
+      ],
+    });
+    const noAst = dept("root", "ROOT", { managerSubLevel: 2,
+      children: [
+        dept("A", "A", { managerSubLevel: 3 }),
+        dept("B", "B", { managerSubLevel: 3, children: [dept("B1", "B1", { managerSubLevel: 4 })] }),
+      ],
+    });
+    const yWith = byId(computeUnifiedLayout(withAst).nodes, "B1").y;
+    const yNo = byId(computeUnifiedLayout(noAst).nodes, "B1").y;
+    expect(yWith).toBe(yNo);
+  });
+
+  it("collapsed department не влияет на соседние ветки", () => {
+    const root = dept("root", "ROOT", { managerSubLevel: 2, children: [
+      dept("A", "A", { managerSubLevel: 3, children: [dept("A1", "A1", { managerSubLevel: 4 })] }),
+      dept("B", "B", { managerSubLevel: 3, children: [dept("B1", "B1", { managerSubLevel: 4 })] }),
+    ] });
+    const { nodes } = computeUnifiedLayout(root, { collapsedIds: new Set(["A"]) });
+    expect(byId(nodes, "A1")).toBeUndefined();
+    expect(byId(nodes, "B1")).toBeTruthy();
+  });
 });
