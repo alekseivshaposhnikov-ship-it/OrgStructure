@@ -267,6 +267,23 @@ button:hover {
   background: transparent;
 }
 
+/* Compact A4 (CR-008_1): экранный рендер, общий viewport управляется через
+   screen-viewport. Заголовок фиксирован, диаграмма — в viewport layer. */
+.compact-a4 {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+}
+
+.compact-a4__viewport-layer {
+  cursor: grab;
+}
+
+.compact-a4__viewport-layer:active {
+  cursor: grabbing;
+}
+
 .unified-card {
   width: 100%;
   height: 100%;

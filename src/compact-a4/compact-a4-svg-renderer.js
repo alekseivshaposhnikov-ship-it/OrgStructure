@@ -27,7 +27,7 @@ const C = {
 };
 
 export function renderCompactSvg(layoutResult, options = {}) {
-  const { title = 'Организационная структура', subtitle = '' } = options;
+  const { title = 'Организационная структура', subtitle = '', screen = false } = options;
   const { flat, scale, a4Width, a4Height, canFit } = layoutResult;
 
   if (!canFit || !flat || !flat.length) {
@@ -35,11 +35,14 @@ export function renderCompactSvg(layoutResult, options = {}) {
   }
 
   const svg = createSvg('svg', {
-    width: a4Width, height: a4Height,
+    width: screen ? '100%' : a4Width,
+    height: screen ? '100%' : a4Height,
     viewBox: `0 0 ${a4Width} ${a4Height}`,
     xmlns: 'http://www.w3.org/2000/svg',
+    class: screen ? 'compact-a4' : '',
   });
   svg.appendChild(createSvg('rect', { x: 0, y: 0, width: a4Width, height: a4Height, fill: C.white }));
+  // Экранный заголовок A4 остаётся фиксированным (не двигается вместе с zoom/pan).
   drawHeader(svg, { title, subtitle, width: a4Width });
 
   const diag = createSvg('g', {
@@ -57,7 +60,15 @@ export function renderCompactSvg(layoutResult, options = {}) {
     else drawEmployeeCard(diag, n);
   });
 
-  svg.appendChild(diag);
+  if (screen) {
+    // Экранный режим: диаграмма живёт в отдельном слое, к которому
+    // применяется общий viewport transform (zoom/pan).
+    const viewportLayer = createSvg('g', { class: 'compact-a4__viewport-layer' });
+    viewportLayer.appendChild(diag);
+    svg.appendChild(viewportLayer);
+  } else {
+    svg.appendChild(diag);
+  }
   return svg;
 }
 

@@ -12,6 +12,7 @@ import {
   NODE_DEPARTMENT,
 } from "./unified-layout.js";
 import { renderNodeContent } from "./chart-cards.js";
+import { createChartViewport } from "./screen-viewport.js";
 
 function cardHtml(node, opts) {
   if (node.type === NODE_EMPLOYEES) {
@@ -72,7 +73,7 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     layout: null,
     svg: null,
     zoomLayer: null,
-    zoomBehavior: null,
+    viewport: null,
   };
 
   function buildLayout() {
@@ -111,14 +112,12 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     const zoomLayer = svg.append("g").attr("class", "unified-orgchart__layer");
     state.zoomLayer = zoomLayer;
 
-    const zoomBehavior = d3
-      .zoom()
-      .scaleExtent([0.1, 3])
-      .on("zoom", () => {
-        state.zoomLayer.attr("transform", d3.event.transform);
-      });
-
-    svg.call(zoomBehavior);
+    state.viewport = createChartViewport({
+      svg,
+      zoomLayer,
+      minScale: 0.1,
+      maxScale: 3,
+    });
 
     zoomLayer
       .append("g")
@@ -187,16 +186,15 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
 
     state.svg = svg;
     state.zoomLayer = zoomLayer;
-    state.zoomBehavior = zoomBehavior;
   }
 
   function fit() {
-    if (!state.layout || !state.svg) return;
+    if (!state.layout || !state.viewport) return;
     const { width, height } = state.layout;
-    const k = 0.95;
-    const tx = (width * (1 - k)) / 2;
-    const ty = (height * (1 - k)) / 2;
-    state.svg.call(state.zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+    state.viewport.fit({
+      bounds: { x: 0, y: 0, width, height },
+      viewport: { width, height },
+    });
   }
 
   function setCentered(id) {
@@ -205,12 +203,13 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
       : null;
     if (!node) return { render() {} };
 
-    const k = 1;
     const cx = node.x + node.width / 2;
     const cy = node.y + node.height / 2;
-    const tx = state.layout.width / 2 - cx * k;
-    const ty = state.layout.height / 2 - cy * k;
-    state.svg.call(state.zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+    state.viewport.setCentered({
+      x: cx,
+      y: cy,
+      viewport: { width: state.layout.width, height: state.layout.height },
+    });
 
     return { render() {} };
   }

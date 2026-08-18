@@ -278,4 +278,87 @@ describe('compact-a4-svg-renderer', () => {
     const paths = svg.querySelectorAll('path');
     expect(paths.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('в screen-режиме оборачивает диаграмму в viewport layer (CR-008_1)', () => {
+    const layoutResult = {
+      flat: [
+        {
+          id: 'root',
+          type: 'department',
+          name: 'Холдинг',
+          manager: '',
+          position: '',
+          count: 10,
+          project: '',
+          scenarioState: '',
+          x: 24,
+          y: 104,
+          cardWidth: 180,
+          cardHeight: 52,
+          depth: 0,
+        },
+      ],
+      scale: 1,
+      totalWidth: 228,
+      totalHeight: 264,
+      a4Width: 1122,
+      a4Height: 794,
+      canFit: true,
+    };
+
+    const svg = renderCompactSvg(layoutResult, { title: 'Тест', screen: true });
+
+    expect(svg).toBeDefined();
+    expect(svg.getAttribute('width')).toBe('100%');
+    expect(svg.getAttribute('height')).toBe('100%');
+    expect(svg.getAttribute('class')).toContain('compact-a4');
+
+    const viewportLayer = svg.querySelector('.compact-a4__viewport-layer');
+    expect(viewportLayer).toBeTruthy();
+
+    // Карточки находятся внутри viewport layer
+    const layerRectCount = viewportLayer.querySelectorAll('rect').length;
+    expect(layerRectCount).toBeGreaterThanOrEqual(1);
+
+    // Заголовок (текст 'Организационная структура') — вне viewport layer
+    const headerInside = Array.from(viewportLayer.querySelectorAll('text')).some((t) =>
+      (t.textContent || '').includes('Организационная структура'),
+    );
+    expect(headerInside).toBe(false);
+  });
+
+  it('без screen-режима сохраняет прежнюю структуру (PDF-путь)', () => {
+    const layoutResult = {
+      flat: [
+        {
+          id: 'root',
+          type: 'department',
+          name: 'Холдинг',
+          manager: '',
+          position: '',
+          count: 10,
+          project: '',
+          scenarioState: '',
+          x: 24,
+          y: 104,
+          cardWidth: 180,
+          cardHeight: 52,
+          depth: 0,
+        },
+      ],
+      scale: 1,
+      totalWidth: 228,
+      totalHeight: 264,
+      a4Width: 1122,
+      a4Height: 794,
+      canFit: true,
+    };
+
+    const svg = renderCompactSvg(layoutResult, { title: 'Тест' });
+
+    expect(svg.getAttribute('width')).toBe('1122');
+    expect(svg.getAttribute('height')).toBe('794');
+    // Нет экранного viewport layer — PDF использует прежнюю структуру
+    expect(svg.querySelector('.compact-a4__viewport-layer')).toBeNull();
+  });
 });

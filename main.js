@@ -377,11 +377,13 @@ function renderScreenOrgChart(rootNodes) {
 
   // Для компактного A4 используется тот же единый layout, но компактный рендер карточек
   if (cardDesign === "compact-a4") {
-    renderCompactA4Screen(rootNodes, "#orgChart", {
+    chart = renderCompactA4Screen(rootNodes, "#orgChart", {
       hideNames: false,
       showVacancies,
       viewMode,
     });
+    if (!chart) return;
+    window.orgChart = chart;
     return;
   }
 

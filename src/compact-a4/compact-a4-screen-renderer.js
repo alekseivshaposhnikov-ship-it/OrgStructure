@@ -4,6 +4,9 @@
  * Рендерит компактную orgchart на экране, используя ЕДИНЫЙ layout
  * (computeUnifiedLayout). compact-a4 — только вариант размеров/оформления
  * карточек, не отдельный алгоритм организационной схемы.
+ *
+ * Управление экраном (zoom/pan/fit/center) — через общий screen-viewport,
+ * как и у обычного screen renderer (CR-008_1).
  */
 
 import {
@@ -25,6 +28,13 @@ import {
   MIN_SCALE,
 } from "./compact-a4-layout.js";
 import { renderCompactSvg } from "./compact-a4-svg-renderer.js";
+import { createChartViewport } from "../screen-viewport.js";
+
+const MODE_TITLES = {
+  "as-is": "Текущая структура",
+  "to-be": "Целевая структура",
+  changes: "Изменения",
+};
 
 export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart", options = {}) {
   const {
@@ -34,73 +44,145 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
   } = options;
 
   const container = document.querySelector(containerSelector);
-  if (!container) return;
+  if (!container) return null;
 
   if (!rootNodes || !rootNodes.length) {
     container.innerHTML = '<div class="empty-chart">Нет данных для отображения</div>';
-    return;
+    return null;
   }
 
   const rootNode = rootNodes[0];
 
-  const layout = computeUnifiedLayout(rootNode, {
-    showVacancies,
-    departmentWidth: DEPT_W,
-    departmentHeight: DEPT_H,
-    employeeWidth: PERSON_W,
-    employeeHeight: PERSON_H,
-    assistantWidth: PERSON_W,
-    assistantHeight: PERSON_H,
-    employeesHeaderHeight: 18,
-    colGap: 20,
-    rowGap: 16,
-    personGap: 4,
-    paddingX: PADDING_X,
-    paddingY: PADDING_Y + HEADER_HEIGHT,
-  });
-
+  // Область A4 под фиксированным экранным заголовком — видимая область viewport.
   const availW = A4_WIDTH - 2 * PADDING_X;
   const availH = A4_HEIGHT - HEADER_HEIGHT - 2 * PADDING_Y;
-  const scale = Math.min(
-    availW / Math.max(layout.width, 1),
-    availH / Math.max(layout.height, 1),
-    1,
-  );
-  const canFit = scale >= MIN_SCALE;
 
-  const flat = unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies });
-
-  const modeTitles = {
-    "as-is": "Текущая структура",
-    "to-be": "Целевая структура",
-    changes: "Изменения",
+  const state = {
+    container,
+    rootNode,
+    collapsedIds: new Set(),
+    layout: null,
+    flat: null,
+    scale: 1,
+    canFit: true,
+    svg: null,
+    viewport: null,
   };
 
-  const title = rootNode.department_name || rootNode.name || "Организационная структура";
-  const subtitle = `${modeTitles[viewMode] || "Организационная структура"}${showVacancies ? "" : " · без вакансий"}`;
+  function buildLayout() {
+    state.layout = computeUnifiedLayout(state.rootNode, {
+      showVacancies,
+      departmentWidth: DEPT_W,
+      departmentHeight: DEPT_H,
+      employeeWidth: PERSON_W,
+      employeeHeight: PERSON_H,
+      assistantWidth: PERSON_W,
+      assistantHeight: PERSON_H,
+      employeesHeaderHeight: 18,
+      colGap: 20,
+      rowGap: 16,
+      personGap: 4,
+      paddingX: PADDING_X,
+      paddingY: PADDING_Y + HEADER_HEIGHT,
+      collapsedIds: state.collapsedIds,
+    });
 
-  const svg = renderCompactSvg(
-    { flat, scale, a4Width: A4_WIDTH, a4Height: A4_HEIGHT, canFit },
-    { title, subtitle },
-  );
+    const { width, height } = state.layout;
+    state.scale = Math.min(
+      availW / Math.max(width, 1),
+      availH / Math.max(height, 1),
+      1,
+    );
+    state.canFit = state.scale >= MIN_SCALE;
+    state.flat = unifiedLayoutToCompactFlat(state.layout, { hideNames, showVacancies });
+  }
 
-  container.innerHTML = "";
-  container.appendChild(svg);
+  function render() {
+    container.innerHTML = "";
+    buildLayout();
 
-  fitSvgToContainer(svg, container);
-}
+    const title = state.rootNode.department_name || state.rootNode.name || "Организационная структура";
+    const subtitle = `${MODE_TITLES[viewMode] || "Организационная структура"}${showVacancies ? "" : " · без вакансий"}`;
 
-function fitSvgToContainer(svg, container) {
-  const containerWidth = container.clientWidth || 800;
-  const containerHeight = container.clientHeight || 600;
+    const svg = renderCompactSvg(
+      {
+        flat: state.flat,
+        scale: state.scale,
+        a4Width: A4_WIDTH,
+        a4Height: A4_HEIGHT,
+        canFit: state.canFit,
+      },
+      { title, subtitle, screen: true },
+    );
 
-  const scaleX = containerWidth / A4_WIDTH;
-  const scaleY = containerHeight / A4_HEIGHT;
-  const scale = Math.min(scaleX, scaleY, 1.5);
+    state.svg = svg;
+    container.appendChild(svg);
 
-  svg.setAttribute("width", A4_WIDTH * scale);
-  svg.setAttribute("height", A4_HEIGHT * scale);
-  svg.style.maxWidth = "100%";
+    const zoomLayer = svg.querySelector(".compact-a4__viewport-layer");
+    if (zoomLayer) {
+      state.viewport = createChartViewport({
+        svg,
+        zoomLayer,
+        minScale: 0.1,
+        maxScale: 3,
+      });
+      fit();
+    } else {
+      state.viewport = null;
+    }
+  }
+
+  function fit() {
+    if (!state.layout || !state.viewport) return;
+
+    const { width, height } = state.layout;
+    const diagramW = width * state.scale;
+    const diagramH = height * state.scale;
+
+    // Screen fit — отдельный уровень от внутреннего A4 scale (CR-008_1 #9).
+    // Диаграмма вписывается в область под фиксированным заголовком.
+    state.viewport.fit({
+      bounds: { x: PADDING_X, y: PADDING_Y + HEADER_HEIGHT, width: diagramW, height: diagramH },
+      viewport: { width: availW, height: availH },
+    });
+  }
+
+  function setCentered(id) {
+    const node = state.flat ? state.flat.find((n) => n.id === id) : null;
+    if (!node) return { render() {} };
+
+    const cx = PADDING_X + (node.x + node.cardWidth / 2) * state.scale;
+    const cy = PADDING_Y + HEADER_HEIGHT + (node.y + node.cardHeight / 2) * state.scale;
+
+    state.viewport.setCentered({
+      x: cx,
+      y: cy,
+      viewport: { width: availW, height: availH },
+    });
+
+    return { render() {} };
+  }
+
+  function toggleCollapse(id) {
+    if (state.collapsedIds.has(id)) {
+      state.collapsedIds.delete(id);
+    } else {
+      state.collapsedIds.add(id);
+    }
+    render();
+  }
+
+  render();
+
+  return {
+    get flatData() {
+      return state.flat || [];
+    },
+    fit,
+    setCentered,
+    render,
+    toggleCollapse,
+  };
 }
 
 function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies }) {
