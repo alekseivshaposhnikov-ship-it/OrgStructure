@@ -16,6 +16,17 @@
 
 const MAX_SUBLEVEL = Number.MAX_SAFE_INTEGER;
 
+/**
+ * Нормализует управленческий уровень подразделения для layout (CR-008_3).
+ * Дробная часть sub_level не создаёт отдельный визуальный ряд:
+ * 4.0, 4.1, 4.9 → management level 4.
+ * Не изменяет исходное значение sub_level.
+ */
+export function normalizeManagementLevel(subLevel) {
+  if (!Number.isFinite(subLevel)) return null;
+  return Math.floor(subLevel);
+}
+
 export const NODE_DEPARTMENT = "department";
 export const NODE_EMPLOYEES = "employees";
 export const NODE_ASSISTANT = "assistant";
@@ -146,8 +157,9 @@ export function buildLayoutTree(
 }
 
 /**
- * Проход 1 (CR-008_2_2): фиксирует реальный managerSubLevel и устанавливает
- * effectiveLayoutLevel только для узлов с валидным уровнем.
+ * Проход 1 (CR-008_2_2, CR-008_3): фиксирует реальный managerSubLevel,
+ * нормализует его в normalizedManagementLevel (целая часть) и устанавливает
+ * effectiveLayoutLevel из нормализованного уровня.
  * Для узлов без уровня effectiveLayoutLevel остаётся null —
  * он заполняется на проходе 2 (sibling-группа).
  */
@@ -156,7 +168,8 @@ function assignActualLevels(node) {
     const sl = node.data.managerSubLevel;
     const finite = Number.isFinite(sl) && sl !== MAX_SUBLEVEL;
     node.actualManagerSubLevel = finite ? sl : null;
-    node.effectiveLayoutLevel = finite ? sl : null;
+    node.normalizedManagementLevel = finite ? normalizeManagementLevel(sl) : null;
+    node.effectiveLayoutLevel = node.normalizedManagementLevel;
   }
 
   (node.children || []).forEach(assignActualLevels);
@@ -265,6 +278,7 @@ function computeRows(tree) {
 function attachLayoutMeta(node) {
   if (node.type === NODE_DEPARTMENT) {
     node.data.actualManagerSubLevel = node.actualManagerSubLevel;
+    node.data.normalizedManagementLevel = node.normalizedManagementLevel;
     node.data.effectiveLayoutLevel = node.effectiveLayoutLevel;
     node.data.row = node.row;
   }

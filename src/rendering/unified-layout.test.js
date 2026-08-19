@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeUnifiedLayout,
+  normalizeManagementLevel,
   NODE_DEPARTMENT,
   NODE_EMPLOYEES,
 } from "./unified-layout.js";
@@ -369,6 +370,114 @@ describe("unified-layout", () => {
       expect(web.row).toBe(1);
       expect(support.row).toBeGreaterThan(web.row);
       expect(support.effectiveLayoutLevel).toBe(5);
+    });
+  });
+
+  describe("CR-008_3: normalizeManagementLevel (дробный sub_level)", () => {
+    it("4.0 и 4.1 — один management level, одна визуальная строка", () => {
+      const root = dept("root", "Дирекция по маркетингу", {
+        children: [
+          dept("lab", "Маркетинговая лаборатория", { managerSubLevel: 4.0 }),
+          dept("analytics", "Отдел аналитики", { managerSubLevel: 4.1 }),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      const lab = byId(nodes, "lab");
+      const analytics = byId(nodes, "analytics");
+
+      expect(lab.normalizedManagementLevel).toBe(4);
+      expect(analytics.normalizedManagementLevel).toBe(4);
+      expect(lab.effectiveLayoutLevel).toBe(4);
+      expect(analytics.effectiveLayoutLevel).toBe(4);
+      expect(lab.row).toBe(analytics.row);
+      expect(lab.y).toBe(analytics.y);
+    });
+
+    it("4.1, 4.2, 4.9 — management level 4, одна строка", () => {
+      const root = dept("root", "ROOT", {
+        children: [
+          dept("A", "A", { managerSubLevel: 4.1 }),
+          dept("B", "B", { managerSubLevel: 4.2 }),
+          dept("C", "C", { managerSubLevel: 4.9 }),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      const rows = ["A", "B", "C"].map((id) => byId(nodes, id).row);
+      const ys = ["A", "B", "C"].map((id) => byId(nodes, id).y);
+
+      expect(new Set(rows).size).toBe(1);
+      expect(new Set(ys).size).toBe(1);
+    });
+
+    it("4.9 и 5.0 — разные management levels", () => {
+      const root = dept("root", "ROOT", {
+        children: [
+          dept("A", "A", { managerSubLevel: 4.9 }),
+          dept("B", "B", { managerSubLevel: 5.0 }),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      expect(byId(nodes, "A").normalizedManagementLevel).toBe(4);
+      expect(byId(nodes, "B").normalizedManagementLevel).toBe(5);
+      expect(byId(nodes, "A").row).not.toBe(byId(nodes, "B").row);
+    });
+
+    it("actualManagerSubLevel сохраняется (4.1), effective нормализуется в 4", () => {
+      const root = dept("root", "ROOT", {
+        children: [dept("A", "A", { managerSubLevel: 4.1 })],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      const a = byId(nodes, "A");
+      expect(a.actualManagerSubLevel).toBe(4.1);
+      expect(a.normalizedManagementLevel).toBe(4);
+      expect(a.effectiveLayoutLevel).toBe(4);
+      // исходные данные не изменены
+      expect(a.data.managerSubLevel).toBe(4.1);
+      expect(a.data.actualManagerSubLevel).toBe(4.1);
+    });
+
+    it("sibling fallback работает с нормализованными уровнями [4.0, 4.1, null, 4.2]", () => {
+      const root = dept("root", "ROOT", {
+        children: [
+          dept("A", "A", { managerSubLevel: 4.0 }),
+          dept("B", "B", { managerSubLevel: 4.1 }),
+          dept("C", "C", {}),
+          dept("D", "D", { managerSubLevel: 4.2 }),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      expect(byId(nodes, "A").normalizedManagementLevel).toBe(4);
+      expect(byId(nodes, "B").normalizedManagementLevel).toBe(4);
+      expect(byId(nodes, "C").normalizedManagementLevel).toBeNull();
+      expect(byId(nodes, "D").normalizedManagementLevel).toBe(4);
+      expect(byId(nodes, "C").effectiveLayoutLevel).toBe(4);
+
+      const rows = ["A", "B", "C", "D"].map((id) => byId(nodes, id).row);
+      expect(new Set(rows).size).toBe(1);
+    });
+
+    it("employee sub_level (6.4) не нормализуется и остаётся в данных", () => {
+      const root = dept("root", "ROOT", {
+        managerSubLevel: 6,
+        users: [user("u1", "Emp 1", { subLevel: 6.4 })],
+      });
+      const { flatData } = computeUnifiedLayout(root);
+
+      const employee = flatData.find((d) => d.id === "u1");
+      expect(employee.subLevel).toBe(6.4);
+    });
+
+    it("normalizeManagementLevel: 4.0→4, 4.1→4, 4.9→4, null→null", () => {
+      expect(normalizeManagementLevel(4.0)).toBe(4);
+      expect(normalizeManagementLevel(4.1)).toBe(4);
+      expect(normalizeManagementLevel(4.9)).toBe(4);
+      expect(normalizeManagementLevel(null)).toBeNull();
+      expect(normalizeManagementLevel(undefined)).toBeNull();
     });
   });
 });
