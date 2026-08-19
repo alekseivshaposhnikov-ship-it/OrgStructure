@@ -1,0 +1,498 @@
+# Исправить расчет visual row в unified layout
+
+Текущая реализация после предыдущего рефакторинга по-прежнему отображает непосредственные дочерние подразделения одного родителя на разных вертикальных уровнях.
+
+На реальном примере:
+
+```text
+Дирекция по информационным технологиям
+├── Отдел 1С программирования
+├── Отдел веб-разработки
+├── Отдел информационных технологий в г. Москве
+├── Отдел инфраструктурных решений
+├── Отдел развития цифровых платформ
+└── Проектный офис
+```
+
+все шесть объектов являются непосредственными `department children` одного и того же parent.
+
+Ожидается:
+
+```text
+                    Дирекция IT
+                         |
+  -------------------------------------------------
+  |        |        |        |        |           |
+  1С      Web    Москва   Инфра   Цифровые   Проектный
+                                  платформы     офис
+```
+
+То есть все шесть department-card должны иметь одинаковый:
+
+```js
+row
+```
+
+и одинаковый:
+
+```js
+y
+```
+
+## 1. Основной инвариант sibling-группы
+
+Для непосредственных подразделений одного parent:
+
+```js
+departmentChildren = parent.children.filter(
+  child => child.type === NODE_DEPARTMENT
+);
+```
+
+необходимо определить общий визуальный уровень sibling-группы.
+
+Если несколько department children принадлежат одному parent, отсутствие `sub_level` у одного или нескольких детей не должно помещать их на другую строку.
+
+Для текущего кейса:
+
+```text
+1С                    actual sub_level = 4
+Web                   actual sub_level = null
+Москва                actual sub_level = 4
+Инфраструктура        actual sub_level = 4
+Цифровые платформы    actual sub_level = null
+Проектный офис        actual sub_level = 4
+```
+
+ожидается:
+
+```text
+1С                    effective = 4
+Web                   effective = 4
+Москва                effective = 4
+Инфраструктура        effective = 4
+Цифровые платформы    effective = 4
+Проектный офис        effective = 4
+```
+
+и затем:
+
+```js
+same row
+same y
+```
+
+## 2. effectiveLayoutLevel должен вычисляться ДО row
+
+Проверить текущий pipeline.
+
+Расчет должен выполняться в таком порядке:
+
+```text
+build tree
+    ↓
+read actual managerSubLevel
+    ↓
+resolve effectiveLayoutLevel for department sibling groups
+    ↓
+assign visual rows
+    ↓
+assign Y
+```
+
+Недопустимо:
+
+```text
+assign row
+    ↓
+resolve effectiveLayoutLevel
+```
+
+потому что в этом случае исправленный effective level уже не влияет на координаты.
+
+## 3. Не использовать rawLevel для финального row
+
+После появления:
+
+```js
+effectiveLayoutLevel
+```
+
+финальная функция назначения строк не должна продолжать использовать старое:
+
+```js
+rawLevel
+```
+
+как источник Y-level.
+
+Проверить текущий код на конструкции вида:
+
+```js
+const rawRow = node.rawLevel - rootRawLevel;
+node.row = Math.max(rawRow, parentRow + 1);
+```
+
+Если final row по-прежнему определяется через `rawLevel`, это необходимо исправить.
+
+Источник организационного Y должен быть:
+
+```js
+node.effectiveLayoutLevel
+```
+
+для `NODE_DEPARTMENT`.
+
+## 4. Root
+
+Выбранное пользователем подразделение всегда:
+
+```js
+row = 0
+```
+
+независимо от:
+
+```js
+managerSubLevel
+effectiveLayoutLevel
+```
+
+его руководителя.
+
+`sub_level` root не должен создавать дополнительные пустые строки.
+
+## 5. Нормализация уровня sibling-группы
+
+Для непосредственных department children одного parent:
+
+### Если часть детей имеет level, а часть нет
+
+Использовать mode валидных `managerSubLevel`.
+
+Пример:
+
+```text
+[4, null, 4, 4, null, 4]
+```
+
+дает:
+
+```text
+effective sibling level = 4
+```
+
+### Если валидных значений несколько
+
+Например:
+
+```text
+[4, 4, 4, 5, null]
+```
+
+для null:
+
+```text
+effective = 4
+```
+
+как mode.
+
+### Если mode неоднозначен
+
+Например:
+
+```text
+[4, 4, 5, 5, null]
+```
+
+использовать минимальный валидный уровень:
+
+```text
+4
+```
+
+для fallback-элемента.
+
+### Если ни у одного department sibling нет уровня
+
+Только тогда:
+
+```js
+effectiveLayoutLevel =
+  parent.effectiveLayoutLevel + 1;
+```
+
+## 6. Не менять actualManagerSubLevel
+
+Обязательно сохранить разделение:
+
+```js
+actualManagerSubLevel
+effectiveLayoutLevel
+```
+
+Например:
+
+```js
+{
+  actualManagerSubLevel: null,
+  effectiveLayoutLevel: 4
+}
+```
+
+Debug карточки:
+
+```text
+sub_level: —
+```
+
+должен показывать реальное значение.
+
+Для диагностики временно добавить отдельно:
+
+```text
+layout_level: 4
+row: 1
+```
+
+чтобы можно было визуально проверить, что layout действительно использует effective value.
+
+## 7. Важное уточнение про row
+
+`effectiveLayoutLevel` и `row` — не одно и то же.
+
+Например выбранный root может иметь неизвестный уровень, а его children — effective level `4`.
+
+Это не означает, что между root и детьми нужно создавать строки:
+
+```text
+1
+2
+3
+```
+
+Ожидается:
+
+```text
+root          row 0
+children      row 1
+```
+
+При этом metadata детей может оставаться:
+
+```text
+effectiveLayoutLevel = 4
+```
+
+То есть необходимо сжимать реальные management levels в существующие визуальные строки.
+
+Не создавать пустые visual rows для отсутствующих значений `sub_level`.
+
+## 8. Предлагаемый принцип построения row
+
+Сначала вычислить `effectiveLayoutLevel` всех department nodes.
+
+После этого собрать реально встречающиеся levels в отображаемой ветке, исключая selected root.
+
+Например:
+
+```text
+4
+5
+6
+```
+
+преобразовать:
+
+```text
+4 → visual row 1
+5 → visual row 2
+6 → visual row 3
+```
+
+Если встречаются:
+
+```text
+4
+6
+```
+
+получить:
+
+```text
+4 → row 1
+6 → row 2
+```
+
+а не оставлять пустую строку для `5`.
+
+Однако parent-child hierarchy остается ограничением:
+
+```js
+child.row > parent.row
+```
+
+Если реальные данные `sub_level` этому противоречат, parent-child hierarchy имеет приоритет.
+
+## 9. Hierarchy остается первичной
+
+Нельзя менять:
+
+```js
+parentId
+```
+
+Нельзя переносить Web или Цифровые платформы к другому parent ради layout.
+
+Новый расчет меняет только:
+
+```text
+effectiveLayoutLevel
+row
+y
+```
+
+## 10. Сотрудники не участвуют
+
+При расчете sibling levels и organizational rows полностью исключить:
+
+```js
+NODE_EMPLOYEES
+NODE_ASSISTANT
+```
+
+Вакансии находятся внутри employee content и также не участвуют.
+
+## 11. Ожидаемый результат конкретно для IT
+
+После исправления должны выполняться:
+
+```js
+oneC.row === web.row
+web.row === moscow.row
+moscow.row === infrastructure.row
+infrastructure.row === digitalPlatforms.row
+digitalPlatforms.row === projectOffice.row
+```
+
+и:
+
+```js
+oneC.y === web.y
+web.y === moscow.y
+moscow.y === infrastructure.y
+infrastructure.y === digitalPlatforms.y
+digitalPlatforms.y === projectOffice.y
+```
+
+При этом дочерние подразделения:
+
+```text
+Группа технической поддержки 1С
+Группа цифрового дизайна
+Группа технической поддержки
+```
+
+остаются детьми своих реальных parent и располагаются на следующей соответствующей organizational row.
+
+## 12. Диагностическая проверка перед исправлением
+
+Перед внесением кода вывести для шести непосредственных детей Дирекции IT:
+
+```js
+console.table([
+  {
+    name,
+    actualManagerSubLevel,
+    effectiveLayoutLevel,
+    row,
+    y,
+    parentId
+  }
+]);
+```
+
+Сначала показать результат текущей реализации.
+
+После исправления повторить таблицу.
+
+По итоговой таблице у всех шести должны совпадать:
+
+```text
+row
+y
+```
+
+## 13. Тесты
+
+Обязательно добавить unit test именно на реальную структуру:
+
+```text
+root
+children:
+  A level 4
+  B level null
+  C level 4
+  D level 4
+  E level null
+  F level 4
+```
+
+Ожидается:
+
+```js
+A.row === B.row;
+B.row === C.row;
+C.row === D.row;
+D.row === E.row;
+E.row === F.row;
+```
+
+и:
+
+```js
+A.y === B.y;
+B.y === C.y;
+C.y === D.y;
+D.y === E.y;
+E.y === F.y;
+```
+
+Также проверить:
+
+* calculated fallback не меняет actual `managerSubLevel`;
+* parent-child не меняется;
+* employee nodes не влияют на sibling level;
+* выбранный root всегда row 0.
+
+## 14. Scope
+
+Не менять:
+
+* X-layout;
+* subtree widths;
+* employee columns;
+* vacancies;
+* cards;
+* zoom/pan;
+* Compact A4 renderer;
+* PDF;
+* API normalization.
+
+Изменение касается только определения:
+
+```text
+actualManagerSubLevel
+effectiveLayoutLevel
+visual row
+Y
+```
+
+## Критерий приемки
+
+Для Дирекции по информационным технологиям шесть непосредственных дочерних подразделений визуально находятся на одной горизонтальной линии независимо от того, отсутствует ли у части из них `sub_level`.
+
+Главный принцип:
+
+> Hierarchy определяет sibling-группу. `sub_level` помогает согласовать управленческие уровни между ветками, но отсутствие `sub_level` не должно разрывать непосредственных siblings на разные visual rows.
