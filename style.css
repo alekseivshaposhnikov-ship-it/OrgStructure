@@ -248,14 +248,19 @@ button:hover {
   color: var(--color-primary);
 }
 
-.chart-card__sub-level-debug {
+.chart-card__layout-debug {
   position: absolute;
   left: 10px;
   bottom: 8px;
+  max-width: calc(100% - 90px);
   font-size: 9px;
-  font-weight: 600;
+  font-weight: 400;
   color: #98a2b3;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.7;
   pointer-events: none;
   z-index: 3;
 }

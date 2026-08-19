@@ -8,6 +8,7 @@
 import { A4_WIDTH, A4_HEIGHT, PADDING_X, PERSON_H } from './compact-a4-layout.js';
 import { COLORS } from '../tokens.js';
 import { createSvgElement as createSvg, addText, truncateText } from '../svg-utils.js';
+import { getLayoutDebugText } from '../chart-cards.js';
 
 const C = { ...COLORS };
 
@@ -114,6 +115,11 @@ function drawDeptCard(g, n) {
   if (n.project) {
     grp.appendChild(createSvg('rect', { x: 6, y: n.cardHeight - 20, width: Math.min(n.cardWidth - 60, 120), height: 14, rx: 7, ry: 7, fill: '#f2f4f7' }));
     addText(grp, `П: ${truncateText(n.project, 18)}`, 12, n.cardHeight - 9, 7, 400, '#475467');
+  }
+  // Диагностика уровней (CR-010 §10): компактная строка, не меняет высоту карточки
+  const layoutDebug = getLayoutDebugText(n, { compact: true });
+  if (layoutDebug) {
+    addText(grp, layoutDebug, 4, n.cardHeight - 1, 5, 400, C.muted);
   }
   g.appendChild(grp);
 }

@@ -361,4 +361,41 @@ describe('compact-a4-svg-renderer', () => {
     // Нет экранного viewport layer — PDF использует прежнюю структуру
     expect(svg.querySelector('.compact-a4__viewport-layer')).toBeNull();
   });
+
+  it('должен выводить диагностику уровней в карточке подразделения (CR-010)', () => {
+    const layoutResult = {
+      flat: [
+        {
+          id: 'root',
+          type: 'department',
+          name: 'Холдинг',
+          manager: '',
+          position: '',
+          count: 10,
+          project: '',
+          scenarioState: '',
+          x: 24,
+          y: 104,
+          cardWidth: 180,
+          cardHeight: 52,
+          depth: 0,
+          actualManagerSubLevel: 4,
+          effectiveLayoutLevel: 4,
+          row: 1,
+        },
+      ],
+      scale: 1,
+      totalWidth: 228,
+      totalHeight: 264,
+      a4Width: 1122,
+      a4Height: 794,
+      canFit: true,
+    };
+
+    const svg = renderCompactSvg(layoutResult, { title: 'Тест' });
+
+    const texts = Array.from(svg.querySelectorAll('text')).map((t) => t.textContent || '');
+    const hasDebug = texts.some((t) => t.includes('s:4') && t.includes('l:4') && t.includes('r:1'));
+    expect(hasDebug).toBe(true);
+  });
 });

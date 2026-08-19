@@ -115,6 +115,10 @@ export function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies })
         y: node.y,
         cardWidth: node.width,
         cardHeight: node.height,
+        // Диагностика (CR-010 §4, §9): единый источник значений с экраном
+        actualManagerSubLevel: node.actualManagerSubLevel,
+        effectiveLayoutLevel: node.effectiveLayoutLevel,
+        row: node.row,
       });
     } else if (node.type === NODE_ASSISTANT) {
       const d = node.data;

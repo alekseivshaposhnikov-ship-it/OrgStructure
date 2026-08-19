@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { renderNodeContent } from './chart-cards.js';
+import { renderNodeContent, layoutDebugConfig } from './chart-cards.js';
 
 function makeDepartmentNode(overrides = {}) {
   return {
@@ -56,13 +56,14 @@ function makeAssistantNode(overrides = {}) {
 
 describe('chart-cards.js', () => {
   describe('renderNodeContent', () => {
+    const previousDebug = layoutDebugConfig.enabled;
+
     beforeEach(() => {
-      // Включаем отладочный вывод sub_level только для этих тестов
-      localStorage.setItem('orgShowSubLevelDebug', '1');
+      layoutDebugConfig.enabled = true;
     });
 
     afterEach(() => {
-      localStorage.removeItem('orgShowSubLevelDebug');
+      layoutDebugConfig.enabled = previousDebug;
     });
 
     it('должен рендерить department classic с названием и руководителем', () => {
@@ -146,31 +147,40 @@ describe('chart-cards.js', () => {
       expect(htmlAsIs).not.toContain('data-scenario-menu');
     });
 
-    it('должен показывать sub_level руководителя в карточке подразделения', () => {
+    it('должен показывать debug-уровни руководителя в карточке подразделения', () => {
       const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }));
-      expect(html).toContain('sub_level: 2');
-      expect(html).toContain('chart-card__sub-level-debug');
+      expect(html).toContain('sub: 2');
+      expect(html).toContain('chart-card__layout-debug');
     });
 
-    it('должен показывать sub_level: — при отсутствии значения у руководителя', () => {
+    it('должен показывать sub: — при отсутствии значения у руководителя', () => {
       const html = renderNodeContent(makeDepartmentNode());
-      expect(html).toContain('sub_level: —');
+      expect(html).toContain('sub: —');
     });
 
-    it('должен показывать sub_level сотрудника', () => {
+    it('должен показывать sub сотрудника', () => {
       const html = renderNodeContent(makeEmployeeNode({ subLevel: 3 }));
-      expect(html).toContain('sub_level: 3');
+      expect(html).toContain('sub: 3');
     });
 
-    it('не должен показывать sub_level в PDF-режиме', () => {
+    it('не должен показывать debug в PDF-режиме', () => {
       const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }), { isPdfExport: true });
-      expect(html).not.toContain('chart-card__sub-level-debug');
+      expect(html).not.toContain('chart-card__layout-debug');
     });
 
-    it('не должен показывать sub_level, когда debug-флаг выключен', () => {
-      localStorage.removeItem('orgShowSubLevelDebug');
+    it('не должен показывать debug, когда флаг выключен', () => {
+      layoutDebugConfig.enabled = false;
       const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }));
-      expect(html).not.toContain('chart-card__sub-level-debug');
+      expect(html).not.toContain('chart-card__layout-debug');
+      expect(html).not.toContain('sub: 2');
+    });
+
+    it('должен выводить layout и row, если они переданы в data', () => {
+      const html = renderNodeContent(
+        makeDepartmentNode({ managerSubLevel: 4, effectiveLayoutLevel: 4, row: 1 }),
+      );
+      expect(html).toContain('layout: 4');
+      expect(html).toContain('row: 1');
     });
   });
 });
