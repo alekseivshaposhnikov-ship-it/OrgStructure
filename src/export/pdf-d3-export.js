@@ -1,6 +1,21 @@
-import { jsPDF } from "jspdf";
-import { calculateCompactLayout, convertToCompactTree } from "./compact-a4/compact-a4-layout.js";
-import { renderCompactSvg } from "./compact-a4/compact-a4-svg-renderer.js";
+import { buildCompactA4LayoutResult } from "../rendering/compact-a4/compact-a4-layout.js";
+import { renderCompactSvg } from "../rendering/compact-a4/compact-a4-svg-renderer.js";
+import {
+  normalizeProjects,
+  formatDate,
+  sanitizeFileName,
+} from "../core/utils/string.js";
+import { renderSvgToPdf, withExportBusyState } from "./pdf-utils.js";
+import {
+  COLORS,
+  getScenarioLabel,
+  getScenarioColors,
+} from "../rendering/tokens.js";
+import { createSvgElement, appendText, truncateText } from "../rendering/svg-utils.js";
+import {
+  findAdministrativeAssistantInSubtree,
+  isAdministrativeAssistant,
+} from "../rendering/unified-layout.js";
 
 const DEPT_CARD_WIDTH = 300;
 const DEPT_CARD_HEIGHT = 136;
@@ -14,20 +29,8 @@ const PERSON_GRID_GAP_Y = 36;
 
 const PADDING = 56;
 const HEADER_HEIGHT = 124;
-const EXPORT_SCALE = 2;
 
 const MAX_PERSON_COLUMNS = 2;
-
-const COLORS = {
-  blue: "#155eef",
-  blueLight: "#eef4ff",
-  text: "#101828",
-  muted: "#667085",
-  border: "#d0d5dd",
-  line: "#98a2b3",
-  purple: "#7a5af8",
-  red: "#f04438",
-};
 
 export async function exportOrgChartToPdf({
   rootNodes = [],
@@ -42,37 +45,24 @@ export async function exportOrgChartToPdf({
     return;
   }
 
-  const exportButton = document.getElementById("exportPdf");
-  const originalButtonText = exportButton?.textContent;
+  await withExportBusyState({
+    busyLabel: "Экспорт...",
+    task: async () => {
+      const exportTree = buildExportTree(rootNodes, { hideNames, showVacancies });
+      if (!exportTree) throw new Error("Нет данных для экспорта");
 
-  if (exportButton) {
-    exportButton.disabled = true;
-    exportButton.textContent = "Экспорт...";
-  }
+      validateExportTree(exportTree);
 
-  try {
-    const exportTree = buildExportTree(rootNodes, { hideNames, showVacancies });
-    if (!exportTree) throw new Error("Нет данных для экспорта");
+      const svg = renderExportSvg(exportTree, {
+        title,
+        subtitle,
+        viewMode,
+        hideNames,
+      });
 
-    validateExportTree(exportTree);
-
-    const svg = renderExportSvg(exportTree, {
-      title,
-      subtitle,
-      viewMode,
-      hideNames,
-    });
-
-    await saveSvgAsPdf(svg, sanitizeFileName(title));
-  } catch (error) {
-    console.error("Ошибка экспорта PDF:", error);
-    alert(`Не удалось экспортировать PDF. ${error.message}`);
-  } finally {
-    if (exportButton) {
-      exportButton.disabled = false;
-      exportButton.textContent = originalButtonText || "📄 Экспорт в PDF";
-    }
-  }
+      await renderSvgToPdf({ svg, fileName: sanitizeFileName(title) });
+    },
+  });
 }
 
 function buildExportTree(rootNodes, { hideNames, showVacancies }) {
@@ -742,92 +732,6 @@ function wrapText(text, maxWidth, fontSize, maxLines) {
   return lines;
 }
 
-function truncateText(text, maxChars) {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, Math.max(0, maxChars - 1))}…`;
-}
-
-function appendText(
-  group,
-  text,
-  { x, y, size = 12, weight = 400, fill = COLORS.text, anchor = "start" },
-) {
-  const textEl = createSvgElement("text", {
-    x,
-    y,
-    "font-family": "Arial, sans-serif",
-    "font-size": size,
-    "font-weight": weight,
-    fill,
-    "text-anchor": anchor,
-  });
-
-  textEl.textContent = text || "";
-  group.appendChild(textEl);
-}
-
-function createSvgElement(tagName, attrs = {}) {
-  const element = document.createElementNS("http://www.w3.org/2000/svg", tagName);
-
-  Object.entries(attrs).forEach(([key, value]) => {
-    element.setAttribute(key, String(value));
-  });
-
-  return element;
-}
-
-async function saveSvgAsPdf(svg, fileName) {
-  const { width, height } = svg.viewBox.baseVal;
-
-  const serializer = new XMLSerializer();
-  const svgString = serializer.serializeToString(svg);
-
-  const svgBlob = new Blob([svgString], {
-    type: "image/svg+xml;charset=utf-8",
-  });
-
-  const url = URL.createObjectURL(svgBlob);
-
-  try {
-    const img = await loadImage(url);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width * EXPORT_SCALE;
-    canvas.height = height * EXPORT_SCALE;
-
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    const imgData = canvas.toDataURL("image/png");
-
-    const pdf = new jsPDF({
-      orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
-      unit: "px",
-      format: [canvas.width, canvas.height],
-      compress: true,
-    });
-
-    pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
-    pdf.save(`${fileName}.pdf`);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-function loadImage(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.crossOrigin = "anonymous";
-    img.src = url;
-  });
-}
-
 function walk(node, callback) {
   if (!node) return;
   callback(node);
@@ -855,66 +759,6 @@ function validateExportTree(root) {
   });
 }
 
-function findAdministrativeAssistantInSubtree(node) {
-  const ownAssistant = findAdministrativeAssistant(node.users || []);
-  if (ownAssistant) return ownAssistant;
-
-  for (const child of node.children || []) {
-    const childAssistant = findAdministrativeAssistantInSubtree(child);
-    if (childAssistant) return childAssistant;
-  }
-
-  return null;
-}
-
-function findAdministrativeAssistant(users) {
-  return (users || []).find(user => isAdministrativeAssistant(user)) || null;
-}
-
-function isAdministrativeAssistant(user) {
-  if (!user || user.isVacancy) return false;
-  const position = String(user.rawPosition || user.position || "").toLowerCase();
-  return position.includes("административный ассистент");
-}
-
-function normalizeProjects(value) {
-  return String(value || "")
-    .split(";")
-    .map(item => item.trim())
-    .filter(Boolean)
-    .join("; ");
-}
-
-function getScenarioLabel(state) {
-  if (state === "added") return "NEW";
-  if (state === "changed") return "Изменен";
-  if (state === "moved") return "Перемещен";
-  if (state === "removed") return "Удален";
-  return "";
-}
-
-function getScenarioColors(state) {
-  if (state === "added") return { bg: "#dcfae6", text: "#067647" };
-  if (state === "changed") return { bg: "#dbeafe", text: "#1d4ed8" };
-  if (state === "moved") return { bg: "#f4e8ff", text: "#7e22ce" };
-  if (state === "removed") return { bg: "#fee4e2", text: "#b42318" };
-  return { bg: "#f2f4f7", text: "#344054" };
-}
-
-function formatDate(date) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
-}
-
-function sanitizeFileName(value) {
-  return String(value || "orgchart")
-    .replace(/[\\/:*?"<>|]/g, "_")
-    .slice(0, 120);
-}
-
 let fallbackIdCounter = 0;
 
 function createFallbackId() {
@@ -931,87 +775,56 @@ export async function exportCompactA4ToPdf({
   subtitle = "",
   hideNames = false,
   showVacancies = true,
-  viewMode = "to-be",
+  _viewMode = "to-be",
 } = {}) {
   if (!rootNodes.length) {
     alert("Нет диаграммы для экспорта");
     return;
   }
 
-  const exportButton = document.getElementById("exportPdf");
-  const originalButtonText = exportButton?.textContent;
+  await withExportBusyState({
+    busyLabel: "Экспорт компактного A4...",
+    task: async () => {
+      const layoutResult = buildCompactA4LayoutResult(buildCompactA4Root(rootNodes), {
+        hideNames,
+        showVacancies,
+      });
 
-  if (exportButton) {
-    exportButton.disabled = true;
-    exportButton.textContent = "Экспорт компактного A4...";
-  }
+      if (!layoutResult || !layoutResult.canFit) {
+        alert("Структуру невозможно уместить на один лист A4 без потери читаемости");
+        return;
+      }
 
-  try {
-    const exportTree = buildCompactA4ExportTree(rootNodes, { hideNames, showVacancies });
-    if (!exportTree) throw new Error("Нет данных для экспорта");
-
-    const compactTree = convertToCompactTree(exportTree);
-    const layoutResult = calculateCompactLayout(compactTree);
-
-    if (!layoutResult || !layoutResult.canFit) {
-      alert("Структуру невозможно уместить на один лист A4 без потери читаемости");
-      return;
-    }
-
-    const svg = renderCompactSvg(layoutResult, { title, subtitle });
-    await saveCompactSvgAsA4Pdf(svg, sanitizeFileName(title));
-  } catch (error) {
-    console.error("Ошибка экспорта компактного PDF:", error);
-    alert(`Не удалось экспортировать компактный PDF. ${error.message}`);
-  } finally {
-    if (exportButton) {
-      exportButton.disabled = false;
-      exportButton.textContent = originalButtonText || "📄 Экспорт в PDF";
-    }
-  }
-}
-
-function buildCompactA4ExportTree(rootNodes, { hideNames, showVacancies }) {
-  return buildExportTree(rootNodes, { hideNames, showVacancies });
-}
-
-async function saveCompactSvgAsA4Pdf(svg, fileName) {
-  const { width, height } = svg.viewBox.baseVal;
-
-  const serializer = new XMLSerializer();
-  const svgString = serializer.serializeToString(svg);
-
-  const svgBlob = new Blob([svgString], {
-    type: "image/svg+xml;charset=utf-8",
+      const svg = renderCompactSvg(layoutResult, { title, subtitle });
+      await renderSvgToPdf({
+        svg,
+        fileName: sanitizeFileName(title),
+        orientation: "landscape",
+        fileNameSuffix: "_compact_A4.pdf",
+      });
+    },
   });
+}
 
-  const url = URL.createObjectURL(svgBlob);
+/**
+ * Возвращает корневой узел для компактного A4: единственный узел дерева
+ * или синтетический корень для нескольких.
+ */
+function buildCompactA4Root(rootNodes) {
+  if (rootNodes.length === 1) return rootNodes[0];
 
-  try {
-    const img = await loadImage(url);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width * 2;
-    canvas.height = height * 2;
-
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    const imgData = canvas.toDataURL("image/png");
-
-    const pdf = new jsPDF({
-      orientation: "landscape",
-      unit: "px",
-      format: [canvas.width, canvas.height],
-      compress: true,
-    });
-
-    pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
-    pdf.save(`${fileName}_compact_A4.pdf`);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  return {
+    department_guid: "compact-export-root",
+    department_name: "Организационная структура",
+    department_manager: "",
+    department_manager_position: "",
+    staffCount: rootNodes.reduce((sum, node) => sum + (node.staffCount || 0), 0),
+    vacancyCount: rootNodes.reduce((sum, node) => sum + (node.vacancyCount || 0), 0),
+    totalWithVacancies: rootNodes.reduce(
+      (sum, node) => sum + (node.totalWithVacancies || node.staffCount || 0),
+      0,
+    ),
+    users: [],
+    children: rootNodes,
+  };
 }

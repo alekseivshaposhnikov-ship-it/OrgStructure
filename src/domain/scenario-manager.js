@@ -1,3 +1,12 @@
+import {
+  cloneTree,
+  findDepartmentById,
+  shortPosition,
+  parseSubLevel,
+} from "../core/utils/tree.js";
+
+export { cloneTree, findDepartmentById };
+
 const LOCAL_ID_PREFIX = "local";
 
 export function createScenario(baseTree) {
@@ -9,10 +18,6 @@ export function createScenario(baseTree) {
     workingTree: cloneTree(baseTree),
     operations: [],
   };
-}
-
-export function cloneTree(value) {
-  return JSON.parse(JSON.stringify(value || []));
 }
 
 export function resetScenario(scenario) {
@@ -394,17 +399,6 @@ export function getDepartmentOptions(tree) {
   return result;
 }
 
-export function findDepartmentById(nodes, departmentId) {
-  for (const node of nodes || []) {
-    if (node.department_guid === departmentId) return node;
-
-    const found = findDepartmentById(node.children || [], departmentId);
-    if (found) return found;
-  }
-
-  return null;
-}
-
 export function findUserById(nodes, userId) {
   for (const node of nodes || []) {
     const user = (node.users || []).find(item => item.id === userId);
@@ -611,20 +605,6 @@ function positionWeight(user) {
   if (position.includes("главный")) return 6;
 
   return 100;
-}
-
-function shortPosition(pos) {
-  if (!pos) return "";
-  const idx = pos.indexOf("/");
-  return idx !== -1 ? pos.substring(0, idx).trim() : pos.trim();
-}
-
-function parseSubLevel(value) {
-  if (value === undefined || value === null || value === "") {
-    return Number.MAX_SAFE_INTEGER;
-  }
-
-  return parseFloat(String(value).replace(",", ".")) || Number.MAX_SAFE_INTEGER;
 }
 
 function createLocalId(type) {

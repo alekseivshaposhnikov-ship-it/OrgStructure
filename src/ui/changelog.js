@@ -1,3 +1,5 @@
+import { escapeHtml, formatDate } from "../core/utils/string.js";
+
 const CHANGELOG_STORAGE_KEY = "orgAppLastSeenVersion";
 
 const CHANGELOG_ENTRIES = [
@@ -207,25 +209,4 @@ function markLatestVersionAsSeen() {
 
 function getLatestEntry() {
   return CHANGELOG_ENTRIES[0] || null;
-}
-
-function formatDate(value) {
-  if (!value) return "";
-
-  const date = new Date(`${value}T00:00:00`);
-
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }

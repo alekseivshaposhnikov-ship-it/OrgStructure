@@ -1,48 +1,36 @@
+/**
+ * main.js - точка входа приложения.
+ *
+ * Выполняет инициализацию и композицию UI-модулей. Бизнес-логика и рендер
+ * вынесены в src/ (см. src/ui/*).
+ */
 
-import { fetchOrganizationStructure } from "./src/api.js";
-import { addLevels } from "./src/layout.js";
-import { buildTreeView, createSyntheticRoot } from "./src/sidebar-tree.js";
-import { renderCompactA4Screen } from "./src/compact-a4/compact-a4-screen-renderer.js";
-import { renderUnifiedScreen } from "./src/unified-screen-renderer.js";
-import {
-  initEmployeeModal,
-  openEmployeeDetails,
-} from "./src/employee-modal.js";
-import { exportOrgChartToPdf, exportCompactA4ToPdf } from "./src/pdf-d3-export.js";
-import { initChangelog } from "./src/changelog.js";
-
+import { fetchOrganizationStructure } from "./src/data/api.js";
+import { addLevels, findDepartmentById } from "./src/core/utils/tree.js";
+import { createSyntheticRoot, buildTreeView } from "./src/ui/sidebar-tree.js";
+import { initEmployeeModal } from "./src/ui/employee-modal.js";
+import { initChangelog } from "./src/ui/changelog.js";
 import {
   createScenario,
   resetScenario,
   renameScenario,
   getTreeByViewMode,
-  getScenarioStats,
-  getDepartmentOptions,
-  findDepartmentById,
-  addDepartment,
-  editDepartment,
-  addEmployee,
-  editEmployee,
-  addVacancy,
-  editVacancy,
-  removeEmployee,
-  removeVacancy,
-  removeDepartment,
-  moveEmployee,
-  moveVacancy,
-  moveDepartment,
-} from "./src/scenario-manager.js";
+} from "./src/domain/scenario-manager.js";
+import { createAppState } from "./src/ui/app-state.js";
+import { closeScenarioModal } from "./src/ui/scenario-forms.js";
+import {
+  renderStats,
+  renderChangesList,
+  focusEntity,
+  openCompareModal,
+  closeCompareModal,
+} from "./src/ui/changes-panel.js";
+import { handleScenarioAction } from "./src/ui/scenario-actions.js";
+import { initExportHandler, renderScreenOrgChart } from "./src/ui/orgchart.js";
 
-let sourceTree = [];
-let scenario = null;
-let chart = null;
-let selectedNode = null;
-let showVacancies = true;
-let cardDesign = localStorage.getItem("orgCardDesign") || "classic";
-let cardWidth = Number(localStorage.getItem("orgCardWidth")) || 350;
-let viewMode = "to-be";
-let isOrgChartDelegationBound = false;
 const SCENARIO_PANEL_COLLAPSED_KEY = "orgScenarioPanelCollapsed";
+
+const state = createAppState();
 
 async function initApp() {
   const container = document.getElementById("tree-container");
@@ -51,17 +39,17 @@ async function initApp() {
   container.innerHTML = "<p>Загрузка организационной структуры...</p>";
 
   try {
-    sourceTree = await fetchOrganizationStructure();
+    state.sourceTree = await fetchOrganizationStructure();
 
-    if (!sourceTree.length) {
+    if (!state.sourceTree.length) {
       container.innerHTML = "<p>Не удалось загрузить структуру.</p>";
       return;
     }
 
-    addLevels(sourceTree, 0);
+    addLevels(state.sourceTree, 0);
 
-    scenario = createScenario(sourceTree);
-    selectedNode = createSyntheticRoot(getCurrentTree());
+    state.scenario = createScenario(state.sourceTree);
+    state.selectedNode = createSyntheticRoot(getCurrentTree());
 
     initDesignSwitcher();
     initCardWidthControl();
@@ -71,12 +59,12 @@ async function initApp() {
     initChangelog();
 
     renderApp();
-    initExportHandler();
+    initExportHandler(state);
 
     document
       .getElementById("showVacancies")
       ?.addEventListener("change", (event) => {
-        showVacancies = event.target.checked;
+        state.showVacancies = event.target.checked;
         renderApp();
       });
   } catch (error) {
@@ -85,43 +73,15 @@ async function initApp() {
   }
 }
 
-function initExportHandler() {
-  document.getElementById("exportPdf")?.addEventListener("click", () => {
-    const exportWithoutNames =
-      document.getElementById("exportWithoutNames")?.checked;
-
-    if (cardDesign === "compact-a4") {
-      exportCompactA4ToPdf({
-        rootNodes: [selectedNode],
-        title: getExportTitle(),
-        subtitle: getExportSubtitle(exportWithoutNames),
-        hideNames: exportWithoutNames,
-        showVacancies,
-        viewMode,
-      });
-      return;
-    }
-
-    exportOrgChartToPdf({
-      rootNodes: [selectedNode],
-      title: getExportTitle(),
-      subtitle: getExportSubtitle(exportWithoutNames),
-      hideNames: exportWithoutNames,
-      showVacancies,
-      viewMode,
-    });
-  });
-}
-
 function initDesignSwitcher() {
   const select = document.getElementById("cardDesign");
   if (!select) return;
 
-  select.value = cardDesign;
+  select.value = state.cardDesign;
 
   select.addEventListener("change", (event) => {
-    cardDesign = event.target.value;
-    localStorage.setItem("orgCardDesign", cardDesign);
+    state.cardDesign = event.target.value;
+    localStorage.setItem("orgCardDesign", state.cardDesign);
     renderApp();
   });
 }
@@ -131,13 +91,13 @@ function initCardWidthControl() {
   const valueEl = document.getElementById("cardWidthValue");
   if (!slider || !valueEl) return;
 
-  slider.value = cardWidth;
-  valueEl.textContent = `${cardWidth} px`;
+  slider.value = state.cardWidth;
+  valueEl.textContent = `${state.cardWidth} px`;
 
   slider.addEventListener("input", (event) => {
-    cardWidth = Number(event.target.value);
-    valueEl.textContent = `${cardWidth} px`;
-    localStorage.setItem("orgCardWidth", String(cardWidth));
+    state.cardWidth = Number(event.target.value);
+    valueEl.textContent = `${state.cardWidth} px`;
+    localStorage.setItem("orgCardWidth", String(state.cardWidth));
     renderApp();
   });
 }
@@ -172,19 +132,19 @@ function initScenarioControls() {
   const viewModeSelect = document.getElementById("viewMode");
 
   if (scenarioName) {
-    scenarioName.value = scenario.name;
+    scenarioName.value = state.scenario.name;
 
     scenarioName.addEventListener("change", (event) => {
-      scenario = renameScenario(scenario, event.target.value);
+      state.scenario = renameScenario(state.scenario, event.target.value);
       renderScenarioPanels();
     });
   }
 
   if (viewModeSelect) {
-    viewModeSelect.value = viewMode;
+    viewModeSelect.value = state.viewMode;
 
     viewModeSelect.addEventListener("change", (event) => {
-      viewMode = event.target.value;
+      state.viewMode = event.target.value;
       refreshSelectedNode();
       renderApp();
     });
@@ -193,14 +153,14 @@ function initScenarioControls() {
   document.getElementById("resetScenario")?.addEventListener("click", () => {
     if (!confirm("Сбросить все изменения сценария?")) return;
 
-    scenario = resetScenario(scenario);
+    state.scenario = resetScenario(state.scenario);
     refreshSelectedNode();
     renderApp();
   });
 
   document
     .getElementById("compareScenario")
-    ?.addEventListener("click", openCompareModal);
+    ?.addEventListener("click", () => openCompareModal(state.scenario));
 
   document
     .getElementById("closeScenarioModal")
@@ -217,55 +177,29 @@ function initScenarioControls() {
     ?.addEventListener("click", closeCompareModal);
 }
 
-function getExportTitle() {
-  return (
-    selectedNode?.department_name ||
-    selectedNode?.name ||
-    "Организационная структура"
-  );
-}
-
-function getExportSubtitle(hideNames) {
-  const modeTitles = {
-    "as-is": "Текущая структура",
-    "to-be": "Целевая структура",
-    changes: "Изменения",
-  };
-
-  const parts = [modeTitles[viewMode] || "Организационная структура"];
-
-  if (!showVacancies) {
-    parts.push("без вакансий");
-  }
-
-  parts.push(hideNames ? "без фамилий" : "с фамилиями");
-
-  return parts.join(" · ");
-}
-
 function getCurrentTree() {
-  return getTreeByViewMode(scenario, viewMode);
+  return getTreeByViewMode(state.scenario, state.viewMode);
 }
 
 function refreshSelectedNode() {
   const tree = getCurrentTree();
 
-  if (!selectedNode) {
-    selectedNode = createSyntheticRoot(tree);
+  if (!state.selectedNode) {
+    state.selectedNode = createSyntheticRoot(tree);
     return;
   }
 
-  if (selectedNode.department_guid === "synthetic-root") {
-    selectedNode = createSyntheticRoot(tree);
+  if (state.selectedNode.department_guid === "synthetic-root") {
+    state.selectedNode = createSyntheticRoot(tree);
     return;
   }
 
   const updatedSelectedNode = findDepartmentById(
     tree,
-    selectedNode.department_guid,
+    state.selectedNode.department_guid,
   );
 
-  selectedNode = updatedSelectedNode || createSyntheticRoot(tree);
+  state.selectedNode = updatedSelectedNode || createSyntheticRoot(tree);
 }
 
 function renderApp() {
@@ -275,7 +209,7 @@ function renderApp() {
   refreshSelectedNode();
 
   renderSidebarTree(tree);
-  renderScreenOrgChart([selectedNode]);
+  renderOrgChart();
   renderScenarioPanels();
 }
 
@@ -283,638 +217,44 @@ function renderSidebarTree(tree) {
   const container = document.getElementById("tree-container");
   if (!container) return;
 
-  selectedNode = buildTreeView({
+  state.selectedNode = buildTreeView({
     nodes: tree,
     container,
-    selectedNode,
+    selectedNode: state.selectedNode,
     onSelect: (node) => {
-      selectedNode = node;
-      renderScreenOrgChart([node]);
+      state.selectedNode = node;
+      renderOrgChart();
     },
   });
 }
 
-function renderScenarioPanels() {
-  renderStats();
-  renderChangesList();
-}
-
-function renderStats() {
-  const statsEl = document.getElementById("scenarioStats");
-  if (!statsEl) return;
-
-  const stats = getScenarioStats(scenario);
-
-  statsEl.innerHTML = `
-    <div><b>Сотрудники:</b> ${stats.toBe.staff} (${formatDiff(stats.diff.staff)})</div>
-    <div><b>Вакансии:</b> ${stats.toBe.vacancies} (${formatDiff(stats.diff.vacancies)})</div>
-    <div><b>Всего:</b> ${stats.toBe.total} (${formatDiff(stats.diff.total)})</div>
-    <div><b>Подразделения:</b> ${stats.toBe.departments} (${formatDiff(stats.diff.departments)})</div>
-  `;
-}
-
-function renderChangesList() {
-  const list = document.getElementById("changesList");
-  const count = document.getElementById("changesCount");
-
-  if (!list || !count) return;
-
-  count.textContent = String(scenario.operations.length);
-
-  if (!scenario.operations.length) {
-    list.innerHTML = `<div class="changes-list__empty">Изменений пока нет</div>`;
-    return;
-  }
-
-  list.innerHTML = scenario.operations
-    .slice()
-    .reverse()
-    .map(
-      (operation) => `
-      <button class="change-item"
-              type="button"
-              data-change-entity-id="${escapeHtml(operation.entityId || "")}">
-        <span class="change-item__icon">${getOperationIcon(operation.type)}</span>
-        <span>
-          <b>${escapeHtml(getOperationTitle(operation.type))}</b>
-          <small>${escapeHtml(operation.title || "")}</small>
-        </span>
-      </button>
-    `,
-    )
-    .join("");
-
-  list.querySelectorAll("[data-change-entity-id]").forEach((button) => {
-    button.addEventListener("click", () => {
-      focusEntity(button.dataset.changeEntityId);
-    });
-  });
-}
-
-function focusEntity(entityId) {
-  if (!entityId || !chart) return;
-
-  try {
-    chart.setCentered(entityId).render();
-  } catch {
-    console.warn("Не удалось сфокусироваться на объекте", entityId);
-  }
-}
-
-function getDepartmentNodeHeight(data) {
-  if (!data.isDepartment) return 96;
-
-  const assistantExtraHeight = data.assistant ? 44 : 0;
-
-  if (cardDesign === "variant2") return 176 + assistantExtraHeight;
-  if (cardDesign === "variant3") return 158 + assistantExtraHeight;
-
-  return 130 + assistantExtraHeight;
-}
-
-function renderScreenOrgChart(rootNodes) {
-  if (!rootNodes?.length) return;
-
-  // Для компактного A4 используется тот же единый layout, но компактный рендер карточек
-  if (cardDesign === "compact-a4") {
-    chart = renderCompactA4Screen(rootNodes, "#orgChart", {
-      hideNames: false,
-      showVacancies,
-      viewMode,
-    });
-    if (!chart) return;
-    window.orgChart = chart;
-    return;
-  }
-
-  const container = document.getElementById("orgChart");
-  if (!container) return;
-  container.innerHTML = "";
-
-  chart = renderUnifiedScreen(rootNodes, "#orgChart", {
-    cardDesign,
-    showVacancies,
-    viewMode,
-    departmentWidth: cardWidth,
-    departmentHeight: getDepartmentNodeHeight({ isDepartment: true }),
-    employeeHeight: 96,
-  });
-
-  if (!chart) return;
-
-  chart.fit();
-  window.orgChart = chart;
-
-  bindOrgChartDelegatedEvents(chart.flatData);
-}
-
-function bindOrgChartDelegatedEvents(flatData) {
-  const container = document.getElementById("orgChart");
-  if (!container) return;
-
-  container.__flatData = flatData;
-
-  if (isOrgChartDelegationBound) return;
-  isOrgChartDelegationBound = true;
-
-  container.addEventListener("click", (event) => {
-    const menuButton = event.target.closest("[data-scenario-menu]");
-
-    if (menuButton) {
-      event.preventDefault();
-      event.stopPropagation();
-
-      const card = menuButton.closest("[data-node-id]");
-      if (!card) return;
-
-      const flatData = container.__flatData || [];
-      const nodeId = card.dataset.nodeId;
-      const nodeType = card.dataset.nodeType;
-      const node = flatData.find((item) => item.id === nodeId);
-
-      openContextMenu({
-        x: event.clientX,
-        y: event.clientY,
+function renderOrgChart() {
+  renderScreenOrgChart(state, {
+    onScenarioAction: (action, node) =>
+      handleScenarioAction({
+        action,
         node,
-        nodeType,
-      });
-
-      return;
-    }
-
-    const assistantCard = event.target.closest("[data-assistant-id]");
-    if (assistantCard) {
-      const flatData = container.__flatData || [];
-      const department = flatData.find(
-        (item) => item.assistant?.id === assistantCard.dataset.assistantId,
-      );
-
-      if (department?.assistant) {
-        event.stopPropagation();
-        openEmployeeDetails(department.assistant);
-      }
-
-      return;
-    }
-
-    const employeeCard = event.target.closest("[data-employee-id]");
-    if (!employeeCard) return;
-
-    const flatData = container.__flatData || [];
-    const employee = flatData.find(
-      (item) => item.id === employeeCard.dataset.employeeId,
-    );
-
-    if (employee && !employee.isVacancy) {
-      event.stopPropagation();
-      openEmployeeDetails(employee);
-    }
+        state,
+        afterChange: refreshAfterScenarioChange,
+      }),
   });
 }
 
-function openContextMenu({ x, y, node, nodeType }) {
-  closeContextMenu();
-
-  const menu = document.createElement("div");
-  menu.className = "scenario-context-menu";
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-
-  const actions = getContextActions(nodeType);
-
-  menu.innerHTML = actions
-    .map(
-      (action) => `
-      <button type="button" data-action="${action.id}">
-        ${escapeHtml(action.label)}
-      </button>
-    `,
-    )
-    .join("");
-
-  menu.querySelectorAll("[data-action]").forEach((button) => {
-    button.addEventListener("click", () => {
-      handleScenarioAction(button.dataset.action, node);
-      closeContextMenu();
-    });
-  });
-
-  document.body.appendChild(menu);
-
-  setTimeout(() => {
-    document.addEventListener("click", closeContextMenu, { once: true });
-  }, 0);
-}
-
-function closeContextMenu() {
-  document
-    .querySelectorAll(".scenario-context-menu")
-    .forEach((menu) => menu.remove());
-}
-
-function getContextActions(nodeType) {
-  if (nodeType === "department") {
-    return [
-      { id: "addDepartment", label: "Добавить подразделение" },
-      { id: "addEmployee", label: "Добавить сотрудника" },
-      { id: "addVacancy", label: "Добавить вакансию" },
-      { id: "editDepartment", label: "Редактировать подразделение" },
-      { id: "moveDepartment", label: "Переместить подразделение" },
-      { id: "removeDepartment", label: "Удалить подразделение" },
-    ];
-  }
-
-  if (nodeType === "vacancy") {
-    return [
-      { id: "editVacancy", label: "Редактировать" },
-      { id: "moveVacancy", label: "Переместить" },
-      { id: "removeVacancy", label: "Удалить" },
-    ];
-  }
-
-  return [
-    { id: "editEmployee", label: "Редактировать" },
-    { id: "moveEmployee", label: "Переместить" },
-    { id: "removeEmployee", label: "Удалить" },
-  ];
-}
-
-function handleScenarioAction(action, node) {
-  if (!node) return;
-
-  if (action === "addDepartment") {
-    openDepartmentForm({
-      title: "Добавить подразделение",
-      onSubmit: (values) => {
-        scenario = addDepartment(scenario, node.id, values);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
-
-  if (action === "editDepartment") {
-    openDepartmentForm({
-      title: "Редактировать подразделение",
-      initialValues: {
-        department_name: node.name,
-        department_manager: node.headName,
-        department_manager_position: node.headPosition,
-      },
-      onSubmit: (values) => {
-        scenario = editDepartment(scenario, node.id, values);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
-
-  if (action === "addEmployee") {
-    openEmployeeForm({
-      title: "Добавить сотрудника",
-      onSubmit: (values) => {
-        scenario = addEmployee(scenario, node.id, values);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
-
-  if (action === "editEmployee") {
-    openEmployeeForm({
-      title: "Редактировать сотрудника",
-      initialValues: node,
-      onSubmit: (values) => {
-        scenario = editEmployee(scenario, node.id, values);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
-
-  if (action === "addVacancy") {
-    openVacancyForm({
-      title: "Добавить вакансию",
-      onSubmit: (values) => {
-        scenario = addVacancy(scenario, node.id, values);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
-
-  if (action === "editVacancy") {
-    openVacancyForm({
-      title: "Редактировать вакансию",
-      initialValues: node,
-      onSubmit: (values) => {
-        scenario = editVacancy(scenario, node.id, values);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
-
-  if (action === "removeEmployee") {
-    if (!confirm("Удалить сотрудника из сценария?")) return;
-
-    scenario = removeEmployee(scenario, node.id);
-    refreshAfterScenarioChange();
-  }
-
-  if (action === "removeVacancy") {
-    if (!confirm("Удалить вакансию из сценария?")) return;
-
-    scenario = removeVacancy(scenario, node.id);
-    refreshAfterScenarioChange();
-  }
-
-  if (action === "removeDepartment") {
-    if (!confirm("Удалить подразделение из сценария?")) return;
-
-    scenario = removeDepartment(scenario, node.id);
-    refreshAfterScenarioChange();
-  }
-
-  if (action === "moveEmployee") {
-    openMoveForm({
-      title: "Переместить сотрудника",
-      excludeDepartmentId: null,
-      onSubmit: (values) => {
-        scenario = moveEmployee(scenario, node.id, values.targetDepartmentId);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
-
-  if (action === "moveVacancy") {
-    openMoveForm({
-      title: "Переместить вакансию",
-      excludeDepartmentId: null,
-      onSubmit: (values) => {
-        scenario = moveVacancy(scenario, node.id, values.targetDepartmentId);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
-
-  if (action === "moveDepartment") {
-    openMoveForm({
-      title: "Переместить подразделение",
-      excludeDepartmentId: node.id,
-      onSubmit: (values) => {
-        scenario = moveDepartment(scenario, node.id, values.targetDepartmentId);
-        refreshAfterScenarioChange();
-      },
-    });
-  }
+function renderScenarioPanels() {
+  renderStats(state.scenario);
+  renderChangesList(state.scenario, (entityId) =>
+    focusEntity(entityId, state.chart),
+  );
 }
 
 function refreshAfterScenarioChange() {
-  viewMode = "to-be";
+  state.viewMode = "to-be";
 
   const viewModeSelect = document.getElementById("viewMode");
-  if (viewModeSelect) viewModeSelect.value = viewMode;
+  if (viewModeSelect) viewModeSelect.value = state.viewMode;
 
   refreshSelectedNode();
   renderApp();
-}
-
-function openDepartmentForm({ title, initialValues = {}, onSubmit }) {
-  openScenarioForm({
-    title,
-    fields: [
-      {
-        name: "department_name",
-        label: "Название подразделения",
-        required: true,
-      },
-      { name: "department_manager", label: "Руководитель" },
-      { name: "department_manager_position", label: "Должность руководителя" },
-    ],
-    initialValues,
-    onSubmit,
-  });
-}
-
-function openEmployeeForm({ title, initialValues = {}, onSubmit }) {
-  openScenarioForm({
-    title,
-    fields: [
-      { name: "full_name", label: "ФИО", required: true },
-      { name: "position", label: "Должность", required: true },
-      { name: "email", label: "Email" },
-      { name: "phone", label: "Телефон" },
-      { name: "project", label: "Проект" },
-      { name: "typeEmployment", label: "Тип занятости" },
-      { name: "state", label: "Статус" },
-      { name: "subLevel", label: "sub_level" },
-    ],
-    initialValues,
-    onSubmit,
-  });
-}
-
-function openVacancyForm({ title, initialValues = {}, onSubmit }) {
-  openScenarioForm({
-    title,
-    fields: [
-      { name: "position", label: "Должность", required: true },
-      { name: "project", label: "Проект" },
-      { name: "subLevel", label: "sub_level" },
-    ],
-    initialValues,
-    onSubmit,
-  });
-}
-
-function openMoveForm({ title, excludeDepartmentId, onSubmit }) {
-  const options = getDepartmentOptions(scenario.workingTree).filter(
-    (item) => item.id !== excludeDepartmentId,
-  );
-
-  openScenarioForm({
-    title,
-    fields: [
-      {
-        name: "targetDepartmentId",
-        label: "Новое подразделение",
-        type: "select",
-        required: true,
-        options,
-      },
-    ],
-    initialValues: {},
-    onSubmit,
-  });
-}
-
-function openScenarioForm({ title, fields, initialValues, onSubmit }) {
-  const modal = document.getElementById("scenarioModal");
-  const modalTitle = document.getElementById("scenarioModalTitle");
-  const form = document.getElementById("scenarioForm");
-
-  if (!modal || !modalTitle || !form) return;
-
-  modalTitle.textContent = title;
-
-  form.innerHTML = `
-    ${fields.map((field) => renderFormField(field, initialValues)).join("")}
-
-    <div class="scenario-form__actions">
-      <button type="submit">Сохранить</button>
-      <button type="button" class="button-secondary" data-close-form>Отмена</button>
-    </div>
-  `;
-
-  form
-    .querySelector("[data-close-form]")
-    ?.addEventListener("click", closeScenarioModal);
-
-  form.onsubmit = (event) => {
-    event.preventDefault();
-
-    const data = new FormData(form);
-    const values = {};
-
-    fields.forEach((field) => {
-      values[field.name] = String(data.get(field.name) || "").trim();
-    });
-
-    onSubmit(values);
-    closeScenarioModal();
-  };
-
-  modal.classList.remove("hidden");
-}
-
-function renderFormField(field, initialValues) {
-  const value = initialValues[field.name] ?? "";
-
-  if (field.type === "select") {
-    return `
-      <label class="scenario-form__field">
-        <span>${escapeHtml(field.label)}</span>
-        <select name="${escapeHtml(field.name)}" ${field.required ? "required" : ""}>
-          ${(field.options || [])
-            .map(
-              (option) => `
-            <option value="${escapeHtml(option.id)}">
-              ${escapeHtml(option.name)}
-            </option>
-          `,
-            )
-            .join("")}
-        </select>
-      </label>
-    `;
-  }
-
-  return `
-    <label class="scenario-form__field">
-      <span>${escapeHtml(field.label)}</span>
-      <input name="${escapeHtml(field.name)}"
-             value="${escapeHtml(value)}"
-             ${field.required ? "required" : ""}
-             type="text" />
-    </label>
-  `;
-}
-
-function closeScenarioModal() {
-  document.getElementById("scenarioModal")?.classList.add("hidden");
-}
-
-function openCompareModal() {
-  const modal = document.getElementById("compareModal");
-  const content = document.getElementById("compareContent");
-
-  if (!modal || !content) return;
-
-  const stats = getScenarioStats(scenario);
-
-  content.innerHTML = `
-    <table class="compare-table">
-      <thead>
-        <tr>
-          <th>Показатель</th>
-          <th>Было</th>
-          <th>Стало</th>
-          <th>Изменение</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>Подразделения</td>
-          <td>${stats.asIs.departments}</td>
-          <td>${stats.toBe.departments}</td>
-          <td>${formatDiff(stats.diff.departments)}</td>
-        </tr>
-        <tr>
-          <td>Сотрудники</td>
-          <td>${stats.asIs.staff}</td>
-          <td>${stats.toBe.staff}</td>
-          <td>${formatDiff(stats.diff.staff)}</td>
-        </tr>
-        <tr>
-          <td>Вакансии</td>
-          <td>${stats.asIs.vacancies}</td>
-          <td>${stats.toBe.vacancies}</td>
-          <td>${formatDiff(stats.diff.vacancies)}</td>
-        </tr>
-        <tr>
-          <td>Всего</td>
-          <td>${stats.asIs.total}</td>
-          <td>${stats.toBe.total}</td>
-          <td>${formatDiff(stats.diff.total)}</td>
-        </tr>
-      </tbody>
-    </table>
-  `;
-
-  modal.classList.remove("hidden");
-}
-
-function closeCompareModal() {
-  document.getElementById("compareModal")?.classList.add("hidden");
-}
-
-function getOperationIcon(type) {
-  if (type.startsWith("add")) return "+";
-  if (type.startsWith("remove")) return "−";
-  if (type.startsWith("move")) return "⇄";
-  if (type.startsWith("edit")) return "✎";
-
-  return "•";
-}
-
-function getOperationTitle(type) {
-  const titles = {
-    addDepartment: "Добавлено подразделение",
-    editDepartment: "Изменено подразделение",
-    removeDepartment: "Удалено подразделение",
-    moveDepartment: "Перемещено подразделение",
-
-    addEmployee: "Добавлен сотрудник",
-    editEmployee: "Изменен сотрудник",
-    removeEmployee: "Удален сотрудник",
-    moveEmployee: "Перемещен сотрудник",
-
-    addVacancy: "Добавлена вакансия",
-    editVacancy: "Изменена вакансия",
-    removeVacancy: "Удалена вакансия",
-    moveVacancy: "Перемещена вакансия",
-  };
-
-  return titles[type] || "Изменение";
-}
-
-function formatDiff(value) {
-  if (value > 0) return `+${value}`;
-  return String(value);
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 document.addEventListener("DOMContentLoaded", initApp);

@@ -1,4 +1,6 @@
-// src/employee-modal.js
+// src/ui/employee-modal.js
+
+import { escapeHtml } from "../core/utils/string.js";
 
 export function initEmployeeModal() {
   document
@@ -94,13 +96,4 @@ export function closeEmployeeDetails() {
   document
     .getElementById("employeeModal")
     ?.classList.add("hidden");
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }

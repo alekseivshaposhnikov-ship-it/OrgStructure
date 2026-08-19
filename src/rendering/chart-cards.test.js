@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderNodeContent } from './chart-cards.js';
 
 function makeDepartmentNode(overrides = {}) {
@@ -56,6 +56,15 @@ function makeAssistantNode(overrides = {}) {
 
 describe('chart-cards.js', () => {
   describe('renderNodeContent', () => {
+    beforeEach(() => {
+      // Включаем отладочный вывод sub_level только для этих тестов
+      localStorage.setItem('orgShowSubLevelDebug', '1');
+    });
+
+    afterEach(() => {
+      localStorage.removeItem('orgShowSubLevelDebug');
+    });
+
     it('должен рендерить department classic с названием и руководителем', () => {
       const html = renderNodeContent(makeDepartmentNode(), { cardDesign: 'classic' });
       expect(html).toContain('Отдел продаж');
@@ -155,6 +164,12 @@ describe('chart-cards.js', () => {
 
     it('не должен показывать sub_level в PDF-режиме', () => {
       const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }), { isPdfExport: true });
+      expect(html).not.toContain('chart-card__sub-level-debug');
+    });
+
+    it('не должен показывать sub_level, когда debug-флаг выключен', () => {
+      localStorage.removeItem('orgShowSubLevelDebug');
+      const html = renderNodeContent(makeDepartmentNode({ managerSubLevel: 2 }));
       expect(html).not.toContain('chart-card__sub-level-debug');
     });
   });

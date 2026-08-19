@@ -9,7 +9,10 @@
     "deploy": "gh-pages -d dist",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "context": "node scripts/generate-context.js"
   },
   "dependencies": {
     "d3": "^5.16.0",
@@ -17,8 +20,11 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.9",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
     "gh-pages": "^6.3.0",
     "jsdom": "^29.1.1",
+    "prettier": "^3.9.6",
     "vite": "^8.0.3",
     "vitest": "^4.1.9"
   }

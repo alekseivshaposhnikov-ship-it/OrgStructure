@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import * as d3 from "d3";
 import { createChartViewport } from "./screen-viewport.js";
 
 function createSvgDom() {

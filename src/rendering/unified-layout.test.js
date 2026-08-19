@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildLayoutTree,
   computeUnifiedLayout,
   NODE_DEPARTMENT,
   NODE_EMPLOYEES,
@@ -77,7 +76,7 @@ describe("unified-layout", () => {
         dept("B", "B", { children: [dept("B1", "B1"), dept("B2", "B2")] }),
       ],
     });
-    const { edges, nodes } = computeUnifiedLayout(root);
+    const { edges } = computeUnifiedLayout(root);
 
     const edgeKeys = edges
       .filter((e) => e.parent.type === NODE_DEPARTMENT && e.child.type === NODE_DEPARTMENT)
@@ -108,7 +107,7 @@ describe("unified-layout", () => {
       users: [user("u1", "Иван Иванов"), user("u2", "Петр Петров")],
       children: [dept("A", "A")],
     });
-    const { tree, nodes } = computeUnifiedLayout(root);
+    const { tree } = computeUnifiedLayout(root);
 
     const employeesNode = tree.children.find((c) => c.type === NODE_EMPLOYEES);
     expect(employeesNode).toBeTruthy();

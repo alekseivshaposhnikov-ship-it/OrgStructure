@@ -5,26 +5,11 @@
  * Раздельные renderer'ы: department, employee, vacancy, assistant.
  */
 
-import { A4_WIDTH, A4_HEIGHT, PADDING_X, PADDING_Y, HEADER_HEIGHT, DEPT_W, DEPT_H, PERSON_W, PERSON_H } from './compact-a4-layout.js';
+import { A4_WIDTH, A4_HEIGHT, PADDING_X, PERSON_H } from './compact-a4-layout.js';
+import { COLORS } from '../tokens.js';
+import { createSvgElement as createSvg, addText, truncateText } from '../svg-utils.js';
 
-const C = {
-  blue: '#155eef',
-  blueLight: '#eef4ff',
-  text: '#101828',
-  muted: '#667085',
-  border: '#d0d5dd',
-  line: '#98a2b3',
-  white: '#ffffff',
-  deptBg: '#f8fbff',
-  vacancyBg: '#f0f9ff',
-  vacancyStroke: '#7cc4f8',
-  assistantBg: '#f8fafc',
-  assistantStroke: '#9e77ed',
-  addedBg: '#dcfae6', addedText: '#067647',
-  changedBg: '#dbeafe', changedText: '#1d4ed8',
-  movedBg: '#f4e8ff', movedText: '#7e22ce',
-  removedBg: '#fee4e2', removedText: '#b42318',
-};
+const C = { ...COLORS };
 
 export function renderCompactSvg(layoutResult, options = {}) {
   const { title = 'Организационная структура', subtitle = '', screen = false } = options;
@@ -88,7 +73,7 @@ function drawAllConnectors(group, flat, map) {
       return;
     }
     const sorted = [...children].sort((a, b) => a.y - b.y);
-    const first = sorted[0], last = sorted[sorted.length - 1];
+    const first = sorted[0];
     const trunkY = py + (first.y - py) / 2;
     drawPath(group, px, py, px, trunkY);
     let minX = Infinity, maxX = -Infinity;
@@ -128,7 +113,7 @@ function drawDeptCard(g, n) {
   }
   if (n.project) {
     grp.appendChild(createSvg('rect', { x: 6, y: n.cardHeight - 20, width: Math.min(n.cardWidth - 60, 120), height: 14, rx: 7, ry: 7, fill: '#f2f4f7' }));
-    addText(grp, `П: ${trunc(n.project, 18)}`, 12, n.cardHeight - 9, 7, 400, '#475467');
+    addText(grp, `П: ${truncateText(n.project, 18)}`, 12, n.cardHeight - 9, 7, 400, '#475467');
   }
   g.appendChild(grp);
 }
@@ -148,7 +133,7 @@ function drawEmployeeCard(g, n) {
   }
   if (n.project) {
     grp.appendChild(createSvg('rect', { x: 4, y: n.cardHeight - 14, width: Math.min(n.cardWidth - 30, 100), height: 10, rx: 5, ry: 5, fill: '#f2f4f7' }));
-    addText(grp, `П: ${trunc(n.project, 14)}`, 8, n.cardHeight - 6, 6, 400, '#475467');
+    addText(grp, `П: ${truncateText(n.project, 14)}`, 8, n.cardHeight - 6, 6, 400, '#475467');
   }
   g.appendChild(grp);
 }
@@ -203,12 +188,6 @@ function drawText(g, text, { x, y, maxW, fontSize, fw, fill, maxLines = 2, lineH
   lines.forEach((l, i) => addText(g, l, x, y + i * lineH, fontSize, fw, fill));
 }
 
-function addText(g, text, x, y, fontSize, fw, fill, anchor = 'start') {
-  const t = createSvg('text', { x, y, 'font-family': 'Arial, sans-serif', 'font-size': fontSize, 'font-weight': fw, fill, 'text-anchor': anchor });
-  t.textContent = text || '';
-  g.appendChild(t);
-}
-
 function wrap(text, maxW, fontSize, maxLines) {
   const cw = fontSize * 0.53;
   const maxLen = Math.max(4, Math.floor(maxW / cw));
@@ -242,8 +221,6 @@ function wrap(text, maxW, fontSize, maxLines) {
   return lines.length ? lines : [''];
 }
 
-function trunc(text, len) { return text.length <= len ? text : text.slice(0, len - 1) + '…'; }
-
 function drawHeader(svg, { title, subtitle, width }) {
   addText(svg, 'Организационная структура', PADDING_X, 24, 10, 700, C.blue);
   addText(svg, title, PADDING_X, 42, 18, 700, C.text);
@@ -258,11 +235,3 @@ function renderError(msg) {
   addText(s, msg, A4_WIDTH / 2, A4_HEIGHT / 2, 16, 700, '#f04438', 'middle');
   return s;
 }
-
-function createSvg(tag, attrs = {}) {
-  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, String(v)));
-  return e;
-}
-
-export { createSvg as createSvgElement };

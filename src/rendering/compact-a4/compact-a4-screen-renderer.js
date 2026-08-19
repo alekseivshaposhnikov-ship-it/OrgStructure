@@ -10,31 +10,16 @@
  */
 
 import {
-  computeUnifiedLayout,
-  NODE_DEPARTMENT,
-  NODE_EMPLOYEES,
-  NODE_ASSISTANT,
-} from "../unified-layout.js";
-import {
   A4_WIDTH,
   A4_HEIGHT,
   PADDING_X,
   PADDING_Y,
   HEADER_HEIGHT,
-  DEPT_W,
-  DEPT_H,
-  PERSON_W,
-  PERSON_H,
-  MIN_SCALE,
+  buildCompactA4LayoutResult,
 } from "./compact-a4-layout.js";
 import { renderCompactSvg } from "./compact-a4-svg-renderer.js";
 import { createChartViewport } from "../screen-viewport.js";
-
-const MODE_TITLES = {
-  "as-is": "Текущая структура",
-  "to-be": "Целевая структура",
-  changes: "Изменения",
-};
+import { VIEW_MODE_TITLES } from "../../core/constants.js";
 
 export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart", options = {}) {
   const {
@@ -61,6 +46,7 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
     container,
     rootNode,
     collapsedIds: new Set(),
+    layoutResult: null,
     layout: null,
     flat: null,
     scale: 1,
@@ -70,31 +56,16 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
   };
 
   function buildLayout() {
-    state.layout = computeUnifiedLayout(state.rootNode, {
+    state.layoutResult = buildCompactA4LayoutResult(state.rootNode, {
+      hideNames,
       showVacancies,
-      departmentWidth: DEPT_W,
-      departmentHeight: DEPT_H,
-      employeeWidth: PERSON_W,
-      employeeHeight: PERSON_H,
-      assistantWidth: PERSON_W,
-      assistantHeight: PERSON_H,
-      employeesHeaderHeight: 18,
-      colGap: 20,
-      rowGap: 16,
-      personGap: 4,
-      paddingX: PADDING_X,
-      paddingY: PADDING_Y + HEADER_HEIGHT,
       collapsedIds: state.collapsedIds,
     });
 
-    const { width, height } = state.layout;
-    state.scale = Math.min(
-      availW / Math.max(width, 1),
-      availH / Math.max(height, 1),
-      1,
-    );
-    state.canFit = state.scale >= MIN_SCALE;
-    state.flat = unifiedLayoutToCompactFlat(state.layout, { hideNames, showVacancies });
+    state.layout = state.layoutResult.layout;
+    state.scale = state.layoutResult.scale;
+    state.canFit = state.layoutResult.canFit;
+    state.flat = state.layoutResult.flat;
   }
 
   function render() {
@@ -102,18 +73,9 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
     buildLayout();
 
     const title = state.rootNode.department_name || state.rootNode.name || "Организационная структура";
-    const subtitle = `${MODE_TITLES[viewMode] || "Организационная структура"}${showVacancies ? "" : " · без вакансий"}`;
+    const subtitle = `${VIEW_MODE_TITLES[viewMode] || "Организационная структура"}${showVacancies ? "" : " · без вакансий"}`;
 
-    const svg = renderCompactSvg(
-      {
-        flat: state.flat,
-        scale: state.scale,
-        a4Width: A4_WIDTH,
-        a4Height: A4_HEIGHT,
-        canFit: state.canFit,
-      },
-      { title, subtitle, screen: true },
-    );
+    const svg = renderCompactSvg(state.layoutResult, { title, subtitle, screen: true });
 
     state.svg = svg;
     container.appendChild(svg);
@@ -183,87 +145,5 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
     render,
     toggleCollapse,
   };
-}
-
-function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies }) {
-  const flat = [];
-  const parentMap = new Map();
-  layout.edges.forEach((edge) => parentMap.set(edge.child, edge.parent));
-
-  layout.nodes.forEach((node) => {
-    const parent = parentMap.get(node);
-    const parentId = parent && parent.data ? parent.data.id : null;
-
-    if (node.type === NODE_DEPARTMENT) {
-      const d = node.data;
-      flat.push({
-        id: d.id,
-        type: "department",
-        name: d.name,
-        manager: hideNames ? "" : d.headName,
-        position: d.headPosition,
-        count: showVacancies
-          ? d.totalWithVacancies ?? d.staffCount ?? 0
-          : d.staffCount ?? 0,
-        project: "",
-        scenarioState: d.scenarioState,
-        parentId,
-        x: node.x,
-        y: node.y,
-        cardWidth: node.width,
-        cardHeight: node.height,
-      });
-    } else if (node.type === NODE_ASSISTANT) {
-      const d = node.data;
-      flat.push({
-        id: d.id,
-        type: "assistant",
-        name: hideNames ? "" : d.full_name || d.name || "Сотрудник",
-        position: d.position || "",
-        project: normalizeProjects(d.project),
-        scenarioState: d.scenarioState || "",
-        parentId,
-        x: node.x,
-        y: node.y,
-        cardWidth: node.width,
-        cardHeight: node.height,
-      });
-    } else if (node.type === NODE_EMPLOYEES) {
-      flat.push({
-        id: `employees_${parentId || "root"}`,
-        type: "employees",
-        header: "Сотрудники",
-        parentId,
-        x: node.x,
-        y: node.y,
-        cardWidth: node.width,
-        cardHeight: node.height,
-        persons: (node.persons || []).map((person) => ({
-          id: person.data.id,
-          type: person.data.isVacancy ? "vacancy" : "employee",
-          name: person.data.isVacancy
-            ? "Вакансия"
-            : hideNames
-              ? ""
-              : person.data.name,
-          position: String(person.data.position || ""),
-          project: normalizeProjects(person.data.project),
-          scenarioState: person.data.scenarioState || "",
-          cardWidth: person.width,
-          cardHeight: person.height,
-        })),
-      });
-    }
-  });
-
-  return flat;
-}
-
-function normalizeProjects(value) {
-  return String(value || "")
-    .split(";")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .join("; ");
 }
 

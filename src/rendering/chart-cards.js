@@ -1,4 +1,17 @@
-const SHOW_SUB_LEVEL_DEBUG = true;
+import { escapeHtml, normalizeProjects } from "../core/utils/string.js";
+import { getScenarioLabel } from "./tokens.js";
+
+/**
+ * Отладочный вывод sub_level в карточках. Включение:
+ * localStorage["orgShowSubLevelDebug"] === "1".
+ */
+function isSubLevelDebugEnabled() {
+  try {
+    return localStorage.getItem("orgShowSubLevelDebug") === "1";
+  } catch {
+    return false;
+  }
+}
 
 export function renderNodeContent(nd, options = {}) {
   const {
@@ -270,7 +283,7 @@ function renderProject(nd) {
 }
 
 function renderSubLevelDebug(subLevel) {
-  if (!SHOW_SUB_LEVEL_DEBUG) return "";
+  if (!isSubLevelDebugEnabled()) return "";
 
   const value =
     Number.isFinite(subLevel) && subLevel !== Number.MAX_SAFE_INTEGER
@@ -280,14 +293,6 @@ function renderSubLevelDebug(subLevel) {
   return `
     <div class="chart-card__sub-level-debug">sub_level: ${escapeHtml(value)}</div>
   `;
-}
-
-function normalizeProjects(value) {
-  return String(value || "")
-    .split(";")
-    .map(item => item.trim())
-    .filter(Boolean)
-    .join("; ");
 }
 
 function renderMenuButton(viewMode) {
@@ -315,14 +320,6 @@ function getScenarioClass(nd) {
   return nd.scenarioState ? `chart-card--scenario-${nd.scenarioState}` : "";
 }
 
-function getScenarioLabel(state) {
-  if (state === "added") return "NEW";
-  if (state === "changed") return "Изменен";
-  if (state === "moved") return "Перемещен";
-  if (state === "removed") return "Удален";
-  return "";
-}
-
 function getDisplayCount(node, showVacancies) {
   return showVacancies
     ? node.totalWithVacancies || node.staffCount || 0
@@ -333,13 +330,4 @@ function getInitials(name) {
   const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "—";
   return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase();
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }

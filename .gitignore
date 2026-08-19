@@ -3,5 +3,7 @@ node_modules/
 data/ 
 code/
 dist/
+coverage/
+project-context.txt
 package-lock.json
 OrgStructure.pptx
