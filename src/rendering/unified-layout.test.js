@@ -219,4 +219,156 @@ describe("unified-layout", () => {
     expect(byId(nodes, "A1")).toBeUndefined();
     expect(byId(nodes, "B1")).toBeTruthy();
   });
+
+  describe("CR-008_2_2: effectiveLayoutLevel и sibling-группы", () => {
+    function makeItStructure() {
+      // Реальная структура Дирекции IT: 4 siblings с sub_level=4, 2 без уровня
+      return dept("root", "Дирекция IT", {
+        children: [
+          dept("oneC", "1С", { managerSubLevel: 4 }),
+          dept("web", "Web", {}),
+          dept("moscow", "Москва", { managerSubLevel: 4 }),
+          dept("infra", "Инфраструктура", { managerSubLevel: 4 }),
+          dept("digital", "Цифровые платформы", {}),
+          dept("office", "Проектный офис", { managerSubLevel: 4 }),
+        ],
+      });
+    }
+
+    it("шесть непосредственных детей Дирекции IT получают одинаковые row и y", () => {
+      const { nodes } = computeUnifiedLayout(makeItStructure());
+
+      const ids = ["oneC", "web", "moscow", "infra", "digital", "office"];
+      const rows = ids.map((id) => byId(nodes, id).row);
+      const ys = ids.map((id) => byId(nodes, id).y);
+
+      expect(new Set(rows).size).toBe(1);
+      expect(new Set(ys).size).toBe(1);
+    });
+
+    it("null-уровни получают mode sibling-группы (4), actual остаётся null", () => {
+      const { nodes } = computeUnifiedLayout(makeItStructure());
+
+      const web = byId(nodes, "web");
+      const digital = byId(nodes, "digital");
+
+      expect(web.actualManagerSubLevel).toBeNull();
+      expect(web.effectiveLayoutLevel).toBe(4);
+      expect(digital.effectiveLayoutLevel).toBe(4);
+
+      // Реальный managerSubLevel не перезаписывается
+      expect(web.data.managerSubLevel).toBeUndefined();
+      expect(web.data.effectiveLayoutLevel).toBe(4);
+    });
+
+    it("calculated fallback не меняет actual managerSubLevel у узла с уровнем", () => {
+      const { nodes } = computeUnifiedLayout(makeItStructure());
+
+      const oneC = byId(nodes, "oneC");
+      expect(oneC.actualManagerSubLevel).toBe(4);
+      expect(oneC.effectiveLayoutLevel).toBe(4);
+      expect(oneC.data.managerSubLevel).toBe(4);
+    });
+
+    it("parent-child hierarchy не меняется", () => {
+      const { edges } = computeUnifiedLayout(makeItStructure());
+
+      const childIds = edges
+        .filter((e) => e.parent.data.id === "root" && e.child.type === NODE_DEPARTMENT)
+        .map((e) => e.child.data.id)
+        .sort();
+
+      expect(childIds).toEqual(["digital", "infra", "moscow", "office", "oneC", "web"].sort());
+    });
+
+    it("employee nodes не влияют на sibling level", () => {
+      const root = dept("root", "ROOT", {
+        children: [
+          dept("A", "A", { managerSubLevel: 4, users: [user("u1", "Emp 1")] }),
+          dept("B", "B", {}),
+          dept("C", "C", { managerSubLevel: 4 }),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      expect(byId(nodes, "B").effectiveLayoutLevel).toBe(4);
+      expect(byId(nodes, "A").row).toBe(byId(nodes, "B").row);
+    });
+
+    it("выбранный root всегда row 0 независимо от его sub_level", () => {
+      const withLevel = dept("root", "ROOT", {
+        managerSubLevel: 7,
+        children: [dept("A", "A", { managerSubLevel: 4 })],
+      });
+      const withoutLevel = dept("root2", "ROOT", {
+        children: [dept("A", "A", { managerSubLevel: 4 })],
+      });
+
+      const { tree: treeWith } = computeUnifiedLayout(withLevel);
+      const { tree: treeWithout } = computeUnifiedLayout(withoutLevel);
+
+      expect(treeWith.row).toBe(0);
+      expect(treeWithout.row).toBe(0);
+    });
+
+    it("null получает mode (4) при уровнях [4,4,5,null]", () => {
+      const root = dept("root", "ROOT", {
+        children: [
+          dept("A", "A", { managerSubLevel: 4 }),
+          dept("B", "B", { managerSubLevel: 4 }),
+          dept("C", "C", { managerSubLevel: 5 }),
+          dept("D", "D", {}),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      expect(byId(nodes, "D").effectiveLayoutLevel).toBe(4);
+    });
+
+    it("при неоднозначном mode (4,4,5,5,null) null получает минимальный уровень 4", () => {
+      const root = dept("root", "ROOT", {
+        children: [
+          dept("A", "A", { managerSubLevel: 4 }),
+          dept("B", "B", { managerSubLevel: 4 }),
+          dept("C", "C", { managerSubLevel: 5 }),
+          dept("D", "D", { managerSubLevel: 5 }),
+          dept("E", "E", {}),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      expect(byId(nodes, "E").effectiveLayoutLevel).toBe(4);
+    });
+
+    it("если ни у одного sibling нет уровня — parent.effectiveLayoutLevel + 1", () => {
+      const root = dept("root", "ROOT", {
+        managerSubLevel: 3,
+        children: [dept("A", "A", {}), dept("B", "B", {})],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      expect(byId(nodes, "A").effectiveLayoutLevel).toBe(4);
+      expect(byId(nodes, "B").effectiveLayoutLevel).toBe(4);
+    });
+
+    it("глубокие children остаются на следующей организационной строке", () => {
+      const root = dept("root", "Дирекция IT", {
+        children: [
+          dept("oneC", "1С", {
+            managerSubLevel: 4,
+            children: [dept("support1c", "Группа техподдержки 1С", { managerSubLevel: 5 })],
+          }),
+          dept("web", "Web", {}),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root);
+
+      const web = byId(nodes, "web");
+      const support = byId(nodes, "support1c");
+
+      expect(web.row).toBe(1);
+      expect(support.row).toBeGreaterThan(web.row);
+      expect(support.effectiveLayoutLevel).toBe(5);
+    });
+  });
 });

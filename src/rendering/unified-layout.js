@@ -146,36 +146,130 @@ export function buildLayoutTree(
 }
 
 /**
- * rawLevel:
- *   - department: managerSubLevel (если конечное число), иначе уровень родителя + 1;
- *   - employees/assistant: уровень родителя.
+ * Проход 1 (CR-008_2_2): фиксирует реальный managerSubLevel и устанавливает
+ * effectiveLayoutLevel только для узлов с валидным уровнем.
+ * Для узлов без уровня effectiveLayoutLevel остаётся null —
+ * он заполняется на проходе 2 (sibling-группа).
  */
-function assignRawLevel(node, parentRawLevel) {
+function assignActualLevels(node) {
   if (node.type === NODE_DEPARTMENT) {
     const sl = node.data.managerSubLevel;
     const finite = Number.isFinite(sl) && sl !== MAX_SUBLEVEL;
-    node.rawLevel = finite ? sl : (parentRawLevel == null ? 0 : parentRawLevel + 1);
-  } else {
-    node.rawLevel = parentRawLevel;
+    node.actualManagerSubLevel = finite ? sl : null;
+    node.effectiveLayoutLevel = finite ? sl : null;
   }
 
-  (node.children || []).forEach((child) => assignRawLevel(child, node.rawLevel));
+  (node.children || []).forEach(assignActualLevels);
 }
 
 /**
- * Визуальная строка row (0 = корень):
- *   - department: rawLevel - rootRawLevel, но не выше уровня родителя;
- *   - employees/assistant: строка родителя + 1.
+ * Возвращает mode списка валидных уровней.
+ * При неоднозначности (одинаковая частота) — минимальный уровень.
  */
-function assignRows(node, parentRow, rootRawLevel) {
-  if (node.type === NODE_DEPARTMENT) {
-    const rawRow = node.rawLevel - rootRawLevel;
-    node.row = Math.max(rawRow, parentRow + 1);
-  } else {
-    node.row = parentRow + 1;
+function siblingMode(levels) {
+  const frequency = new Map();
+  levels.forEach((level) => frequency.set(level, (frequency.get(level) || 0) + 1));
+
+  const maxFrequency = Math.max(...frequency.values());
+  const candidates = [...frequency.entries()]
+    .filter(([, count]) => count === maxFrequency)
+    .map(([level]) => level);
+
+  return Math.min(...candidates);
+}
+
+/**
+ * Проход 2 (CR-008_2_2 §1, §5): нормализация уровня sibling-групп.
+ * - department children одного parent: отсутствующий уровень получает
+ *   mode валидных уровней группы (при неоднозначности — минимальный);
+ * - если валидных нет — parent.effectiveLayoutLevel + 1;
+ * - root без уровня — 0 (row root всегда 0).
+ * Employees/assistant в расчёте не участвуют.
+ */
+function applySiblingFallback(node, isRoot = false) {
+  if (node.type === NODE_DEPARTMENT && node.effectiveLayoutLevel == null) {
+    node.effectiveLayoutLevel = isRoot ? 0 : null;
   }
 
-  (node.children || []).forEach((child) => assignRows(child, node.row, rootRawLevel));
+  const departmentChildren = (node.children || []).filter(
+    (child) => child.type === NODE_DEPARTMENT,
+  );
+
+  if (departmentChildren.length) {
+    const validLevels = departmentChildren
+      .map((child) => child.effectiveLayoutLevel)
+      .filter((level) => level != null);
+
+    const siblingLevel = validLevels.length
+      ? siblingMode(validLevels)
+      : (node.effectiveLayoutLevel ?? 0) + 1;
+
+    departmentChildren.forEach((child) => {
+      if (child.effectiveLayoutLevel == null) {
+        child.effectiveLayoutLevel = siblingLevel;
+      }
+    });
+  }
+
+  (node.children || []).forEach((child) => applySiblingFallback(child, false));
+}
+
+/**
+ * Назначает визуальную строку row на основе effectiveLayoutLevel
+ * (CR-008_2_2 §7, §8):
+ * - root всегда row 0;
+ * - встречающиеся levels сжимаются в строки 1..N без пустых строк
+ *   (например 4 и 6 → строки 1 и 2);
+ * - parent-child hierarchy сохраняется: child.row > parent.row.
+ * Employees/assistant — строка родителя + 1.
+ */
+function computeRows(tree) {
+  const levels = new Set();
+  (function walk(node) {
+    if (
+      node.type === NODE_DEPARTMENT &&
+      node !== tree &&
+      node.effectiveLayoutLevel != null
+    ) {
+      levels.add(node.effectiveLayoutLevel);
+    }
+    (node.children || []).forEach(walk);
+  })(tree);
+
+  const sortedLevels = [...levels].sort((a, b) => a - b);
+  const levelToRow = new Map();
+  sortedLevels.forEach((level, index) => levelToRow.set(level, index + 1));
+
+  function assign(node, parentRow) {
+    if (node.type === NODE_DEPARTMENT) {
+      if (node === tree) {
+        node.row = 0;
+      } else {
+        const mappedRow = levelToRow.get(node.effectiveLayoutLevel) ?? parentRow + 1;
+        node.row = Math.max(mappedRow, parentRow + 1);
+      }
+    } else {
+      node.row = parentRow + 1;
+    }
+
+    (node.children || []).forEach((child) => assign(child, node.row));
+  }
+
+  assign(tree, -1);
+}
+
+/**
+ * Кладёт layout-метаданные в data карточки для диагностики
+ * (CR-008_2_2 §6): layout_level / row не подменяют реальный sub_level.
+ */
+function attachLayoutMeta(node) {
+  if (node.type === NODE_DEPARTMENT) {
+    node.data.actualManagerSubLevel = node.actualManagerSubLevel;
+    node.data.effectiveLayoutLevel = node.effectiveLayoutLevel;
+    node.data.row = node.row;
+  }
+
+  (node.children || []).forEach(attachLayoutMeta);
 }
 
 function computeSizes(node, opts) {
@@ -307,9 +401,9 @@ export function computeUnifiedLayout(rootNode, options = {}) {
     collapsedIds: opts.collapsedIds,
   });
 
-  assignRawLevel(tree, null);
-  const rootRawLevel = tree.rawLevel;
-  assignRows(tree, -1, rootRawLevel);
+  assignActualLevels(tree);
+  applySiblingFallback(tree, true);
+  computeRows(tree);
 
   computeSizes(tree, opts);
   computeSubtreeWidths(tree, opts.colGap);
@@ -317,6 +411,8 @@ export function computeUnifiedLayout(rootNode, options = {}) {
 
   const { rowTops, rowIndexMap } = computeRowTops(tree, opts);
   assignY(tree, rowTops, rowIndexMap, null, opts);
+
+  attachLayoutMeta(tree);
 
   const nodes = [];
   const edges = [];
