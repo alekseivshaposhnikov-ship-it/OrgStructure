@@ -37,10 +37,21 @@ const HEADER_HEIGHT = 124;
 const HEADER_PADDING = 40;
 const PAGE_PADDING = 0; // layout уже содержит внутренние paddingX/paddingY
 
-// Ролевой режим «PDF без фамилий» (CR-003-02): сотрудники агрегируются
-// по должностям, каждая роль — компактная строка, а не полноразмерная карточка.
-const ROLE_ROW_HEIGHT = 20;
-const ROLE_ROW_GAP = 2;
+// Ролевой режим «PDF без фамилий» (CR-003-02): роли встроены в department-card.
+// Размеры верхней области карточки и компактной строки должности.
+const ROLE_DEPT_HEADER_HEIGHT = 66;
+const ROLE_DEPT_SEPARATOR_HEIGHT = 14;
+const ROLE_DEPT_ROW_HEIGHT = 18;
+const ROLE_DEPT_PADDING = 10;
+
+// Опции Unified Layout для ролевого режима (CR-003-02 §9, §19).
+export const PDF_ROLES_LAYOUT_OPTIONS = {
+  rolesPresentation: true,
+  rolesDepartmentHeaderHeight: ROLE_DEPT_HEADER_HEIGHT,
+  rolesDepartmentSeparatorHeight: ROLE_DEPT_SEPARATOR_HEIGHT,
+  rolesDepartmentRowHeight: ROLE_DEPT_ROW_HEIGHT,
+  rolesDepartmentPadding: ROLE_DEPT_PADDING,
+};
 
 // Конфигурация Unified Layout для PDF соответствует экранному unified-screen-renderer,
 // чтобы геометрия совпадала (CR-003 §17). Переопределяется размером карточек из UI.
@@ -98,11 +109,9 @@ export async function exportOrgChartToPdf({
         ...(employeeHeight != null ? { employeeHeight } : {}),
         ...(assistantWidth != null ? { assistantWidth } : {}),
         ...(assistantHeight != null ? { assistantHeight } : {}),
-        // В ролевом режиме высота employee-блока определяется числом должностей,
-        // а не числом сотрудников (CR-003-02 §7, §18).
-        ...(employeeMode === "roles"
-          ? { employeeHeight: ROLE_ROW_HEIGHT, personGap: ROLE_ROW_GAP }
-          : {}),
+        // Ролевой режим (CR-003-02 §9, §19): высота department-card зависит
+        // от числа уникальных должностей, а не числа сотрудников.
+        ...(employeeMode === "roles" ? PDF_ROLES_LAYOUT_OPTIONS : {}),
       });
 
       const svg = renderUnifiedLayoutToPdf(layout, {
@@ -120,16 +129,16 @@ export async function exportOrgChartToPdf({
 }
 
 /**
- * Агрегирует сотрудников подразделения по должностям (CR-003-02 §4).
+ * Агрегирует сотрудников подразделения по должностям (CR-003-02 §5).
  *
  * Руководитель и административный ассистент исключаются: они отображаются
- * отдельно (department-card / assistant-узел), а не в списке ролей.
+ * отдельно (header department-card / assistant-узел), а не в списке ролей.
  *
  * @param {Array} users - сотрудники/вакансии подразделения
  * @param {object} [opts]
  * @param {string} [opts.headName] - ФИО руководителя подразделения
  * @param {boolean} [opts.showVacancies=true]
- * @returns {Array<{position:string, count:number, vacancyCount:number, weight:number}>}
+ * @returns {Array<{position:string, count:number, vacancies:number, weight:number}>}
  */
 export function aggregateUsersToRoles(users, { headName = "", showVacancies = true } = {}) {
   const roles = new Map();
@@ -137,7 +146,7 @@ export function aggregateUsersToRoles(users, { headName = "", showVacancies = tr
   (users || []).forEach((user) => {
     if (isHeadUser(user, headName)) return;
     if (isAdministrativeAssistant(user)) return;
-    // Вакансии скрыты — не создаём для них роли (CR-003-02 §10).
+    // Вакансии скрыты — не создаём для них роли (CR-003-02 §12).
     if (user.isVacancy && !showVacancies) return;
 
     const key = String(user.position || "")
@@ -149,7 +158,7 @@ export function aggregateUsersToRoles(users, { headName = "", showVacancies = tr
       roles.set(key, {
         position: display,
         count: 0,
-        vacancyCount: 0,
+        vacancies: 0,
         weight: positionWeight(user),
       });
     }
@@ -157,7 +166,7 @@ export function aggregateUsersToRoles(users, { headName = "", showVacancies = tr
     role.weight = Math.min(role.weight, positionWeight(user));
 
     if (user.isVacancy) {
-      role.vacancyCount += 1;
+      role.vacancies += 1;
     } else {
       role.count += 1;
     }
@@ -177,25 +186,10 @@ function isHeadUser(user, headName) {
   );
 }
 
-function toRoleUser(role, index) {
-  return {
-    id: `role-${index}`,
-    name: role.position,
-    full_name: role.position,
-    position: role.position,
-    rawPosition: role.position,
-    project: "",
-    subLevel: role.weight,
-    isVacancy: false,
-    roleCount: role.count,
-    vacancyCount: role.vacancyCount,
-  };
-}
-
 /**
- * Готовит дерево для ролевого режима: users каждого подразделения заменяются
- * агрегированными записями должностей (CR-003-02 §17 — подготовка employee
- * content перед вызовом Unified Layout). Организационная иерархия не меняется.
+ * Готовит presentation-модель дерева для ролевого режима (CR-003-02 §19):
+ * users подразделения агрегируются в pdfRoles, отдельный NODE_EMPLOYEES
+ * не создаётся (users пуст). Организационная иерархия не меняется.
  */
 export function prepareRolesTree(node, showVacancies) {
   const roles = aggregateUsersToRoles(node.users || [], {
@@ -205,7 +199,8 @@ export function prepareRolesTree(node, showVacancies) {
 
   return {
     ...node,
-    users: roles.map(toRoleUser),
+    users: [],
+    pdfRoles: roles.map(({ position, count, vacancies }) => ({ position, count, vacancies })),
     children: (node.children || []).map((child) => prepareRolesTree(child, showVacancies)),
   };
 }
@@ -485,6 +480,13 @@ function drawPdfNode(diagram, node, opts) {
 }
 
 function drawPdfDepartmentCard(group, node, opts) {
+  // Ролевой режим (CR-003-02): роли встроены в department-card, отдельный
+  // NODE_EMPLOYEES отсутствует в геометрии.
+  if (opts.employeeMode === "roles") {
+    drawRoleDepartmentCard(group, node, opts);
+    return;
+  }
+
   const { data } = node;
   const isRoot = node.row === 0;
 
@@ -543,6 +545,138 @@ function drawPdfDepartmentCard(group, node, opts) {
 
   const count = opts.showVacancies ? (data.totalWithVacancies ?? 0) : (data.staffCount ?? 0);
   drawCount(group, count, node.width, node.height);
+}
+
+/**
+ * Ролевая department-card (CR-003-02 §7-8): одна карточка = подразделение +
+ * должность руководителя + агрегированный ролевой состав собственных сотрудников.
+ * Отдельный NODE_EMPLOYEES в геометрии отсутствует.
+ */
+function drawRoleDepartmentCard(group, node, opts) {
+  const { data } = node;
+  const isRoot = node.row === 0;
+  const roles = data.pdfRoles || [];
+  const hasScenario = Boolean(data.scenarioState);
+
+  group.appendChild(
+    createSvgElement("rect", {
+      x: 0,
+      y: 0,
+      width: node.width,
+      height: node.height,
+      rx: 14,
+      ry: 14,
+      fill: isRoot ? "#f8fbff" : "#ffffff",
+      stroke: COLORS.blue,
+      "stroke-width": 2,
+    }),
+  );
+
+  if (hasScenario) {
+    drawScenarioBadge(group, data.scenarioState);
+  }
+
+  // Название подразделения.
+  const titleX = hasScenario ? 76 : 18;
+  appendWrappedText(group, data.name || "Без названия", {
+    x: titleX,
+    y: 26,
+    maxWidth: node.width - (hasScenario ? 150 : 90),
+    lineHeight: 16,
+    maxLines: 2,
+    size: 14,
+    weight: 700,
+    fill: COLORS.text,
+  });
+
+  // Общая численность подразделения (CR-003-02 §13).
+  const count = opts.showVacancies ? (data.totalWithVacancies ?? 0) : (data.staffCount ?? 0);
+  if (count > 0) {
+    appendText(group, String(count), {
+      x: node.width - 16,
+      y: 26,
+      size: 14,
+      weight: 700,
+      fill: COLORS.blue,
+      anchor: "end",
+    });
+  }
+
+  // Должность руководителя без ФИО (CR-003-02 §17).
+  if (data.headPosition) {
+    appendWrappedText(group, data.headPosition, {
+      x: 18,
+      y: 56,
+      maxWidth: node.width - 90,
+      lineHeight: 14,
+      maxLines: 1,
+      size: 12,
+      fill: COLORS.muted,
+    });
+  }
+
+  // Если собственных сотрудников кроме руководителя нет — карточка остаётся
+  // минимальной высоты, без separator и пустого ролевого блока (CR-003-02 §9).
+  if (!roles.length) return;
+
+  // Разделитель между «шапкой» подразделения и ролевым составом.
+  const separatorY = ROLE_DEPT_HEADER_HEIGHT - 4;
+  group.appendChild(
+    createSvgElement("line", {
+      x1: 14,
+      y1: separatorY,
+      x2: node.width - 14,
+      y2: separatorY,
+      stroke: "#e4e7ec",
+      "stroke-width": 1,
+    }),
+  );
+
+  // Роли: должность + количество, вакансии отдельно (+N вак.).
+  const firstRowY = separatorY + 8;
+  roles.forEach((role, index) => {
+    const rowY = firstRowY + index * ROLE_DEPT_ROW_HEIGHT;
+    const roleGroup = createSvgElement("g", {
+      transform: `translate(0, ${rowY})`,
+      "data-role": role.position,
+    });
+
+    // Должность: максимум 2 строки, счётчик не перекрывается (CR-003-02 §21).
+    appendWrappedText(roleGroup, role.position || "Без должности", {
+      x: 18,
+      y: 0,
+      maxWidth: node.width - 140,
+      lineHeight: 12,
+      maxLines: 2,
+      size: 10,
+      weight: 500,
+      fill: COLORS.text,
+    });
+
+    if (role.count > 0) {
+      appendText(roleGroup, String(role.count), {
+        x: node.width - 16,
+        y: 0,
+        size: 10,
+        weight: 700,
+        fill: COLORS.text,
+        anchor: "end",
+      });
+    }
+
+    if (role.vacancies > 0) {
+      appendText(roleGroup, `+${role.vacancies} вак.`, {
+        x: node.width - 68,
+        y: 0,
+        size: 9,
+        weight: 400,
+        fill: COLORS.muted,
+        anchor: "end",
+      });
+    }
+
+    group.appendChild(roleGroup);
+  });
 }
 
 function drawPdfAssistantCard(group, node, opts) {
@@ -623,70 +757,11 @@ function drawPdfEmployeesColumn(diagram, node, opts) {
     anchor: "middle",
   });
 
-  // Ролевой режим (CR-003-02): компактные строки должностей вместо карточек сотрудников.
-  if (opts.employeeMode === "roles") {
-    drawRoleRows(group, node);
-  } else {
-    drawDetailedPersonCards(group, node, opts);
-  }
+  // NODE_EMPLOYEES существует только в detailed-режиме; в ролевом режиме
+  // (CR-003-02) роли встроены в department-card, отдельный блок отсутствует.
+  drawDetailedPersonCards(group, node, opts);
 
   diagram.appendChild(group);
-}
-
-function drawRoleRows(group, node) {
-  const gap = computePersonGap(node);
-  let cursorY = PDF_LAYOUT_OPTIONS.employeesHeaderHeight;
-
-  node.persons.forEach((person, index) => {
-    const data = person.data;
-    const count = data.roleCount ?? 1;
-    const vacancyCount = data.vacancyCount ?? 0;
-
-    const roleGroup = createSvgElement("g", {
-      transform: `translate(0, ${cursorY})`,
-      "data-node-id": `role-${index}`,
-      "data-role": data.position || "",
-    });
-
-    // Должность: максимум 2 строки (CR-003-02 §19).
-    appendWrappedText(roleGroup, data.position || "Без должности", {
-      x: 10,
-      y: 13,
-      maxWidth: node.width - 130,
-      lineHeight: 12,
-      maxLines: 2,
-      size: 10,
-      weight: 500,
-      fill: COLORS.text,
-    });
-
-    // Количество занятых: ×N.
-    if (count > 0) {
-      appendText(roleGroup, `×${count}`, {
-        x: node.width - 16,
-        y: 13,
-        size: 10,
-        weight: 700,
-        fill: COLORS.text,
-        anchor: "end",
-      });
-    }
-
-    // Вакансии: +M вак. (CR-003-02 §10).
-    if (vacancyCount > 0) {
-      appendText(roleGroup, `+${vacancyCount} вак.`, {
-        x: count > 0 ? node.width - 78 : node.width - 16,
-        y: 13,
-        size: 9,
-        weight: 400,
-        fill: COLORS.muted,
-        anchor: "end",
-      });
-    }
-
-    group.appendChild(roleGroup);
-    cursorY += person.height + gap;
-  });
 }
 
 function drawDetailedPersonCards(group, node, opts) {

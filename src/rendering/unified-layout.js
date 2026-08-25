@@ -46,6 +46,14 @@ const DEFAULT_OPTIONS = {
   contentGap: 30,
   paddingX: 40,
   paddingY: 40,
+  // Ролевая presentation для PDF (CR-003-02): department-card получает
+  // динамическую высоту по числу должностей. По умолчанию выключено —
+  // не влияет на экран и detailed-режим.
+  rolesPresentation: false,
+  rolesDepartmentHeaderHeight: 0,
+  rolesDepartmentSeparatorHeight: 0,
+  rolesDepartmentRowHeight: 0,
+  rolesDepartmentPadding: 0,
 };
 
 export function isAdministrativeAssistant(user) {
@@ -95,6 +103,12 @@ export function buildLayoutTree(
       scenarioState: node.scenarioState || "",
       managerSubLevel: node.manager_sub_level,
     };
+
+    // Ролевая presentation (CR-003-02 §19): агрегированные должности переезжают
+    // в data подразделения и используются только ролевым PDF-режимом.
+    if (Array.isArray(node.pdfRoles)) {
+      data.pdfRoles = node.pdfRoles;
+    }
 
     const users = (node.users || [])
       .filter((user) => showVacancies || !user.isVacancy)
@@ -289,7 +303,20 @@ function attachLayoutMeta(node) {
 function computeSizes(node, opts) {
   if (node.type === NODE_DEPARTMENT) {
     node.width = opts.departmentWidth;
-    node.height = opts.departmentHeight;
+
+    if (opts.rolesPresentation && Array.isArray(node.data.pdfRoles)) {
+      // Ролевая presentation (CR-003-02 §9): высота карточки зависит от числа
+      // уникальных должностей, а не от числа сотрудников.
+      const rolesCount = node.data.pdfRoles.length;
+      node.height =
+        opts.rolesDepartmentHeaderHeight +
+        (rolesCount
+          ? opts.rolesDepartmentSeparatorHeight + rolesCount * opts.rolesDepartmentRowHeight
+          : 0) +
+        opts.rolesDepartmentPadding;
+    } else {
+      node.height = opts.departmentHeight;
+    }
   } else if (node.type === NODE_ASSISTANT) {
     node.width = opts.assistantWidth;
     node.height = opts.assistantHeight;
