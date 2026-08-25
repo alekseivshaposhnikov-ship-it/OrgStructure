@@ -27,6 +27,14 @@ export function initExportHandler(state) {
       hideNames: exportWithoutNames,
       showVacancies: state.showVacancies,
       viewMode: state.viewMode,
+      // PDF использует ту же конфигурацию Unified Layout, что и экран (CR-003 §17),
+      // чтобы геометрия карточек и расстояние совпадали.
+      departmentWidth: state.cardWidth,
+      departmentHeight: getDepartmentNodeHeight({ isDepartment: true }, state.cardDesign),
+      employeeWidth: state.cardWidth,
+      employeeHeight: 96,
+      assistantWidth: state.cardWidth,
+      assistantHeight: 96,
     };
 
     if (state.cardDesign === "compact-a4") {

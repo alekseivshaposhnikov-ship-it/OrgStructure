@@ -53,7 +53,7 @@ main.js          композиция (точка входа)
 ### export/
 | Модуль | Назначение |
 |---|---|
-| `pdf-d3-export.js` | Экспорт в PDF (обычный + Compact A4) |
+| `pdf-d3-export.js` | Экспорт в PDF на едином Unified Layout (CR-003) + Compact A4 |
 | `pdf-utils.js` | Общий конвейер SVG→PDF и обёртка с блокировкой кнопки (CR-009) |
 
 ### ui/
