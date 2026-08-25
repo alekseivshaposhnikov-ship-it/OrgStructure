@@ -8,6 +8,8 @@ const {
   renderUnifiedLayoutToPdf,
   computePdfLayoutMetrics,
   buildPdfLayout,
+  aggregateUsersToRoles,
+  prepareRolesTree,
   PDF_LAYOUT_OPTIONS,
 } = await import("./pdf-d3-export.js");
 
@@ -422,6 +424,206 @@ describe("pdf-d3-export.js", () => {
       } finally {
         spy.mockRestore();
       }
+    });
+  });
+
+  describe("PDF export: role aggregation «без фамилий» (CR-003-02)", () => {
+    function makeUsers(positions) {
+      return positions.map((position, index) => ({
+        id: `u${index}`,
+        full_name: `Сотрудник ${index}`,
+        name: `Сотрудник ${index}`,
+        position,
+        rawPosition: position,
+        subLevel: undefined,
+        isVacancy: false,
+        project: "",
+        scenarioState: "",
+      }));
+    }
+
+    it("Test 1: 3 «Специалист» → одна role row «Специалист ×3»", () => {
+      const roles = aggregateUsersToRoles(
+        makeUsers(["Специалист", "Специалист", "Специалист"]),
+        {},
+      );
+
+      expect(roles).toHaveLength(1);
+      expect(roles[0]).toMatchObject({ position: "Специалист", count: 3, vacancyCount: 0 });
+
+      // В SVG-рендере — одна роль с количеством ×3.
+      const root = dept("root", "Root", {
+        children: [
+          dept("A", "Department A", {
+            users: makeUsers(["Специалист", "Специалист", "Специалист"]),
+          }),
+        ],
+      });
+      const layout = buildPdfLayout(prepareRolesTree(root, true), {
+        employeeHeight: 20,
+        personGap: 2,
+      });
+      const svg = renderUnifiedLayoutToPdf(layout, {
+        hideNames: true,
+        employeeMode: "roles",
+      });
+
+      const roleRows = svg.querySelectorAll("g[data-role='Специалист']");
+      expect(roleRows.length).toBe(1);
+      const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
+      expect(texts).toContain("×3");
+    });
+
+    it("Test 2: Специалист ×3 и Ведущий специалист ×2 → 2 unique role rows", () => {
+      const roles = aggregateUsersToRoles(
+        makeUsers([
+          "Специалист",
+          "Специалист",
+          "Специалист",
+          "Ведущий специалист",
+          "Ведущий специалист",
+        ]),
+        {},
+      );
+
+      expect(roles).toHaveLength(2);
+      const byPosition = Object.fromEntries(roles.map((r) => [r.position, r.count]));
+      expect(byPosition["Специалист"]).toBe(3);
+      expect(byPosition["Ведущий специалист"]).toBe(2);
+    });
+
+    it("Test 3: руководитель не дублируется в role summary", () => {
+      const users = [
+        user("head", "Иванова Ирина Петровна", { position: "Руководитель отдела" }),
+        ...makeUsers(["Специалист", "Специалист"]),
+      ];
+
+      const roles = aggregateUsersToRoles(users, {
+        headName: "Иванова Ирина Петровна",
+      });
+
+      expect(roles).toHaveLength(1);
+      expect(roles[0]).toMatchObject({ position: "Специалист", count: 2 });
+    });
+
+    it("Test 4: сотрудники дочернего подразделения не попадают в role summary родителя", () => {
+      const root = dept("root", "Root", {
+        users: makeUsers(["Специалист"]),
+        children: [
+          dept("A", "Department A", {
+            users: makeUsers(["Ведущий специалист", "Главный специалист"]),
+          }),
+        ],
+      });
+
+      const layout = buildPdfLayout(prepareRolesTree(root, true), {
+        employeeHeight: 20,
+        personGap: 2,
+      });
+
+      const departmentA = layout.nodes.find((n) => n.data && n.data.id === "A");
+      const rootEmployees = layout.nodes.find((n) => n.type === "employees" && n.y < departmentA.y);
+      const roles = rootEmployees.persons.map((p) => p.data.position);
+      expect(roles).toContain("Специалист");
+      expect(roles).not.toContain("Ведущий специалист");
+      expect(roles).not.toContain("Главный специалист");
+    });
+
+    it("Test 5: showVacancies=false → вакансии отсутствуют в role summary", () => {
+      const users = [
+        ...makeUsers(["Специалист"]),
+        {
+          id: "vac1",
+          full_name: "Вакансия",
+          name: "Вакансия",
+          position: "Аналитик",
+          rawPosition: "Аналитик",
+          isVacancy: true,
+          project: "",
+          scenarioState: "",
+        },
+      ];
+
+      const roles = aggregateUsersToRoles(users, { showVacancies: false });
+
+      expect(roles).toHaveLength(1);
+      expect(roles[0]).toMatchObject({ position: "Специалист", count: 1, vacancyCount: 0 });
+    });
+
+    it("Test 6: showVacancies=true → вакансии учитываются в role summary", () => {
+      const users = [
+        ...makeUsers(["Специалист", "Специалист"]),
+        {
+          id: "vac1",
+          full_name: "Вакансия",
+          name: "Вакансия",
+          position: "Специалист",
+          rawPosition: "Специалист",
+          isVacancy: true,
+          project: "",
+          scenarioState: "",
+        },
+      ];
+
+      const roles = aggregateUsersToRoles(users, { showVacancies: true });
+
+      expect(roles).toHaveLength(1);
+      expect(roles[0]).toMatchObject({ position: "Специалист", count: 2, vacancyCount: 1 });
+    });
+
+    it("Test 7: hideNames=false не включает role aggregation", () => {
+      const root = dept("root", "Root", {
+        users: makeUsers(["Специалист", "Специалист", "Ведущий специалист"]),
+      });
+
+      const layout = buildPdfLayout(root, PDF_LAYOUT_OPTIONS);
+      const employees = layout.nodes.find((n) => n.type === "employees");
+
+      expect(employees.persons).toHaveLength(3);
+      employees.persons.forEach((person) => {
+        expect(person.data.roleCount).toBeUndefined();
+      });
+    });
+
+    it("Test 8: hideNames=true включает role aggregation", () => {
+      const root = dept("root", "Root", {
+        users: makeUsers(["Специалист", "Специалист", "Ведущий специалист"]),
+      });
+
+      const layout = buildPdfLayout(prepareRolesTree(root, true), {
+        employeeHeight: 20,
+        personGap: 2,
+      });
+      const employees = layout.nodes.find((n) => n.type === "employees");
+
+      expect(employees.persons).toHaveLength(2);
+      const roles = employees.persons.map((p) => ({
+        position: p.data.position,
+        count: p.data.roleCount,
+      }));
+      expect(roles).toContainEqual({ position: "Ведущий специалист", count: 1 });
+      expect(roles).toContainEqual({ position: "Специалист", count: 2 });
+    });
+
+    it("Test 9: высота employee content для 20 сотрудников / 4 ролей существенно меньше detailed", () => {
+      const positions = [
+        ...Array(5).fill("Главный специалист"),
+        ...Array(3).fill("Ведущий специалист"),
+        ...Array(8).fill("Специалист"),
+        ...Array(4).fill("Аналитик"),
+      ];
+      const root = dept("root", "Root", { users: makeUsers(positions) });
+
+      const detailedLayout = buildPdfLayout(root, PDF_LAYOUT_OPTIONS);
+      const rolesLayout = buildPdfLayout(prepareRolesTree(root, true), {
+        employeeHeight: 20,
+        personGap: 2,
+      });
+
+      const detailedHeight = detailedLayout.nodes.find((n) => n.type === "employees").height;
+      const rolesHeight = rolesLayout.nodes.find((n) => n.type === "employees").height;
+
+      expect(rolesHeight).toBeLessThan(detailedHeight / 3);
     });
   });
 });

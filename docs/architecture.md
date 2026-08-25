@@ -28,6 +28,7 @@ main.js          композиция (точка входа)
 | `constants.js` | Общие константы (например, `VIEW_MODE_TITLES`) |
 | `utils/string.js` | `escapeHtml`, `normalizeProjects`, `formatDate`, `sanitizeFileName` |
 | `utils/tree.js` | `cloneTree`, `addLevels`, `shortPosition`, `parseSubLevel`, `findDepartmentById` |
+| `utils/position.js` | `positionWeight`, `sortUsersByPositionLevel` (сортировка по уровню должности) |
 
 ### data/
 | Модуль | Назначение |
@@ -53,7 +54,7 @@ main.js          композиция (точка входа)
 ### export/
 | Модуль | Назначение |
 |---|---|
-| `pdf-d3-export.js` | Экспорт в PDF на едином Unified Layout (CR-003) + Compact A4 |
+| `pdf-d3-export.js` | Экспорт в PDF на едином Unified Layout (CR-003) + Compact A4; ролевой режим «без фамилий» (CR-003-02) |
 | `pdf-utils.js` | Общий конвейер SVG→PDF и обёртка с блокировкой кнопки (CR-009) |
 
 ### ui/

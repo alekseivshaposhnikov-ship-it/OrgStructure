@@ -4,6 +4,7 @@ import {
   shortPosition,
   parseSubLevel,
 } from "../core/utils/tree.js";
+import { sortUsersByPositionLevel } from "../core/utils/position.js";
 
 export { cloneTree, findDepartmentById };
 
@@ -575,36 +576,6 @@ function appendOperation({ scenario, workingTree, operation }) {
 
 function sortUsers(users) {
   return [...(users || [])].sort(sortUsersByPositionLevel);
-}
-
-function sortUsersByPositionLevel(a, b) {
-  if (a.isVacancy !== b.isVacancy) {
-    return a.isVacancy ? 1 : -1;
-  }
-
-  const levelDiff = positionWeight(a) - positionWeight(b);
-  if (levelDiff !== 0) return levelDiff;
-
-  return String(a.full_name || a.position || "").localeCompare(
-    String(b.full_name || b.position || ""),
-    "ru"
-  );
-}
-
-function positionWeight(user) {
-  if (Number.isFinite(user.subLevel)) return user.subLevel;
-
-  const position = String(user.position || "").toLowerCase();
-
-  if (position.includes("директор")) return 1;
-  if (position.includes("руководитель")) return 2;
-  if (position.includes("начальник")) return 3;
-  if (position.includes("лидер") || position.includes("lead")) return 4;
-  if (position.includes("ведущий")) return 5;
-  if (position.includes("старший")) return 6;
-  if (position.includes("главный")) return 6;
-
-  return 100;
 }
 
 function createLocalId(type) {
