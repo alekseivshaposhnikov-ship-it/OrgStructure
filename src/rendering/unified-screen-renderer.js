@@ -112,12 +112,9 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     const zoomLayer = svg.append("g").attr("class", "unified-orgchart__layer");
     state.zoomLayer = zoomLayer;
 
-    state.viewport = createChartViewport({
-      svg,
-      zoomLayer,
-      minScale: 0.1,
-      maxScale: 3,
-    });
+    // Диапазон zoom задаётся в общем viewport-хелпере (CR-011),
+    // здесь не дублируем scaleExtent.
+    state.viewport = createChartViewport({ svg, zoomLayer });
 
     zoomLayer
       .append("g")

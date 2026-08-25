@@ -4,8 +4,7 @@ describe("compact-a4-screen-renderer (CR-008_1)", () => {
   let renderCompactA4Screen;
 
   beforeEach(async () => {
-    document.body.innerHTML =
-      '<div id="orgChart" style="width:800px;height:600px"></div>';
+    document.body.innerHTML = '<div id="orgChart" style="width:800px;height:600px"></div>';
     const mod = await import("./compact-a4-screen-renderer.js");
     renderCompactA4Screen = mod.renderCompactA4Screen;
   });
@@ -82,9 +81,7 @@ describe("compact-a4-screen-renderer (CR-008_1)", () => {
     );
     expect(headerText).toBe(true);
 
-    const layerTexts = Array.from(layer.querySelectorAll("text")).map((t) =>
-      t.textContent || "",
-    );
+    const layerTexts = Array.from(layer.querySelectorAll("text")).map((t) => t.textContent || "");
     expect(layerTexts.some((t) => t.includes("Организационная структура"))).toBe(false);
     expect(layerTexts.some((t) => t.includes("Холдинг"))).toBe(true);
   });
@@ -153,5 +150,19 @@ describe("compact-a4-screen-renderer (CR-008_1)", () => {
     expect(ids).toContain("root");
     expect(ids).toContain("child");
     expect(chart.flatData.some((n) => n.type === "employees")).toBe(true);
+  });
+
+  it("использует единый расширенный диапазон zoom (CR-011)", () => {
+    renderCompactA4Screen([makeRoot()], "#orgChart", {});
+
+    const svg = document.querySelector("#orgChart svg");
+    const layer = getLayer();
+
+    // Один сильный wheel up: k = k0 * 2^(6000*0.002) → клампится к 100.
+    // Если бы Compact A4 использовал старый диапазон [0.1, 3], zoom остановился бы на 3.
+    svg.dispatchEvent(new WheelEvent("wheel", { deltaY: -6000, bubbles: true, cancelable: true }));
+
+    const transform = layer.getAttribute("transform");
+    expect(transform).toContain("scale(100)");
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createChartViewport } from "./screen-viewport.js";
+import * as d3 from "d3";
+import { createChartViewport, MIN_ZOOM_SCALE, MAX_ZOOM_SCALE } from "./screen-viewport.js";
 
 function createSvgDom() {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -19,7 +20,7 @@ describe("screen-viewport (CR-008_1)", () => {
 
   it("создаёт viewport controller с ожидаемым API", () => {
     const { svg, layer } = createSvgDom();
-    const viewport = createChartViewport({ svg, zoomLayer: layer, minScale: 0.1, maxScale: 3 });
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
 
     expect(viewport.zoomBehavior).toBeDefined();
     expect(typeof viewport.applyTransform).toBe("function");
@@ -86,10 +87,86 @@ describe("screen-viewport (CR-008_1)", () => {
     expect(transform).toContain("scale(1)");
   });
 
-  it("уважает ограничения масштаба scaleExtent", () => {
+  it("использует единый расширенный диапазон масштаба (CR-011)", () => {
     const { svg, layer } = createSvgDom();
-    const viewport = createChartViewport({ svg, zoomLayer: layer, minScale: 0.1, maxScale: 3 });
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
 
-    expect(viewport.zoomBehavior.scaleExtent()).toEqual([0.1, 3]);
+    expect(viewport.zoomBehavior.scaleExtent()).toEqual([MIN_ZOOM_SCALE, MAX_ZOOM_SCALE]);
+    expect(MIN_ZOOM_SCALE).toBe(0.02);
+    expect(MAX_ZOOM_SCALE).toBe(100);
+  });
+});
+
+describe("screen-viewport zoom диапазон (CR-011)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it.each([20, 50, 100])(
+    "допускает увеличение до масштаба %sx без ограничения прежним лимитом 3x",
+    (scale) => {
+      const { svg, layer } = createSvgDom();
+      const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+      viewport.applyTransform(d3.zoomIdentity.scale(scale));
+
+      expect(viewport.currentTransform().k).toBe(scale);
+      expect(layer.getAttribute("transform")).toContain(`scale(${scale})`);
+    },
+  );
+
+  it("ограничивает увеличение выше максимума значением MAX_ZOOM_SCALE (CR-011)", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    // Пользовательский путь масштабирования (scaleBy/scaleTo) клампится scaleExtent:
+    // 1 * 500 → 500 → ограничивается до 100.
+    viewport.zoomBehavior.scaleBy(d3.select(svg), 500);
+
+    expect(viewport.currentTransform().k).toBe(MAX_ZOOM_SCALE);
+    expect(layer.getAttribute("transform")).toContain("scale(100)");
+  });
+
+  it("позволяет уменьшить до минимального масштаба MIN_ZOOM_SCALE (CR-011)", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    viewport.applyTransform(d3.zoomIdentity.scale(MIN_ZOOM_SCALE));
+
+    expect(viewport.currentTransform().k).toBe(0.02);
+    expect(layer.getAttribute("transform")).toContain("scale(0.02)");
+
+    // Дальнейшее уменьшение тоже клампится и не падает ниже минимума.
+    viewport.zoomBehavior.scaleBy(d3.select(svg), 0.5);
+    expect(viewport.currentTransform().k).toBe(0.02);
+  });
+
+  it("после fit() позволяет вручную увеличить диаграмму выше прежнего лимита 3x (CR-011)", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    viewport.fit({
+      bounds: { x: 0, y: 0, width: 1000, height: 800 },
+      viewport: { width: 1000, height: 800 },
+    });
+    expect(viewport.currentTransform().k).toBeCloseTo(0.95, 5);
+
+    // После fit пользователь может увеличить, например, до 20x — существенно
+    // сильнее прежнего лимита 3x.
+    viewport.applyTransform(d3.zoomIdentity.scale(20));
+    expect(viewport.currentTransform().k).toBe(20);
+  });
+
+  it("wheel up увеличивает масштаб выше прежнего лимита 3x (CR-011)", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    // Один сильный скролл вверх: k = 1 * 2^(6000*0.002) = 4096 → клампится к 100.
+    svg.dispatchEvent(new WheelEvent("wheel", { deltaY: -6000, bubbles: true, cancelable: true }));
+
+    const k = viewport.currentTransform().k;
+    expect(k).toBeGreaterThan(3);
+    expect(k).toBeLessThanOrEqual(MAX_ZOOM_SCALE);
+    expect(layer.getAttribute("transform")).toContain("scale(100)");
   });
 });

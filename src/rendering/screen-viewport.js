@@ -7,6 +7,10 @@
  * Используется и unified-screen-renderer.js, и compact-a4-screen-renderer.js,
  * чтобы у обоих дизайнов была одна реализация управления экраном.
  *
+ * Диапазон масштабирования задаётся ТОЛЬКО здесь (CR-011): минимальный 2%,
+ * максимальный 10 000% — фактически свободный zoom без использования Infinity.
+ * Дублировать .scaleExtent(...) в renderer'ах нельзя — один источник настроек.
+ *
  * Принципы:
  *   - D3 transform применяется к отдельному <g> (zoom layer), а не к root <svg>.
  *   - Существующий механизм проекта (d3 v5) переиспользуется как есть:
@@ -14,6 +18,11 @@
  */
 
 import * as d3 from "d3";
+
+// Единый источник ограничений масштаба экранной диаграммы (CR-011).
+// Пользователь не должен упираться в искусственно низкий предел увеличения.
+export const MIN_ZOOM_SCALE = 0.02; // 2%  — позволяет отдалить очень большую схему
+export const MAX_ZOOM_SCALE = 100; // 10 000% — фактически свободное увеличение
 
 function asSelection(node) {
   if (node && typeof node.node === "function") return node; // уже d3 selection
@@ -23,19 +32,20 @@ function asSelection(node) {
 /**
  * Создаёт viewport controller для экранной диаграммы.
  *
+ * Диапазон zoom фиксирован (MIN_ZOOM_SCALE..MAX_ZOOM_SCALE) и не передаётся
+ * извне, чтобы не было дублирования настроек по renderer'ам (CR-011).
+ *
  * @param {object} params
  * @param {Element|d3.selection} params.svg - root SVG элемент
  * @param {Element|d3.selection} params.zoomLayer - <g>, к которому применяется transform
- * @param {number} [params.minScale=0.1]
- * @param {number} [params.maxScale=3]
  */
-export function createChartViewport({ svg, zoomLayer, minScale = 0.1, maxScale = 3 }) {
+export function createChartViewport({ svg, zoomLayer }) {
   const svgSelection = asSelection(svg);
   const layerSelection = asSelection(zoomLayer);
 
   const zoomBehavior = d3
     .zoom()
-    .scaleExtent([minScale, maxScale])
+    .scaleExtent([MIN_ZOOM_SCALE, MAX_ZOOM_SCALE])
     .on("zoom", (zoomEvent) => {
       // Совместимость с текущей версией D3 (CR-008_1 #15): в d3 v5 событие
       // доступно через d3.event, в новых версиях — как первый аргумент.

@@ -44,7 +44,7 @@ main.js          композиция (точка входа)
 |---|---|
 | `unified-layout.js` | Единый layout диаграммы (высоты уровней, колонки) |
 | `chart-cards.js` | HTML-карточки (classic / variant2 / variant3 / PDF-режим) |
-| `screen-viewport.js` | Единый viewport: zoom/pan/fit/center (CR-008_1) |
+| `screen-viewport.js` | Единый viewport: zoom/pan/fit/center (CR-008_1); диапазон масштаба MIN/MAX_ZOOM_SCALE (CR-011) |
 | `tokens.js` | Палитра и сценарий-стайлы (CR-009) |
 | `svg-utils.js` | Общие SVG-хелперы: createSvgElement, appendText, truncateText |
 | `unified-screen-renderer.js` | Экранный рендер через SVG + foreignObject |

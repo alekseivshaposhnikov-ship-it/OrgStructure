@@ -82,12 +82,9 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
 
     const zoomLayer = svg.querySelector(".compact-a4__viewport-layer");
     if (zoomLayer) {
-      state.viewport = createChartViewport({
-        svg,
-        zoomLayer,
-        minScale: 0.1,
-        maxScale: 3,
-      });
+      // Диапазон zoom задаётся в общем viewport-хелпере (CR-011),
+      // здесь не дублируем scaleExtent.
+      state.viewport = createChartViewport({ svg, zoomLayer });
       fit();
     } else {
       state.viewport = null;

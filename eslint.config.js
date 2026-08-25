@@ -49,6 +49,7 @@ export default [
         Node: "readonly",
         Event: "readonly",
         CustomEvent: "readonly",
+        WheelEvent: "readonly",
         XMLHttpRequest: "readonly",
         // Vitest (globals: true)
         describe: "readonly",
