@@ -61,7 +61,9 @@ export function getExportSubtitle({ viewMode, showVacancies, hideNames }) {
     parts.push("без вакансий");
   }
 
-  parts.push(hideNames ? "без фамилий" : "с фамилиями");
+  // CR-003-03 §23: ролевой режим отражается в subtitle как «по должностям»,
+  // а не техническим «без фамилий».
+  parts.push(hideNames ? "по должностям" : "с фамилиями");
 
   return parts.join(" · ");
 }

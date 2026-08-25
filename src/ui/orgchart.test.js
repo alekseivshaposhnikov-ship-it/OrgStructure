@@ -38,7 +38,7 @@ describe("orgchart (Фаза 2)", () => {
 
       expect(subtitle).toContain("Текущая структура");
       expect(subtitle).toContain("без вакансий");
-      expect(subtitle).toContain("без фамилий");
+      expect(subtitle).toContain("по должностям");
     });
 
     it("должен использовать fallback для неизвестного режима", () => {

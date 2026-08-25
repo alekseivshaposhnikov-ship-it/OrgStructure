@@ -679,8 +679,12 @@ describe("pdf-d3-export.js", () => {
       const rolesCount = deptNode.data.pdfRoles.length;
 
       // Высота карточки покрывает header + separator + все role rows + padding,
-      // то есть role rows не выходят за границы карточки.
-      const requiredHeight = 66 + 14 + rolesCount * 18 + 10;
+      // то есть role rows не выходят за границы карточки (CR-003-03 §19).
+      const requiredHeight =
+        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentHeaderHeight +
+        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentSeparatorHeight +
+        rolesCount * PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentRowHeight +
+        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentPadding;
       expect(deptNode.height).toBe(requiredHeight);
     });
 
@@ -693,6 +697,138 @@ describe("pdf-d3-export.js", () => {
 
       const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
       expect(texts.some((t) => /Иван|Пётр|Мария|Анна|Ольга/.test(t))).toBe(false);
+    });
+  });
+
+  describe("PDF export: visual доработка ролевого режима (CR-003-03)", () => {
+    function makeUsers(positions) {
+      return positions.map((position, index) => ({
+        id: `u${index}`,
+        full_name: `Сотрудник ${index}`,
+        name: `Сотрудник ${index}`,
+        position,
+        rawPosition: position,
+        subLevel: undefined,
+        isVacancy: false,
+        project: "",
+        scenarioState: "",
+      }));
+    }
+
+    function buildRolesLayout(root, showVacancies = true) {
+      return buildPdfLayout(prepareRolesTree(root, showVacancies), {
+        ...PDF_LAYOUT_OPTIONS,
+        ...PDF_ROLES_LAYOUT_OPTIONS,
+      });
+    }
+
+    it("Test 1: карточка с 0 ролей имеет минимальную высоту", () => {
+      const root = dept("root", "Root", { users: [] });
+
+      const layout = buildRolesLayout(root);
+      const deptNode = layout.nodes.find((n) => n.data && n.data.id === "root");
+
+      expect(deptNode.data.pdfRoles).toEqual([]);
+      expect(deptNode.height).toBe(
+        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentHeaderHeight +
+          PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentPadding,
+      );
+    });
+
+    it("Test 2: карточка с 3 ролями компактнее detailed employee column", () => {
+      const root = dept("root", "Root", {
+        users: makeUsers(["Специалист", "Специалист", "Ведущий специалист", "Главный специалист"]),
+      });
+
+      const rolesLayout = buildRolesLayout(root);
+      const rolesDept = rolesLayout.nodes.find((n) => n.data && n.data.id === "root");
+      expect(rolesDept.data.pdfRoles).toHaveLength(3);
+
+      const detailedLayout = buildPdfLayout(root, PDF_LAYOUT_OPTIONS);
+      const employees = detailedLayout.nodes.find((n) => n.type === "employees");
+
+      expect(rolesDept.height).toBeLessThan(employees.height);
+    });
+
+    it("Test 3: role counts выведены для всех role rows (без ×N)", () => {
+      const root = dept("root", "Root", {
+        users: makeUsers(["Специалист", "Специалист", "Ведущий специалист"]),
+      });
+
+      const layout = buildRolesLayout(root);
+      const svg = renderUnifiedLayoutToPdf(layout, { employeeMode: "roles" });
+
+      const roleRows = svg.querySelectorAll("g[data-role]");
+      expect(roleRows.length).toBe(2);
+
+      const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
+      expect(texts).toContain("2");
+      expect(texts).toContain("1");
+      expect(texts.some((t) => t.includes("×"))).toBe(false);
+    });
+
+    it("Test 4: long role name не перекрывает count", () => {
+      const root = dept("root", "Root", {
+        users: makeUsers(["Специалист по информационной безопасности", "Специалист"]),
+      });
+
+      const layout = buildRolesLayout(root);
+      const deptNode = layout.nodes.find((n) => n.data && n.data.id === "root");
+      const rolesCount = deptNode.data.pdfRoles.length;
+
+      // Высота покрывает все role rows + separator + padding.
+      const requiredHeight =
+        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentHeaderHeight +
+        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentSeparatorHeight +
+        rolesCount * PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentRowHeight +
+        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentPadding;
+      expect(deptNode.height).toBe(requiredHeight);
+
+      // Текст роли не доходит до зоны count badge / вакансий.
+      expect(deptNode.width - 96).toBeLessThan(deptNode.width - 76);
+    });
+
+    it("Test 5: смена числа roles изменяет высоту карточки", () => {
+      const root1 = dept("root", "Root", { users: makeUsers(["Специалист"]) });
+      const root3 = dept("root", "Root", {
+        users: makeUsers(["Специалист", "Ведущий специалист", "Главный специалист"]),
+      });
+
+      const h1 = buildRolesLayout(root1).nodes.find((n) => n.data && n.data.id === "root").height;
+      const h3 = buildRolesLayout(root3).nodes.find((n) => n.data && n.data.id === "root").height;
+
+      expect(h3).toBeGreaterThan(h1);
+    });
+
+    it("Test 6: detailed mode не использует compact visual preset", () => {
+      const root = dept("root", "Root", {
+        users: makeUsers(["Специалист", "Специалист"]),
+      });
+
+      const detailedLayout = buildPdfLayout(root, PDF_LAYOUT_OPTIONS);
+      const deptNode = detailedLayout.nodes.find((n) => n.data && n.data.id === "root");
+
+      // detailed department использует стандартную фиксированную высоту,
+      // а не ролевую динамическую (CR-003-03 §18).
+      expect(deptNode.height).toBe(PDF_LAYOUT_OPTIONS.departmentHeight);
+      expect(detailedLayout.nodes.find((n) => n.type === "employees")).toBeTruthy();
+    });
+
+    it("bounding-box page-fit: roles scale больше, чем при canvas с запасом (CR-003-03 §20-21)", () => {
+      const layout = buildRolesLayout(makeStructureRoot());
+      const nodes = layout.nodes;
+      const minX = Math.min(...nodes.map((n) => n.x));
+      const minY = Math.min(...nodes.map((n) => n.y));
+      const maxX = Math.max(...nodes.map((n) => n.x + n.width));
+      const maxY = Math.max(...nodes.map((n) => n.y + n.height));
+
+      const withBounds = computePdfLayoutMetrics(layout, {
+        bounds: { minX, minY, width: maxX - minX, height: maxY - minY },
+      });
+      const withoutBounds = computePdfLayoutMetrics(layout);
+
+      // Фактический bbox меньше canvas с запасом → масштаб больше, текст крупнее.
+      expect(withBounds.scale).toBeGreaterThan(withoutBounds.scale);
     });
   });
 });

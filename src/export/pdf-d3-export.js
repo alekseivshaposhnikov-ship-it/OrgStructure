@@ -37,20 +37,27 @@ const HEADER_HEIGHT = 124;
 const HEADER_PADDING = 40;
 const PAGE_PADDING = 0; // layout уже содержит внутренние paddingX/paddingY
 
-// Ролевой режим «PDF без фамилий» (CR-003-02): роли встроены в department-card.
-// Размеры верхней области карточки и компактной строки должности.
-const ROLE_DEPT_HEADER_HEIGHT = 66;
+// Ролевой режим «PDF без фамилий» (CR-003-02, CR-003-03): роли встроены
+// в department-card. Компактные размеры: верхняя область + тонкий divider +
+// плотные строки должностей (CR-003-03 §4, §5, §16).
+const ROLE_DEPT_HEADER_HEIGHT = 46;
 const ROLE_DEPT_SEPARATOR_HEIGHT = 14;
-const ROLE_DEPT_ROW_HEIGHT = 18;
-const ROLE_DEPT_PADDING = 10;
+const ROLE_DEPT_ROW_HEIGHT = 16;
+const ROLE_DEPT_PADDING = 8;
 
 // Опции Unified Layout для ролевого режима (CR-003-02 §9, §19).
+// Компактный preset для roles: меньшие gaps, чтобы sibling cards выглядели
+// единым уровнем (CR-003-03 §13-14, §18).
 export const PDF_ROLES_LAYOUT_OPTIONS = {
   rolesPresentation: true,
   rolesDepartmentHeaderHeight: ROLE_DEPT_HEADER_HEIGHT,
   rolesDepartmentSeparatorHeight: ROLE_DEPT_SEPARATOR_HEIGHT,
   rolesDepartmentRowHeight: ROLE_DEPT_ROW_HEIGHT,
   rolesDepartmentPadding: ROLE_DEPT_PADDING,
+  colGap: 24,
+  rowGap: 36,
+  paddingX: 24,
+  paddingY: 16,
 };
 
 // Конфигурация Unified Layout для PDF соответствует экранному unified-screen-renderer,
@@ -250,23 +257,53 @@ function buildPdfRoot(rootNodes) {
  * @param {object} [opts]
  * @param {number} [opts.pageWidth] - ширина страницы (по умолчанию = layout.width)
  * @param {number} [opts.pageHeight] - высота страницы (по умолчанию = header + layout.height)
+ * @param {{minX:number, minY:number, width:number, height:number}} [opts.bounds] -
+ *   фактический bounding box контента для page-fit (CR-003-03 §20-21).
+ *   По умолчанию — layout.width/layout.height (для detailed поведение не меняется).
  */
-export function computePdfLayoutMetrics(layout, { pageWidth, pageHeight } = {}) {
-  const layoutW = Math.max(layout.width, 1);
-  const layoutH = Math.max(layout.height, 1);
+export function computePdfLayoutMetrics(layout, { pageWidth, pageHeight, bounds } = {}) {
+  const contentBounds = bounds || {
+    minX: 0,
+    minY: 0,
+    width: layout.width,
+    height: layout.height,
+  };
 
-  const targetW = pageWidth || layoutW + PAGE_PADDING * 2;
-  const targetH = pageHeight || HEADER_HEIGHT + layoutH + PAGE_PADDING;
+  const layoutW = Math.max(contentBounds.width, 1);
+  const layoutH = Math.max(contentBounds.height, 1);
+
+  const targetW = pageWidth || layout.width + PAGE_PADDING * 2;
+  const targetH = pageHeight || HEADER_HEIGHT + layout.height + PAGE_PADDING;
 
   const availableW = Math.max(targetW - PAGE_PADDING * 2, 1);
   const availableH = Math.max(targetH - HEADER_HEIGHT - PAGE_PADDING, 1);
 
   const scale = Math.min(availableW / layoutW, availableH / layoutH);
 
-  const offsetX = PAGE_PADDING + (availableW - layoutW * scale) / 2;
-  const offsetY = HEADER_HEIGHT + PAGE_PADDING + (availableH - layoutH * scale) / 2;
+  const offsetX = PAGE_PADDING + (availableW - layoutW * scale) / 2 - contentBounds.minX * scale;
+  const offsetY =
+    HEADER_HEIGHT + PAGE_PADDING + (availableH - layoutH * scale) / 2 - contentBounds.minY * scale;
 
   return { pageWidth: targetW, pageHeight: targetH, scale, offsetX, offsetY };
+}
+
+/** Фактический bounding box визуально занятой области layout (CR-003-03 §21). */
+function computeContentBounds(nodes) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  (nodes || []).forEach((node) => {
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + node.width);
+    maxY = Math.max(maxY, node.y + node.height);
+  });
+
+  if (!Number.isFinite(minX)) return { minX: 0, minY: 0, width: 1, height: 1 };
+
+  return { minX, minY, width: maxX - minX, height: maxY - minY };
 }
 
 /**
@@ -290,7 +327,10 @@ export function renderUnifiedLayoutToPdf(
     employeeMode = hideNames ? "roles" : "detailed",
   } = {},
 ) {
-  const metrics = computePdfLayoutMetrics(layout);
+  // В ролевом режиме page-fit использует фактический bounding box визуально
+  // занятой области, а не canvas с запасом (CR-003-03 §20-21).
+  const contentBounds = employeeMode === "roles" ? computeContentBounds(layout.nodes) : null;
+  const metrics = computePdfLayoutMetrics(layout, contentBounds ? { bounds: contentBounds } : {});
 
   const svg = createSvgElement("svg", {
     width: metrics.pageWidth,
@@ -317,7 +357,12 @@ export function renderUnifiedLayoutToPdf(
     transform: `translate(${metrics.offsetX}, ${metrics.offsetY}) scale(${metrics.scale})`,
   });
 
-  drawConnectorsFromEdges(diagram, layout.edges);
+  // Connector lines в ролевом режиме — визуально легче (CR-003-03 §15).
+  const isRoles = employeeMode === "roles";
+  drawConnectorsFromEdges(diagram, layout.edges, {
+    lineColor: isRoles ? "#cbd5e1" : COLORS.line,
+    lineWidth: isRoles ? 1.25 : 2,
+  });
 
   layout.nodes.forEach((node) => {
     drawPdfNode(diagram, node, { hideNames, showVacancies, employeeMode });
@@ -381,7 +426,8 @@ function drawHeader(svg, { width, title, subtitle }) {
 
 // === Connectors (только на основе layout.edges, CR-003 §25) ===
 
-function drawConnectorsFromEdges(diagram, edges) {
+function drawConnectorsFromEdges(diagram, edges, lineStyle = {}) {
+  const style = { lineColor: COLORS.line, lineWidth: 2, ...lineStyle };
   const byParent = new Map();
 
   edges.forEach(({ parent, child }) => {
@@ -391,17 +437,17 @@ function drawConnectorsFromEdges(diagram, edges) {
   });
 
   byParent.forEach((children, parent) => {
-    drawChildrenGroupConnector(diagram, parent, children);
+    drawChildrenGroupConnector(diagram, parent, children, style);
   });
 }
 
-function drawChildrenGroupConnector(diagram, parent, children) {
+function drawChildrenGroupConnector(diagram, parent, children, style) {
   const parentX = parent.x + parent.width / 2;
   const parentY = parent.y + parent.height;
 
   if (children.length === 1) {
     const child = children[0];
-    drawOrthogonalLine(diagram, parentX, parentY, child.x + child.width / 2, child.y);
+    drawOrthogonalLine(diagram, parentX, parentY, child.x + child.width / 2, child.y, style);
     return;
   }
 
@@ -409,7 +455,7 @@ function drawChildrenGroupConnector(diagram, parent, children) {
   const first = sorted[0];
   const trunkY = parentY + (first.y - parentY) / 2;
 
-  drawStraightLine(diagram, parentX, parentY, parentX, trunkY);
+  drawStraightLine(diagram, parentX, parentY, parentX, trunkY, style);
 
   let minX = Infinity;
   let maxX = -Infinity;
@@ -419,7 +465,7 @@ function drawChildrenGroupConnector(diagram, parent, children) {
     if (childX > maxX) maxX = childX;
   });
 
-  drawStraightLine(diagram, minX, trunkY, maxX, trunkY);
+  drawStraightLine(diagram, minX, trunkY, maxX, trunkY, style);
 
   children.forEach((child) => {
     drawStraightLine(
@@ -428,31 +474,32 @@ function drawChildrenGroupConnector(diagram, parent, children) {
       trunkY,
       child.x + child.width / 2,
       child.y,
+      style,
     );
   });
 }
 
-function drawOrthogonalLine(svg, x1, y1, x2, y2) {
+function drawOrthogonalLine(svg, x1, y1, x2, y2, { lineColor, lineWidth }) {
   const midY = y1 + (y2 - y1) / 2;
   svg.appendChild(
     createSvgElement("path", {
       d: `M ${x1} ${y1} V ${midY} H ${x2} V ${y2}`,
       fill: "none",
-      stroke: COLORS.line,
-      "stroke-width": 2,
+      stroke: lineColor,
+      "stroke-width": lineWidth,
     }),
   );
 }
 
-function drawStraightLine(svg, x1, y1, x2, y2) {
+function drawStraightLine(svg, x1, y1, x2, y2, { lineColor, lineWidth }) {
   svg.appendChild(
     createSvgElement("line", {
       x1,
       y1,
       x2,
       y2,
-      stroke: COLORS.line,
-      "stroke-width": 2,
+      stroke: lineColor,
+      "stroke-width": lineWidth,
     }),
   );
 }
@@ -548,9 +595,18 @@ function drawPdfDepartmentCard(group, node, opts) {
 }
 
 /**
- * Ролевая department-card (CR-003-02 §7-8): одна карточка = подразделение +
- * должность руководителя + агрегированный ролевой состав собственных сотрудников.
- * Отдельный NODE_EMPLOYEES в геометрии отсутствует.
+ * Ролевая department-card (CR-003-02 §7-8, визуальная доработка CR-003-03):
+ * одна карточка = подразделение + должность руководителя + агрегированный
+ * ролевой состав. Отдельный NODE_EMPLOYEES в геометрии отсутствует.
+ *
+ * Композиция (CR-003-03 §3-7):
+ *   ┌────────────────────────────────┐
+ *   │ Отдел веб-разработки        [6] │
+ *   │ Руководитель отдела             │
+ *   │ ─────────────────────────────── │
+ *   │ Ведущий веб-разработчик      [2] │
+ *   │ Веб-разработчик              [2] │
+ *   └────────────────────────────────┘
  */
 function drawRoleDepartmentCard(group, node, opts) {
   const { data } = node;
@@ -576,41 +632,34 @@ function drawRoleDepartmentCard(group, node, opts) {
     drawScenarioBadge(group, data.scenarioState);
   }
 
-  // Название подразделения.
-  const titleX = hasScenario ? 76 : 18;
+  // Название подразделения — главный визуальный элемент (CR-003-03 §9).
   appendWrappedText(group, data.name || "Без названия", {
-    x: titleX,
-    y: 26,
-    maxWidth: node.width - (hasScenario ? 150 : 90),
-    lineHeight: 16,
+    x: 14,
+    y: 18,
+    maxWidth: node.width - 96,
+    lineHeight: 15,
     maxLines: 2,
-    size: 14,
+    size: 13,
     weight: 700,
     fill: COLORS.text,
   });
 
-  // Общая численность подразделения (CR-003-02 §13).
-  const count = opts.showVacancies ? (data.totalWithVacancies ?? 0) : (data.staffCount ?? 0);
-  if (count > 0) {
-    appendText(group, String(count), {
-      x: node.width - 16,
-      y: 26,
-      size: 14,
-      weight: 700,
-      fill: COLORS.blue,
-      anchor: "end",
-    });
+  // Общая численность подразделения — компактный badge в стабильной позиции
+  // справа вверху (CR-003-03 §8).
+  const totalCount = opts.showVacancies ? (data.totalWithVacancies ?? 0) : (data.staffCount ?? 0);
+  if (totalCount > 0) {
+    drawCountBadge(group, totalCount, node.width - 40, 8);
   }
 
-  // Должность руководителя без ФИО (CR-003-02 §17).
+  // Должность руководителя — визуально вторичная (CR-003-03 §10).
   if (data.headPosition) {
     appendWrappedText(group, data.headPosition, {
-      x: 18,
-      y: 56,
-      maxWidth: node.width - 90,
-      lineHeight: 14,
+      x: 14,
+      y: 38,
+      maxWidth: node.width - 96,
+      lineHeight: 12,
       maxLines: 1,
-      size: 12,
+      size: 10,
       fill: COLORS.muted,
     });
   }
@@ -619,8 +668,8 @@ function drawRoleDepartmentCard(group, node, opts) {
   // минимальной высоты, без separator и пустого ролевого блока (CR-003-02 §9).
   if (!roles.length) return;
 
-  // Разделитель между «шапкой» подразделения и ролевым составом.
-  const separatorY = ROLE_DEPT_HEADER_HEIGHT - 4;
+  // Тонкий светло-серый разделитель header и ролей (CR-003-03 §5).
+  const separatorY = ROLE_DEPT_HEADER_HEIGHT - 2;
   group.appendChild(
     createSvgElement("line", {
       x1: 14,
@@ -632,42 +681,33 @@ function drawRoleDepartmentCard(group, node, opts) {
     }),
   );
 
-  // Роли: должность + количество, вакансии отдельно (+N вак.).
-  const firstRowY = separatorY + 8;
+  // Роли — двухколоночная таблица role / count (CR-003-03 §6).
+  // Роли занимают зону [header + separator, node.height - padding].
+  const rowTop0 = ROLE_DEPT_HEADER_HEIGHT + ROLE_DEPT_SEPARATOR_HEIGHT;
   roles.forEach((role, index) => {
-    const rowY = firstRowY + index * ROLE_DEPT_ROW_HEIGHT;
+    const rowTop = rowTop0 + index * ROLE_DEPT_ROW_HEIGHT;
     const roleGroup = createSvgElement("g", {
-      transform: `translate(0, ${rowY})`,
+      transform: `translate(0, ${rowTop})`,
       "data-role": role.position,
     });
 
-    // Должность: максимум 2 строки, счётчик не перекрывается (CR-003-02 §21).
+    // Должность: максимум 2 строки, count не перекрывается (CR-003-03 §17).
     appendWrappedText(roleGroup, role.position || "Без должности", {
-      x: 18,
-      y: 0,
-      maxWidth: node.width - 140,
-      lineHeight: 12,
+      x: 14,
+      y: 10,
+      maxWidth: node.width - 96,
+      lineHeight: 11,
       maxLines: 2,
       size: 10,
       weight: 500,
       fill: COLORS.text,
     });
 
-    if (role.count > 0) {
-      appendText(roleGroup, String(role.count), {
-        x: node.width - 16,
-        y: 0,
-        size: 10,
-        weight: 700,
-        fill: COLORS.text,
-        anchor: "end",
-      });
-    }
-
+    // Вакансии отдельно от занятых позиций (CR-003-02 §12).
     if (role.vacancies > 0) {
       appendText(roleGroup, `+${role.vacancies} вак.`, {
-        x: node.width - 68,
-        y: 0,
+        x: node.width - 76,
+        y: 10,
         size: 9,
         weight: 400,
         fill: COLORS.muted,
@@ -675,7 +715,36 @@ function drawRoleDepartmentCard(group, node, opts) {
       });
     }
 
+    // Count — компактный badge одинакового размера, выровненный справа.
+    if (role.count > 0) {
+      drawCountBadge(roleGroup, role.count, node.width - 40, 0);
+    }
+
     group.appendChild(roleGroup);
+  });
+}
+
+/** Компактный badge-счётчик (CR-003-03 §7-8): фиксированный размер, справа. */
+function drawCountBadge(group, count, x, y) {
+  group.appendChild(
+    createSvgElement("rect", {
+      x,
+      y,
+      width: 26,
+      height: 14,
+      rx: 7,
+      ry: 7,
+      fill: COLORS.blueLight,
+    }),
+  );
+
+  appendText(group, String(count), {
+    x: x + 13,
+    y: y + 11,
+    size: 9,
+    weight: 700,
+    fill: COLORS.blue,
+    anchor: "middle",
   });
 }
 
