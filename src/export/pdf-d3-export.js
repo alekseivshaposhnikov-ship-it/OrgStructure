@@ -77,8 +77,10 @@ export async function exportOrgChartToPdf({
     task: async () => {
       const root = buildPdfRoot(rootNodes);
 
-      const layout = computeUnifiedLayout(root, {
-        ...PDF_LAYOUT_OPTIONS,
+      // Фактическое состояние UI «Показывать вакансии» передаётся в Unified Layout
+      // (CR-003-01): вакансии фильтруются на этапе computeUnifiedLayout, а не после.
+      const layout = buildPdfLayout(root, {
+        showVacancies,
         ...(departmentWidth != null ? { departmentWidth } : {}),
         ...(departmentHeight != null ? { departmentHeight } : {}),
         ...(employeeWidth != null ? { employeeWidth } : {}),
@@ -98,6 +100,20 @@ export async function exportOrgChartToPdf({
       await renderSvgToPdf({ svg, fileName: sanitizeFileName(title) });
     },
   });
+}
+
+/**
+ * Строит Unified Layout для PDF с фиксированной конфигурацией размеров карточек
+ * (CR-003). Отдельная функция позволяет проверить в тестах, что в
+ * computeUnifiedLayout() передаётся фактическое значение showVacancies (CR-003-01),
+ * а не hardcoded true.
+ *
+ * @param {object} root - корневой узел дерева
+ * @param {object} [layoutOptions] - опции computeUnifiedLayout (перекрывают PDF_LAYOUT_OPTIONS)
+ * @returns {object} результат computeUnifiedLayout()
+ */
+export function buildPdfLayout(root, layoutOptions = {}) {
+  return computeUnifiedLayout(root, { ...PDF_LAYOUT_OPTIONS, ...layoutOptions });
 }
 
 /**

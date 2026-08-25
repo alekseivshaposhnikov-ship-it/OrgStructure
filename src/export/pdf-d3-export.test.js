@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { installSvgToPdfMocks, restoreSvgToPdfMocks } from "../test-utils.js";
-import { computeUnifiedLayout } from "../rendering/unified-layout.js";
+import * as unifiedLayout from "../rendering/unified-layout.js";
 
 const {
   exportOrgChartToPdf,
   exportCompactA4ToPdf,
   renderUnifiedLayoutToPdf,
   computePdfLayoutMetrics,
+  buildPdfLayout,
   PDF_LAYOUT_OPTIONS,
 } = await import("./pdf-d3-export.js");
 
@@ -47,7 +48,7 @@ function parseTranslate(transform) {
 }
 
 function buildLayout(root) {
-  return computeUnifiedLayout(root, PDF_LAYOUT_OPTIONS);
+  return unifiedLayout.computeUnifiedLayout(root, PDF_LAYOUT_OPTIONS);
 }
 
 function byId(nodes, id) {
@@ -329,7 +330,7 @@ describe("pdf-d3-export.js", () => {
         ],
       });
 
-      const layout = computeUnifiedLayout(root, {
+      const layout = unifiedLayout.computeUnifiedLayout(root, {
         ...PDF_LAYOUT_OPTIONS,
         showVacancies: false,
       });
@@ -354,6 +355,73 @@ describe("pdf-d3-export.js", () => {
         return parseTranslate(group.getAttribute("transform")).y;
       });
       expect(new Set(yValues).size).toBe(1);
+    });
+  });
+
+  describe("PDF export: showVacancies (CR-003-01)", () => {
+    function rootWithVacancy() {
+      return dept("root", "Root", {
+        children: [
+          dept("A", "Department A", {
+            users: [
+              user("u1", "Иван"),
+              {
+                id: "vac1",
+                full_name: "",
+                name: "",
+                position: "Аналитик",
+                rawPosition: "Аналитик",
+                isVacancy: true,
+                project: "",
+                scenarioState: "",
+              },
+            ],
+          }),
+        ],
+      });
+    }
+
+    function hasVacancyPersons(layout) {
+      return layout.nodes.some(
+        (node) => node.type === "employees" && node.persons.some((person) => person.data.isVacancy),
+      );
+    }
+
+    it("Test 1: showVacancies=true — вакансии присутствуют в PDF layout и SVG", () => {
+      const layout = buildPdfLayout(rootWithVacancy(), { showVacancies: true });
+
+      expect(hasVacancyPersons(layout)).toBe(true);
+
+      const svg = renderUnifiedLayoutToPdf(layout, { showVacancies: true });
+      expect(svg.querySelector('g[data-node-id="vac1"]')).toBeTruthy();
+    });
+
+    it("Test 2: showVacancies=false — вакансии отсутствуют в PDF layout и SVG", () => {
+      const layout = buildPdfLayout(rootWithVacancy(), { showVacancies: false });
+
+      expect(hasVacancyPersons(layout)).toBe(false);
+
+      const svg = renderUnifiedLayoutToPdf(layout, { showVacancies: false });
+      expect(svg.querySelector('g[data-node-id="vac1"]')).toBeNull();
+    });
+
+    it("exportOrgChartToPdf передаёт фактическое showVacancies в computeUnifiedLayout, а не hardcoded true", async () => {
+      installSvgToPdfMocks();
+      const spy = vi.spyOn(unifiedLayout, "computeUnifiedLayout");
+
+      try {
+        await exportOrgChartToPdf({
+          rootNodes: [rootWithVacancy()],
+          showVacancies: false,
+        });
+
+        expect(spy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ showVacancies: false }),
+        );
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });
