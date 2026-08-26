@@ -37,23 +37,41 @@ const HEADER_HEIGHT = 124;
 const HEADER_PADDING = 40;
 const PAGE_PADDING = 0; // layout уже содержит внутренние paddingX/paddingY
 
-// Ролевой режим «PDF без фамилий» (CR-003-02, CR-003-03): роли встроены
-// в department-card. Компактные размеры: верхняя область + тонкий divider +
-// плотные строки должностей (CR-003-03 §4, §5, §16).
-const ROLE_DEPT_HEADER_HEIGHT = 46;
-const ROLE_DEPT_SEPARATOR_HEIGHT = 14;
-const ROLE_DEPT_ROW_HEIGHT = 16;
-const ROLE_DEPT_PADDING = 8;
+// Ролевой режим «PDF без фамилий» (CR-003-02, CR-003-03, CR-003-03-fix-height):
+// вертикальная геометрия карточки строится последовательно
+// title → titleHeight → gap → manager → gap → roles (CR-003-03-fix-height).
+// Высота карточки зависит от фактического количества строк названия.
+const ROLE_CARD_PADDING_TOP = 8;
+const ROLE_CARD_PADDING_LEFT = 14;
+const ROLE_CARD_PADDING_RIGHT = 14;
+const ROLE_CARD_PADDING_BOTTOM = 8;
+const ROLE_TITLE_FONT_SIZE = 13;
+const ROLE_TITLE_LINE_HEIGHT = 15;
+const ROLE_TITLE_MAX_LINES = 3;
+const ROLE_TITLE_TOP_OFFSET = 11; // baseline первой строки от верха карточки
+const ROLE_TITLE_TO_MANAGER_GAP = 5;
+const ROLE_MANAGER_HEIGHT = 12;
+const ROLE_MANAGER_TOP_OFFSET = 9; // baseline manager от верха его блока
+const ROLE_MANAGER_TO_ROLES_GAP = 6;
+const ROLE_ROW_HEIGHT = 16;
+const ROLE_COUNT_BADGE_WIDTH = 26;
+const ROLE_COUNT_BADGE_GAP = 8;
+const ROLE_CARD_MIN_HEIGHT = 54;
 
 // Опции Unified Layout для ролевого режима (CR-003-02 §9, §19).
 // Компактный preset для roles: меньшие gaps, чтобы sibling cards выглядели
 // единым уровнем (CR-003-03 §13-14, §18).
 export const PDF_ROLES_LAYOUT_OPTIONS = {
   rolesPresentation: true,
-  rolesDepartmentHeaderHeight: ROLE_DEPT_HEADER_HEIGHT,
-  rolesDepartmentSeparatorHeight: ROLE_DEPT_SEPARATOR_HEIGHT,
-  rolesDepartmentRowHeight: ROLE_DEPT_ROW_HEIGHT,
-  rolesDepartmentPadding: ROLE_DEPT_PADDING,
+  rolesDepartmentHeaderHeight:
+    ROLE_CARD_PADDING_TOP +
+    ROLE_TITLE_LINE_HEIGHT +
+    ROLE_TITLE_TO_MANAGER_GAP +
+    ROLE_MANAGER_HEIGHT +
+    ROLE_MANAGER_TO_ROLES_GAP,
+  rolesDepartmentSeparatorHeight: 2,
+  rolesDepartmentRowHeight: ROLE_ROW_HEIGHT,
+  rolesDepartmentPadding: ROLE_CARD_PADDING_BOTTOM,
   colGap: 24,
   rowGap: 36,
   paddingX: 24,
@@ -104,13 +122,22 @@ export async function exportOrgChartToPdf({
 
       // «PDF без фамилий» → ролевой режим: сотрудники агрегируются по должностям (CR-003-02).
       const employeeMode = hideNames ? "roles" : "detailed";
-      const layoutRoot = employeeMode === "roles" ? prepareRolesTree(root, showVacancies) : root;
+      const effectiveDepartmentWidth =
+        employeeMode === "roles"
+          ? (departmentWidth ?? PDF_LAYOUT_OPTIONS.departmentWidth)
+          : departmentWidth;
+      const layoutRoot =
+        employeeMode === "roles"
+          ? prepareRolesTree(root, showVacancies, {
+              departmentWidth: effectiveDepartmentWidth,
+            })
+          : root;
 
       // Фактическое состояние UI «Показывать вакансии» передаётся в Unified Layout
       // (CR-003-01): вакансии фильтруются на этапе computeUnifiedLayout, а не после.
       const layout = buildPdfLayout(layoutRoot, {
         showVacancies,
-        ...(departmentWidth != null ? { departmentWidth } : {}),
+        ...(effectiveDepartmentWidth != null ? { departmentWidth: effectiveDepartmentWidth } : {}),
         ...(departmentHeight != null ? { departmentHeight } : {}),
         ...(employeeWidth != null ? { employeeWidth } : {}),
         ...(employeeHeight != null ? { employeeHeight } : {}),
@@ -197,19 +224,92 @@ function isHeadUser(user, headName) {
  * Готовит presentation-модель дерева для ролевого режима (CR-003-02 §19):
  * users подразделения агрегируются в pdfRoles, отдельный NODE_EMPLOYEES
  * не создаётся (users пуст). Организационная иерархия не меняется.
+ *
+ * Дополнительно вычисляется вертикальная геометрия department-card
+ * (pdfCardLayout) с учётом фактического количества строк названия
+ * (CR-003-03-fix-height), чтобы Unified Layout и renderer были согласованы.
  */
-export function prepareRolesTree(node, showVacancies) {
+export function prepareRolesTree(
+  node,
+  showVacancies,
+  { departmentWidth = PDF_LAYOUT_OPTIONS.departmentWidth } = {},
+) {
   const roles = aggregateUsersToRoles(node.users || [], {
     headName: node.department_manager || "",
     showVacancies,
   });
 
+  const cardLayout = computeRoleCardLayout(
+    {
+      name: node.department_name || node.name || "Без названия",
+      headPosition: node.department_manager_position || "",
+      roles,
+    },
+    departmentWidth,
+  );
+
   return {
     ...node,
     users: [],
     pdfRoles: roles.map(({ position, count, vacancies }) => ({ position, count, vacancies })),
-    children: (node.children || []).map((child) => prepareRolesTree(child, showVacancies)),
+    pdfCardLayout: cardLayout,
+    children: (node.children || []).map((child) =>
+      prepareRolesTree(child, showVacancies, { departmentWidth }),
+    ),
   };
+}
+
+/**
+ * Последовательно рассчитывает вертикальную геометрию ролевой department-card
+ * (CR-003-03-fix-height):
+ *
+ *   title → titleHeight → gap → manager → gap → roles
+ *
+ * Количество строк названия определяется тем же wrapText, что использует
+ * renderer; доступная ширина title учитывает count badge справа.
+ *
+ * @param {object} card - { name, headPosition, roles }
+ * @param {number} departmentWidth - ширина department-card
+ * @returns {{ titleY:number, titleLines:Array<string>, titleHeight:number,
+ *   availableTitleWidth:number, managerY:number|null, rolesTop:number|null,
+ *   cardHeight:number }}
+ */
+export function computeRoleCardLayout({ name, headPosition, roles }, departmentWidth) {
+  const availableTitleWidth =
+    departmentWidth -
+    ROLE_CARD_PADDING_LEFT -
+    ROLE_CARD_PADDING_RIGHT -
+    ROLE_COUNT_BADGE_WIDTH -
+    ROLE_COUNT_BADGE_GAP;
+
+  const titleLines = wrapText(
+    String(name || "Без названия"),
+    Math.max(availableTitleWidth, 1),
+    ROLE_TITLE_FONT_SIZE,
+    ROLE_TITLE_MAX_LINES,
+  );
+  const titleHeight = titleLines.length * ROLE_TITLE_LINE_HEIGHT;
+  const titleY = ROLE_CARD_PADDING_TOP + ROLE_TITLE_TOP_OFFSET;
+
+  let cursorY = ROLE_CARD_PADDING_TOP + titleHeight;
+
+  let managerY = null;
+  if (headPosition) {
+    cursorY += ROLE_TITLE_TO_MANAGER_GAP;
+    managerY = cursorY + ROLE_MANAGER_TOP_OFFSET;
+    cursorY += ROLE_MANAGER_HEIGHT;
+  }
+
+  let rolesTop = null;
+  if (roles && roles.length) {
+    cursorY += managerY != null ? ROLE_MANAGER_TO_ROLES_GAP : ROLE_TITLE_TO_MANAGER_GAP;
+    rolesTop = cursorY;
+    cursorY += roles.length * ROLE_ROW_HEIGHT;
+  }
+
+  const cardHeight = Math.max(ROLE_CARD_MIN_HEIGHT, cursorY + ROLE_CARD_PADDING_BOTTOM);
+
+  return { titleY, titleLines, titleHeight, availableTitleWidth, managerY, rolesTop, cardHeight };
 }
 
 /**
@@ -612,6 +712,11 @@ function drawRoleDepartmentCard(group, node, opts) {
   const { data } = node;
   const isRoot = node.row === 0;
   const roles = data.pdfRoles || [];
+  // Согласованная с layout геометрия; fallback — пересчёт по текущей ширине
+  // (напр., если ролевым renderer получил layout без pdfCardLayout).
+  const cardLayout =
+    data.pdfCardLayout ??
+    computeRoleCardLayout({ name: data.name, headPosition: data.headPosition, roles }, node.width);
   const hasScenario = Boolean(data.scenarioState);
 
   group.appendChild(
@@ -633,30 +738,40 @@ function drawRoleDepartmentCard(group, node, opts) {
   }
 
   // Название подразделения — главный визуальный элемент (CR-003-03 §9).
+  // Позиции берутся из pdfCardLayout, согласованного с высотой карточки в layout
+  // (CR-003-03-fix-height): при переносе названия на 2+ строки следующие
+  // элементы не накладываются на title.
   appendWrappedText(group, data.name || "Без названия", {
-    x: 14,
-    y: 18,
-    maxWidth: node.width - 96,
-    lineHeight: 15,
-    maxLines: 2,
-    size: 13,
+    x: ROLE_CARD_PADDING_LEFT,
+    y: cardLayout.titleY,
+    maxWidth: cardLayout.availableTitleWidth,
+    lineHeight: ROLE_TITLE_LINE_HEIGHT,
+    maxLines: ROLE_TITLE_MAX_LINES,
+    size: ROLE_TITLE_FONT_SIZE,
     weight: 700,
     fill: COLORS.text,
   });
 
   // Общая численность подразделения — компактный badge в стабильной позиции
-  // справа вверху (CR-003-03 §8).
+  // справа вверху (CR-003-03 §8), не пересекается с названием (доступная
+  // ширина title уже учитывает badge).
   const totalCount = opts.showVacancies ? (data.totalWithVacancies ?? 0) : (data.staffCount ?? 0);
   if (totalCount > 0) {
-    drawCountBadge(group, totalCount, node.width - 40, 8);
+    drawCountBadge(
+      group,
+      totalCount,
+      node.width - ROLE_CARD_PADDING_RIGHT - ROLE_COUNT_BADGE_WIDTH,
+      ROLE_CARD_PADDING_TOP,
+    );
   }
 
-  // Должность руководителя — визуально вторичная (CR-003-03 §10).
-  if (data.headPosition) {
+  // Должность руководителя — визуально вторичная (CR-003-03 §10),
+  // позиция зависит от фактического количества строк названия.
+  if (data.headPosition && cardLayout.managerY != null) {
     appendWrappedText(group, data.headPosition, {
-      x: 14,
-      y: 38,
-      maxWidth: node.width - 96,
+      x: ROLE_CARD_PADDING_LEFT,
+      y: cardLayout.managerY,
+      maxWidth: node.width - ROLE_CARD_PADDING_LEFT - ROLE_CARD_PADDING_RIGHT,
       lineHeight: 12,
       maxLines: 1,
       size: 10,
@@ -666,10 +781,10 @@ function drawRoleDepartmentCard(group, node, opts) {
 
   // Если собственных сотрудников кроме руководителя нет — карточка остаётся
   // минимальной высоты, без separator и пустого ролевого блока (CR-003-02 §9).
-  if (!roles.length) return;
+  if (!roles.length || cardLayout.rolesTop == null) return;
 
   // Тонкий светло-серый разделитель header и ролей (CR-003-03 §5).
-  const separatorY = ROLE_DEPT_HEADER_HEIGHT - 2;
+  const separatorY = cardLayout.rolesTop - 3;
   group.appendChild(
     createSvgElement("line", {
       x1: 14,
@@ -682,10 +797,9 @@ function drawRoleDepartmentCard(group, node, opts) {
   );
 
   // Роли — двухколоночная таблица role / count (CR-003-03 §6).
-  // Роли занимают зону [header + separator, node.height - padding].
-  const rowTop0 = ROLE_DEPT_HEADER_HEIGHT + ROLE_DEPT_SEPARATOR_HEIGHT;
+  const roleBaseline = ROLE_MANAGER_TOP_OFFSET + 3;
   roles.forEach((role, index) => {
-    const rowTop = rowTop0 + index * ROLE_DEPT_ROW_HEIGHT;
+    const rowTop = cardLayout.rolesTop + index * ROLE_ROW_HEIGHT;
     const roleGroup = createSvgElement("g", {
       transform: `translate(0, ${rowTop})`,
       "data-role": role.position,
@@ -693,9 +807,9 @@ function drawRoleDepartmentCard(group, node, opts) {
 
     // Должность: максимум 2 строки, count не перекрывается (CR-003-03 §17).
     appendWrappedText(roleGroup, role.position || "Без должности", {
-      x: 14,
-      y: 10,
-      maxWidth: node.width - 96,
+      x: ROLE_CARD_PADDING_LEFT,
+      y: roleBaseline,
+      maxWidth: cardLayout.availableTitleWidth,
       lineHeight: 11,
       maxLines: 2,
       size: 10,
@@ -707,7 +821,7 @@ function drawRoleDepartmentCard(group, node, opts) {
     if (role.vacancies > 0) {
       appendText(roleGroup, `+${role.vacancies} вак.`, {
         x: node.width - 76,
-        y: 10,
+        y: roleBaseline,
         size: 9,
         weight: 400,
         fill: COLORS.muted,
@@ -717,7 +831,12 @@ function drawRoleDepartmentCard(group, node, opts) {
 
     // Count — компактный badge одинакового размера, выровненный справа.
     if (role.count > 0) {
-      drawCountBadge(roleGroup, role.count, node.width - 40, 0);
+      drawCountBadge(
+        roleGroup,
+        role.count,
+        node.width - ROLE_CARD_PADDING_RIGHT - ROLE_COUNT_BADGE_WIDTH,
+        1,
+      );
     }
 
     group.appendChild(roleGroup);

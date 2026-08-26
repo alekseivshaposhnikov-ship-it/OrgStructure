@@ -10,6 +10,7 @@ const {
   buildPdfLayout,
   aggregateUsersToRoles,
   prepareRolesTree,
+  computeRoleCardLayout,
   PDF_LAYOUT_OPTIONS,
   PDF_ROLES_LAYOUT_OPTIONS,
 } = await import("./pdf-d3-export.js");
@@ -678,14 +679,18 @@ describe("pdf-d3-export.js", () => {
       const deptNode = layout.nodes.find((n) => n.data && n.data.id === "root");
       const rolesCount = deptNode.data.pdfRoles.length;
 
-      // Высота карточки покрывает header + separator + все role rows + padding,
-      // то есть role rows не выходят за границы карточки (CR-003-03 §19).
-      const requiredHeight =
-        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentHeaderHeight +
-        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentSeparatorHeight +
-        rolesCount * PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentRowHeight +
-        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentPadding;
-      expect(deptNode.height).toBe(requiredHeight);
+      // Высота карточки из pdfCardLayout покрывает title/manager/role rows,
+      // то есть role rows не выходят за границы карточки (CR-003-03-fix-height).
+      const expected = computeRoleCardLayout(
+        {
+          name: deptNode.data.name,
+          headPosition: deptNode.data.headPosition,
+          roles: deptNode.data.pdfRoles,
+        },
+        deptNode.width,
+      );
+      expect(rolesCount).toBeGreaterThan(0);
+      expect(deptNode.height).toBe(expected.cardHeight);
     });
 
     it("ФИО отсутствуют в ролевом PDF (CR-003-02 §17)", () => {
@@ -729,10 +734,10 @@ describe("pdf-d3-export.js", () => {
       const deptNode = layout.nodes.find((n) => n.data && n.data.id === "root");
 
       expect(deptNode.data.pdfRoles).toEqual([]);
-      expect(deptNode.height).toBe(
-        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentHeaderHeight +
-          PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentPadding,
-      );
+      // Высота берётся из pdfCardLayout (согласована с renderer) и не зависит
+      // от числа сотрудников.
+      expect(deptNode.height).toBe(deptNode.data.pdfCardLayout.cardHeight);
+      expect(deptNode.height).toBeLessThan(60);
     });
 
     it("Test 2: карточка с 3 ролями компактнее detailed employee column", () => {
@@ -776,16 +781,20 @@ describe("pdf-d3-export.js", () => {
       const deptNode = layout.nodes.find((n) => n.data && n.data.id === "root");
       const rolesCount = deptNode.data.pdfRoles.length;
 
-      // Высота покрывает все role rows + separator + padding.
-      const requiredHeight =
-        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentHeaderHeight +
-        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentSeparatorHeight +
-        rolesCount * PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentRowHeight +
-        PDF_ROLES_LAYOUT_OPTIONS.rolesDepartmentPadding;
-      expect(deptNode.height).toBe(requiredHeight);
+      // Высота согласована с renderer (pdfCardLayout) и покрывает все role rows.
+      const expected = computeRoleCardLayout(
+        {
+          name: deptNode.data.name,
+          headPosition: deptNode.data.headPosition,
+          roles: deptNode.data.pdfRoles,
+        },
+        deptNode.width,
+      );
+      expect(rolesCount).toBeGreaterThan(0);
+      expect(deptNode.height).toBe(expected.cardHeight);
 
       // Текст роли не доходит до зоны count badge / вакансий.
-      expect(deptNode.width - 96).toBeLessThan(deptNode.width - 76);
+      expect(deptNode.data.pdfCardLayout.availableTitleWidth).toBeLessThan(deptNode.width - 60);
     });
 
     it("Test 5: смена числа roles изменяет высоту карточки", () => {
@@ -830,5 +839,148 @@ describe("pdf-d3-export.js", () => {
       // Фактический bbox меньше canvas с запасом → масштаб больше, текст крупнее.
       expect(withBounds.scale).toBeGreaterThan(withoutBounds.scale);
     });
+  });
+});
+
+describe("PDF export: высота карточки по названию (CR-003-03-fix-height)", () => {
+  function makeUsers(positions) {
+    return positions.map((position, index) => ({
+      id: `u${index}`,
+      full_name: `Сотрудник ${index}`,
+      name: `Сотрудник ${index}`,
+      position,
+      rawPosition: position,
+      subLevel: undefined,
+      isVacancy: false,
+      project: "",
+      scenarioState: "",
+    }));
+  }
+
+  function buildRolesLayout(root) {
+    return buildPdfLayout(prepareRolesTree(root, true), {
+      ...PDF_LAYOUT_OPTIONS,
+      ...PDF_ROLES_LAYOUT_OPTIONS,
+    });
+  }
+
+  function buildRolesLayoutWidth(root, width) {
+    return buildPdfLayout(prepareRolesTree(root, true, { departmentWidth: width }), {
+      ...PDF_LAYOUT_OPTIONS,
+      departmentWidth: width,
+      ...PDF_ROLES_LAYOUT_OPTIONS,
+    });
+  }
+
+  function layoutFor(name) {
+    return computeRoleCardLayout(
+      {
+        name,
+        headPosition: "Руководитель отдела",
+        roles: [{ position: "Специалист", count: 1, vacancies: 0 }],
+      },
+      350,
+    );
+  }
+
+  it("1. Однострочное название — manager ниже title, карточка компактна", () => {
+    const layout = layoutFor("Проектный офис");
+
+    expect(layout.titleLines).toHaveLength(1);
+    expect(layout.managerY).toBeGreaterThan(layout.titleY + layout.titleHeight);
+    expect(layout.cardHeight).toBeLessThan(75);
+  });
+
+  it("2. Двухстрочное название — manager ниже второй строки title", () => {
+    const layout = layoutFor("Отдел продаж коммерческой недвижимости в Москве");
+
+    expect(layout.titleLines).toHaveLength(2);
+    expect(layout.managerY).toBeGreaterThan(layout.titleY + layout.titleHeight);
+  });
+
+  it("3. Трёхстрочное название — manager ниже третьей строки title", () => {
+    const layout = layoutFor(
+      "Отдел по работе с корпоративными клиентами и развитию региональных продаж в регионах",
+    );
+
+    expect(layout.titleLines).toHaveLength(3);
+    expect(layout.managerY).toBeGreaterThan(layout.titleY + layout.titleHeight);
+  });
+
+  it("4. Двухстрочное название + роли — ни один элемент не пересекается", () => {
+    const layout = layoutFor("Отдел продаж коммерческой недвижимости в Москве");
+
+    expect(layout.titleLines).toHaveLength(2);
+    // manager после title, roles после manager.
+    expect(layout.managerY).toBeGreaterThan(layout.titleY + layout.titleHeight);
+    expect(layout.rolesTop).toBeGreaterThan(layout.managerY + 5);
+
+    // В SVG text manager не пересекается с title.
+    const longName = "Отдел продаж коммерческой недвижимости в Москве";
+    const root = dept("root", longName, {
+      managerPosition: "Руководитель отдела",
+      users: makeUsers(["Специалист", "Специалист"]),
+    });
+    const svg = renderUnifiedLayoutToPdf(buildRolesLayout(root), { employeeMode: "roles" });
+    const group = svg.querySelector('g[data-node-id="root"]');
+    const texts = Array.from(group.querySelectorAll("text")).map((t) => ({
+      y: Number(t.getAttribute("y")),
+      text: t.textContent || "",
+    }));
+    const titleTexts = texts.filter((t) => (t.text || "").startsWith("Отдел продаж"));
+    const managerText = texts.find((t) => (t.text || "").includes("Руководитель отдела"));
+    expect(titleTexts.length).toBeGreaterThan(0);
+    expect(managerText).toBeTruthy();
+    const lastTitleBottom = Math.max(...titleTexts.map((t) => t.y));
+    expect(managerText.y).toBeGreaterThan(lastTitleBottom);
+  });
+
+  it("5. title не заходит под count badge", () => {
+    const layout = layoutFor("Отдел инфраструктурных решений");
+
+    // Доступная ширина title учитывает badge справа (CR-003-03-fix-height §Count badge).
+    expect(layout.availableTitleWidth + 14 + 26 + 8).toBeLessThanOrEqual(350);
+    expect(layout.availableTitleWidth).toBeLessThan(350 - 26);
+  });
+
+  it("6. Изменение ширины карточки меняет число строк title и высоту layout", () => {
+    const name = "Отдел развития цифровых платформ и аналитики данных";
+    const l200 = computeRoleCardLayout({ name, headPosition: "", roles: [] }, 200);
+    const l350 = computeRoleCardLayout({ name, headPosition: "", roles: [] }, 350);
+    const l450 = computeRoleCardLayout({ name, headPosition: "", roles: [] }, 450);
+
+    expect(l200.titleLines.length).toBeGreaterThan(l350.titleLines.length);
+    expect(l350.titleLines.length).toBeGreaterThan(l450.titleLines.length);
+
+    // Во всех случаях высота, используемая layout, согласована с renderer.
+    const root = dept("root", "Root", { department_name: name });
+    [200, 350, 450].forEach((width) => {
+      const layout = buildRolesLayoutWidth(root, width);
+      const deptNode = layout.nodes.find((n) => n.data && n.data.id === "root");
+      expect(deptNode.height).toBe(deptNode.data.pdfCardLayout.cardHeight);
+    });
+  });
+
+  it("7. Высота renderer согласована с node.height (двухстрочное название)", () => {
+    const root = dept("root", "Отдел продаж коммерческой недвижимости в Москве", {
+      managerPosition: "Руководитель отдела",
+      users: makeUsers(["Специалист", "Ведущий специалист", "Главный специалист"]),
+    });
+
+    const layout = buildRolesLayout(root);
+    const deptNode = layout.nodes.find((n) => n.data && n.data.id === "root");
+
+    expect(deptNode.data.pdfCardLayout.titleLines).toHaveLength(2);
+    const expected = computeRoleCardLayout(
+      {
+        name: deptNode.data.name,
+        headPosition: deptNode.data.headPosition,
+        roles: deptNode.data.pdfRoles,
+      },
+      deptNode.width,
+    );
+    expect(deptNode.height).toBe(expected.cardHeight);
+    // Следующая строка layout (row 1) не пересекается с увеличенной карточкой.
+    expect(deptNode.height).toBeGreaterThan(70);
   });
 });
