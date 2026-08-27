@@ -62,6 +62,9 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     departmentWidth = 350,
     departmentHeight = 130,
     employeeHeight = 96,
+    // CR-012: при выборе корня Холдинга дирекции верхнего уровня
+    // сворачиваются по умолчанию. Применяется только к первичному рендеру.
+    collapseTopLevel = false,
   } = options;
 
   const cardOptions = { cardDesign, showVacancies, viewMode };
@@ -79,6 +82,24 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     viewportTransform: null,
     viewportAnchor: null,
   };
+
+  /**
+   * CR-012 §6, §7: при выборе корня Холдинга все его непосредственные
+   * department children (дирекции) получают initial collapsed state —
+   * через существующий механизм collapsedIds. Сам корень не сворачивается.
+   * Выполняется один раз при создании renderer'а (повторный выбор Холдинга
+   * создаёт новый инстанс → снова дефолтное состояние, §12).
+   */
+  function initCollapsedIds() {
+    if (!collapseTopLevel || !rootNodes || !rootNodes.length) return;
+    const root = rootNodes[0];
+    (root.children || []).forEach((child) => {
+      const id = child.department_guid || child.id;
+      if (id) state.collapsedIds.add(id);
+    });
+  }
+
+  initCollapsedIds();
 
   function buildLayout() {
     state.layout = computeUnifiedLayout(rootNodes[0], {

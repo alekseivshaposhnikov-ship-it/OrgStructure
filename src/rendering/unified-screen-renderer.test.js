@@ -99,6 +99,80 @@ describe("unified-screen-renderer (CR-011)", () => {
     };
   }
 
+  // Корень Холдинга: дирекции верхнего уровня с вложенными отделами.
+  function makeHoldingRoot() {
+    return {
+      department_guid: "synthetic-root",
+      department_name: "Холдинг LEGENDA",
+      department_manager: "Генеральный директор",
+      department_manager_position: "CEO",
+      staffCount: 0,
+      users: [],
+      children: [
+        {
+          department_guid: "dirA",
+          department_name: "Дирекция A",
+          department_manager: "А",
+          department_manager_position: "Руководитель",
+          staffCount: 0,
+          users: [],
+          children: [
+            {
+              department_guid: "deptA1",
+              department_name: "Отдел A1",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+            {
+              department_guid: "deptA2",
+              department_name: "Отдел A2",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+        {
+          department_guid: "dirB",
+          department_name: "Дирекция B",
+          department_manager: "Б",
+          department_manager_position: "Руководитель",
+          staffCount: 0,
+          users: [],
+          children: [
+            {
+              department_guid: "deptB1",
+              department_name: "Отдел B1",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+        {
+          department_guid: "dirC",
+          department_name: "Дирекция C",
+          department_manager: "В",
+          department_manager_position: "Руководитель",
+          staffCount: 0,
+          users: [],
+          children: [],
+        },
+      ],
+    };
+  }
+
+  function nodeExists(nodeId) {
+    return Boolean(document.querySelector(`g.unified-node[data-node-id="${nodeId}"]`));
+  }
+
   function parseTransform(str) {
     if (!str) return { x: 0, y: 0, k: 1 };
     const translate = str.match(/translate\(([-\d.e]+),([-\d.e]+)\)/);
@@ -307,5 +381,80 @@ describe("unified-screen-renderer (CR-011)", () => {
 
     chartB.fit();
     expect(parseTransform(getLayer().getAttribute("transform")).k).toBeCloseTo(0.95, 5);
+  });
+
+  it("при выборе корня Холдинга видны только дирекции, их отделы свернуты (CR-012 Test 1)", () => {
+    renderUnifiedScreen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
+
+    // Корень и дирекции видны
+    expect(nodeExists("synthetic-root")).toBe(true);
+    expect(nodeExists("dirA")).toBe(true);
+    expect(nodeExists("dirB")).toBe(true);
+    expect(nodeExists("dirC")).toBe(true);
+
+    // Дочерние уровни дирекций скрыты по умолчанию
+    expect(nodeExists("deptA1")).toBe(false);
+    expect(nodeExists("deptA2")).toBe(false);
+    expect(nodeExists("deptB1")).toBe(false);
+  });
+
+  it("свернутые дирекции показывают standard toggle с состоянием collapsed (CR-012 §3)", () => {
+    renderUnifiedScreen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
+
+    const toggleText = document.querySelector(
+      'g.unified-node[data-node-id="dirA"] .unified-node__toggle text',
+    );
+    expect(toggleText).toBeTruthy();
+    expect(toggleText.textContent).toBe("+");
+  });
+
+  it("expand конкретной дирекции показывает только её ветку (CR-012 Test 2)", () => {
+    const chart = renderUnifiedScreen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
+
+    chart.toggleCollapse("dirA");
+
+    expect(nodeExists("deptA1")).toBe(true);
+    expect(nodeExists("deptA2")).toBe(true);
+    // Остальные дирекции остаются свернутыми
+    expect(nodeExists("deptB1")).toBe(false);
+    expect(nodeExists("dirB")).toBe(true);
+  });
+
+  it("выбранная отдельно дирекция открывается по существующей логике (CR-012 Test 3)", () => {
+    const directorate = makeHoldingRoot().children[0]; // Дирекция A
+    renderUnifiedScreen([directorate], "#orgChart", {});
+
+    expect(nodeExists("dirA")).toBe(true);
+    expect(nodeExists("deptA1")).toBe(true);
+    expect(nodeExists("deptA2")).toBe(true);
+  });
+
+  it("корень Холдинга без детей не падает (CR-012 Test 4)", () => {
+    const chart = renderUnifiedScreen(
+      [{ department_guid: "synthetic-root", department_name: "Холдинг", children: [] }],
+      "#orgChart",
+      { collapseTopLevel: true },
+    );
+
+    expect(chart).toBeTruthy();
+    expect(nodeExists("synthetic-root")).toBe(true);
+  });
+
+  it("expand дирекции сохраняет zoom/pan и позицию якоря (CR-012 Test 5)", () => {
+    const chart = renderUnifiedScreen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
+    const svg = document.querySelector("#orgChart svg");
+
+    svg.dispatchEvent(
+      new WheelEvent("wheel", { deltaY: -6000, clientX: 500, clientY: 300, bubbles: true, cancelable: true }),
+    );
+
+    const before = getScreenCenter("dirA");
+
+    chart.toggleCollapse("dirA");
+
+    const after = getScreenCenter("dirA");
+    expect(after.k).toBe(100);
+    expect(Math.abs(after.x - before.x)).toBeLessThan(1e-6);
+    expect(Math.abs(after.y - before.y)).toBeLessThan(1e-6);
   });
 });

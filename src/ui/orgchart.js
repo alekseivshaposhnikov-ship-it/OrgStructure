@@ -80,6 +80,20 @@ export function getDepartmentNodeHeight(data, cardDesign) {
 }
 
 /**
+ * Определяет, является ли выбранный узел корнем всей организации (Холдинг).
+ *
+ * Использует структурный маркер synthetic-root (создаётся createSyntheticRoot),
+ * а не анализ текста названия (CR-012 §5). Все непосредственные department
+ * children такого корня — дирекции верхнего уровня.
+ *
+ * @param {object|null} node
+ * @returns {boolean}
+ */
+export function isHoldingRoot(node) {
+  return Boolean(node) && node.department_guid === "synthetic-root";
+}
+
+/**
  * Рендерит выбранную структуру в #orgChart в зависимости от дизайна карточек.
  * Мутирует state.chart и state.isOrgChartDelegationBound.
  *
@@ -92,12 +106,17 @@ export function renderScreenOrgChart(state, deps = {}) {
 
   const rootNodes = [state.selectedNode];
 
+  // CR-012: при выборе корня Холдинга дирекции верхнего уровня сворачиваются
+  // по умолчанию (структура до уровня Дирекций), детали — по запросу пользователя.
+  const collapseTopLevel = isHoldingRoot(state.selectedNode);
+
   // Компактный A4 использует тот же единый layout, но компактный рендер карточек
   if (state.cardDesign === "compact-a4") {
     state.chart = renderCompactA4Screen(rootNodes, "#orgChart", {
       hideNames: false,
       showVacancies: state.showVacancies,
       viewMode: state.viewMode,
+      collapseTopLevel,
     });
     if (!state.chart) return;
     window.orgChart = state.chart;
@@ -115,6 +134,7 @@ export function renderScreenOrgChart(state, deps = {}) {
     departmentWidth: state.cardWidth,
     departmentHeight: getDepartmentNodeHeight({ isDepartment: true }, state.cardDesign),
     employeeHeight: 96,
+    collapseTopLevel,
   });
 
   if (!state.chart) return;

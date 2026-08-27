@@ -26,6 +26,9 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
     hideNames = false,
     showVacancies = true,
     viewMode = "to-be",
+    // CR-012: при выборе корня Холдинга дирекции верхнего уровня
+    // сворачиваются по умолчанию. Применяется только к первичному рендеру.
+    collapseTopLevel = false,
   } = options;
 
   const container = document.querySelector(containerSelector);
@@ -58,6 +61,22 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
     viewportTransform: null,
     viewportAnchor: null,
   };
+
+  /**
+   * CR-012 §6, §7, §14: при выборе корня Холдинга все его непосредственные
+   * department children (дирекции) получают initial collapsed state —
+   * через существующий механизм collapsedIds. Сам корень не сворачивается.
+   * Выполняется один раз при создании renderer'а.
+   */
+  function initCollapsedIds() {
+    if (!collapseTopLevel || !rootNode) return;
+    (rootNode.children || []).forEach((child) => {
+      const id = child.department_guid || child.id;
+      if (id) state.collapsedIds.add(id);
+    });
+  }
+
+  initCollapsedIds();
 
   function buildLayout() {
     state.layoutResult = buildCompactA4LayoutResult(state.rootNode, {

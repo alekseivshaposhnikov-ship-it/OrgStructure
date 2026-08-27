@@ -99,6 +99,104 @@ describe("compact-a4-screen-renderer (CR-008_1)", () => {
     };
   }
 
+  // Корень Холдинга: дирекции верхнего уровня с вложенными отделами.
+  function makeHoldingRoot() {
+    return {
+      department_guid: "synthetic-root",
+      department_name: "Холдинг LEGENDA",
+      department_manager: "Генеральный директор",
+      department_manager_position: "CEO",
+      staffCount: 0,
+      users: [],
+      children: [
+        {
+          department_guid: "dirA",
+          department_name: "Дирекция A",
+          department_manager: "А",
+          department_manager_position: "Руководитель",
+          staffCount: 0,
+          users: [],
+          children: [
+            {
+              department_guid: "deptA1",
+              department_name: "Отдел A1",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+            {
+              department_guid: "deptA2",
+              department_name: "Отдел A2",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+        {
+          department_guid: "dirB",
+          department_name: "Дирекция B",
+          department_manager: "Б",
+          department_manager_position: "Руководитель",
+          staffCount: 0,
+          users: [],
+          children: [
+            {
+              department_guid: "deptB1",
+              department_name: "Отдел B1",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+            {
+              department_guid: "deptB2",
+              department_name: "Отдел B2",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+        {
+          department_guid: "dirC",
+          department_name: "Дирекция C",
+          department_manager: "В",
+          department_manager_position: "Руководитель",
+          staffCount: 0,
+          users: [],
+          children: [
+            {
+              department_guid: "deptC1",
+              department_name: "Отдел C1",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+            {
+              department_guid: "deptC2",
+              department_name: "Отдел C2",
+              department_manager: "",
+              department_manager_position: "",
+              staffCount: 0,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+      ],
+    };
+  }
+
   function parseTransform(str) {
     if (!str) return { x: 0, y: 0, k: 1 };
     const translate = str.match(/translate\(([-\d.e]+),([-\d.e]+)\)/);
@@ -315,5 +413,84 @@ describe("compact-a4-screen-renderer (CR-008_1)", () => {
     renderCompactA4Screen([makeRoot()], "#orgChart", {});
     const t = parseTransform(getLayer().getAttribute("transform"));
     expect(t.k).toBeCloseTo(0.95, 5);
+  });
+
+  it("при выборе корня Холдинга Compact A4 сворачивает дирекции по умолчанию (CR-012 Test 1)", () => {
+    const chart = renderCompactA4Screen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
+
+    const ids = chart.flatData.map((n) => n.id);
+    // Корень и дирекции видны
+    expect(ids).toContain("synthetic-root");
+    expect(ids).toContain("dirA");
+    expect(ids).toContain("dirB");
+    expect(ids).toContain("dirC");
+    // Дочерние уровни дирекций скрыты по умолчанию
+    expect(ids).not.toContain("deptA1");
+    expect(ids).not.toContain("deptA2");
+    expect(ids).not.toContain("deptB1");
+    expect(ids).not.toContain("deptB2");
+    expect(ids).not.toContain("deptC1");
+    expect(ids).not.toContain("deptC2");
+  });
+
+  it("expand конкретной дирекции в Compact A4 показывает только её ветку (CR-012 Test 2)", () => {
+    const chart = renderCompactA4Screen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
+
+    chart.toggleCollapse("dirA");
+
+    const ids = chart.flatData.map((n) => n.id);
+    expect(ids).toContain("deptA1");
+    expect(ids).toContain("deptA2");
+    expect(ids).not.toContain("deptB1");
+    expect(ids).not.toContain("deptC1");
+  });
+
+  it("выбранная отдельно дирекция в Compact A4 открывается по существующей логике (CR-012 Test 3)", () => {
+    const directorate = makeHoldingRoot().children[0]; // Дирекция A
+    const chart = renderCompactA4Screen([directorate], "#orgChart", {});
+
+    const ids = chart.flatData.map((n) => n.id);
+    expect(ids).toContain("dirA");
+    expect(ids).toContain("deptA1");
+    expect(ids).toContain("deptA2");
+  });
+
+  it("корень Холдинга без детей не падает (CR-012 Test 4)", () => {
+    const chart = renderCompactA4Screen(
+      [{ department_guid: "synthetic-root", department_name: "Холдинг", children: [] }],
+      "#orgChart",
+      { collapseTopLevel: true },
+    );
+
+    expect(chart).toBeTruthy();
+    expect(chart.flatData.length).toBeGreaterThan(0);
+  });
+
+  it("layout Compact A4 строится только по видимым узлам, fit не считается по скрытым (CR-012 §10)", () => {
+    const collapsed = renderCompactA4Screen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
+
+    // flatData содержит только видимые карточки: корень + дирекции
+    const visibleIds = collapsed.flatData.map((n) => n.id);
+    expect(visibleIds).toEqual(["synthetic-root", "dirA", "dirB", "dirC"]);
+    // Свёрнутая схема компактна — внутренний масштаб не уменьшает её
+    expect(getDiagScale()).toBe(1);
+
+    const full = renderCompactA4Screen([makeHoldingRoot()], "#orgChart", {});
+    // Полная схема включает вложенные отделы и требует уменьшения
+    expect(full.flatData.length).toBeGreaterThan(collapsed.flatData.length);
+    expect(getDiagScale()).toBeLessThan(1);
+  });
+
+  it("expand дирекции в Compact A4 сохраняет zoom/pan (CR-012 Test 5)", () => {
+    const chart = renderCompactA4Screen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
+
+    const before = getCompactScreenCenter(chart, "dirA");
+
+    chart.toggleCollapse("dirA");
+
+    const after = getCompactScreenCenter(chart, "dirA");
+    expect(after.k).toBeCloseTo(before.k, 5);
+    expect(Math.abs(after.x - before.x)).toBeLessThan(1e-6);
+    expect(Math.abs(after.y - before.y)).toBeLessThan(1e-6);
   });
 });

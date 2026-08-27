@@ -3,6 +3,7 @@ import {
   getExportTitle,
   getExportSubtitle,
   getDepartmentNodeHeight,
+  isHoldingRoot,
 } from "./orgchart.js";
 
 describe("orgchart (Фаза 2)", () => {
@@ -67,6 +68,24 @@ describe("orgchart (Фаза 2)", () => {
       expect(
         getDepartmentNodeHeight({ isDepartment: true, assistant: {} }, "classic"),
       ).toBe(130 + 44);
+    });
+  });
+
+  describe("isHoldingRoot (CR-012)", () => {
+    it("определяет синтетический корень Холдинга по структурному маркеру", () => {
+      expect(isHoldingRoot({ department_guid: "synthetic-root" })).toBe(true);
+    });
+
+    it("не считает конкретную Дирекцию корнем Холдинга", () => {
+      expect(
+        isHoldingRoot({ department_guid: "dir-it", department_name: "Дирекция по ИТ" }),
+      ).toBe(false);
+    });
+
+    it("безопасно обрабатывает null/undefined/пустой объект", () => {
+      expect(isHoldingRoot(null)).toBe(false);
+      expect(isHoldingRoot(undefined)).toBe(false);
+      expect(isHoldingRoot({})).toBe(false);
     });
   });
 });
