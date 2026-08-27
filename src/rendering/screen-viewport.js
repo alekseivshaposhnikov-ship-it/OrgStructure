@@ -111,6 +111,54 @@ export function createChartViewport({ svg, zoomLayer }) {
     return d3.zoomTransform(svgSelection.node());
   }
 
+  /**
+   * Возвращает текущий transform в виде простого объекта {x, y, k}
+   * (CR-011 §9). Такой объект безопасно хранить в state renderer'а выше
+   * lifecycle конкретного SVG.
+   */
+  function getTransform() {
+    const t = currentTransform();
+    return { x: t.x, y: t.y, k: t.k };
+  }
+
+  /**
+   * Проецирует точку из пользовательских координат SVG в координаты viewport
+   * с учётом transform (CR-011 §6, §14 — anchor preserving update).
+   *
+   * @param {{x:number, y:number}} point
+   * @param {{x:number, y:number, k:number}} [transform] - по умолчанию текущий
+   */
+  function projectPoint({ x, y }, transform = getTransform()) {
+    return { x: x * transform.k + transform.x, y: y * transform.k + transform.y };
+  }
+
+  /**
+   * Восстанавливает сохранённый transform после rerender (CR-011 §5, §9).
+   *
+   * @param {{x:number, y:number, k:number}} transform
+   * @param {object} [options]
+   * @param {boolean} [options.animate=false] - плавное применение через transition
+   * @param {{screenX:number, screenY:number, targetX:number, targetY:number}|null} [options.anchor]
+   *   - если задан, translate корректируется так, чтобы точка targetX/targetY
+   *     в новых координатах layout оказалась в screenX/screenY (визуальный фокус).
+   */
+  function restoreTransform(transform, { animate = false, anchor = null } = {}) {
+    if (!transform || !Number.isFinite(transform.k)) return;
+
+    let { x, y, k } = transform;
+    if (anchor && Number.isFinite(anchor.screenX) && Number.isFinite(anchor.targetX)) {
+      x = anchor.screenX - anchor.targetX * k;
+      y = anchor.screenY - anchor.targetY * k;
+    }
+
+    const next = d3.zoomIdentity.translate(x, y).scale(k);
+    if (animate) {
+      svgSelection.transition().call(zoomBehavior.transform, next);
+    } else {
+      applyTransform(next);
+    }
+  }
+
   return {
     zoomBehavior,
     applyTransform,
@@ -118,5 +166,8 @@ export function createChartViewport({ svg, zoomLayer }) {
     setCentered,
     reset,
     currentTransform,
+    getTransform,
+    projectPoint,
+    restoreTransform,
   };
 }

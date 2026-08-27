@@ -170,3 +170,77 @@ describe("screen-viewport zoom диапазон (CR-011)", () => {
     expect(layer.getAttribute("transform")).toContain("scale(100)");
   });
 });
+
+describe("screen-viewport сохранение/восстановление viewport (CR-011)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("getTransform возвращает простой объект {x, y, k}", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    viewport.applyTransform(d3.zoomIdentity.translate(-1350, -620).scale(2.4));
+
+    expect(viewport.getTransform()).toEqual({ x: -1350, y: -620, k: 2.4 });
+  });
+
+  it("restoreTransform восстанавливает сохранённый transform без fit", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    viewport.restoreTransform({ x: -1350, y: -620, k: 2.4 });
+
+    const t = viewport.currentTransform();
+    expect(t.k).toBe(2.4);
+    expect(t.x).toBe(-1350);
+    expect(t.y).toBe(-620);
+    expect(layer.getAttribute("transform")).toContain("scale(2.4)");
+    expect(layer.getAttribute("transform")).toContain("translate(-1350,-620)");
+  });
+
+  it("projectPoint переводит пользовательские координаты в viewport", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    viewport.applyTransform(d3.zoomIdentity.translate(100, 50).scale(2));
+
+    expect(viewport.projectPoint({ x: 300, y: 200 })).toEqual({ x: 700, y: 450 });
+  });
+
+  it("restoreTransform с anchor удерживает точку в прежней экранной позиции (CR-011 §6)", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    // Точка (500, 400) была на экране при k=2.4, x=-1350, y=-620:
+    // screenX = 500*2.4 - 1350 = -150, screenY = 400*2.4 - 620 = 340.
+    // После rerender layout точка переехала в (480, 350) — translate должен
+    // скомпенсировать это так, чтобы точка осталась в (-150, 340).
+    viewport.restoreTransform(
+      { x: -1350, y: -620, k: 2.4 },
+      { anchor: { screenX: -150, screenY: 340, targetX: 480, targetY: 350 } },
+    );
+
+    const t = viewport.currentTransform();
+    // tx = -150 - 480*2.4 = -1302; ty = 340 - 350*2.4 = -500
+    expect(t.x).toBeCloseTo(-1302, 5);
+    expect(t.y).toBeCloseTo(-500, 5);
+    expect(t.k).toBe(2.4);
+
+    const p = viewport.projectPoint({ x: 480, y: 350 });
+    expect(p.x).toBeCloseTo(-150, 5);
+    expect(p.y).toBeCloseTo(340, 5);
+  });
+
+  it("restoreTransform безопасно игнорирует невалидный transform (CR-011 §15)", () => {
+    const { svg, layer } = createSvgDom();
+    const viewport = createChartViewport({ svg, zoomLayer: layer });
+
+    expect(() => viewport.restoreTransform(null)).not.toThrow();
+    expect(() => viewport.restoreTransform({ x: 0, y: 0 })).not.toThrow();
+    expect(() => viewport.restoreTransform({ x: 0, y: 0, k: Number.NaN })).not.toThrow();
+
+    expect(viewport.currentTransform().k).toBe(1);
+    expect(layer.getAttribute("transform")).toBeNull();
+  });
+});

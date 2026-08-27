@@ -74,6 +74,10 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     svg: null,
     zoomLayer: null,
     viewport: null,
+    // CR-011: сохранённый viewport живёт выше lifecycle конкретного SVG,
+    // чтобы collapse/expand не сбрасывал zoom/pan и визуальный фокус.
+    viewportTransform: null,
+    viewportAnchor: null,
   };
 
   function buildLayout() {
@@ -95,7 +99,70 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     });
   }
 
+  /**
+   * CR-011 §4: сохраняет текущий D3 transform ДО уничтожения SVG.
+   * Хранится в state, поэтому переживает пересоздание svg/zoom behavior.
+   */
+  function captureViewport() {
+    if (!state.viewport) {
+      state.viewportTransform = null;
+      return;
+    }
+    state.viewportTransform = state.viewport.getTransform();
+  }
+
+  /**
+   * CR-011 §6, §14: фиксирует экранную позицию центра карточки, по которой
+   * пользователь выполнил collapse/expand. После rerender translate
+   * корректируется так, чтобы эта карточка осталась на прежнем месте.
+   */
+  function captureAnchor(id) {
+    state.viewportAnchor = null;
+    if (!id || !state.viewportTransform || !state.layout) return;
+
+    const node = state.layout.nodes.find((n) => n.data && n.data.id === id);
+    if (!node) return;
+
+    const cx = node.x + node.width / 2;
+    const cy = node.y + node.height / 2;
+    const screen = state.viewport.projectPoint({ x: cx, y: cy }, state.viewportTransform);
+    state.viewportAnchor = { id, screenX: screen.x, screenY: screen.y };
+  }
+
+  /**
+   * CR-011 §5, §10: восстанавливает сохранённый viewport после rerender
+   * (без автоматического fit). Если был зафиксирован якорь, translate
+   * корректируется так, чтобы карточка-якорь осталась в прежней
+   * экранной позиции. Якорь одноразовый — действует только на текущий rerender.
+   */
+  function restoreViewport() {
+    const saved = state.viewportTransform;
+    if (!saved || !state.viewport) return;
+
+    const anchor = state.viewportAnchor;
+    let anchorOffset = null;
+    if (anchor) {
+      const node = state.layout.nodes.find((n) => n.data && n.data.id === anchor.id);
+      if (node) {
+        const cx = node.x + node.width / 2;
+        const cy = node.y + node.height / 2;
+        anchorOffset = {
+          screenX: anchor.screenX,
+          screenY: anchor.screenY,
+          targetX: cx,
+          targetY: cy,
+        };
+      }
+    }
+
+    state.viewport.restoreTransform(saved, { anchor: anchorOffset });
+    state.viewportAnchor = null;
+  }
+
   function render() {
+    // CR-011 §10: сохранить текущий viewport ДО уничтожения SVG.
+    captureViewport();
+
     container.innerHTML = "";
     buildLayout();
 
@@ -115,6 +182,10 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     // Диапазон zoom задаётся в общем viewport-хелпере (CR-011),
     // здесь не дублируем scaleExtent.
     state.viewport = createChartViewport({ svg, zoomLayer });
+
+    // CR-011 §3, §5: при структурном rerender (collapse/expand и т.п.)
+    // восстанавливаем сохранённый viewport вместо автоматического fit.
+    restoreViewport();
 
     zoomLayer
       .append("g")
@@ -212,6 +283,11 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
   }
 
   function toggleCollapse(id) {
+    // CR-011 §10: до rerender зафиксировать viewport и якорь
+    // (карточка, по которой нажали collapse/expand).
+    captureViewport();
+    captureAnchor(id);
+
     if (state.collapsedIds.has(id)) {
       state.collapsedIds.delete(id);
     } else {

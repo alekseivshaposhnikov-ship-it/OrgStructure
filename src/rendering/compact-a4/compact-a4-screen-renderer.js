@@ -53,6 +53,10 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
     canFit: true,
     svg: null,
     viewport: null,
+    // CR-011: сохранённый viewport живёт выше lifecycle конкретного SVG,
+    // чтобы collapse/expand не сбрасывал zoom/pan и визуальный фокус.
+    viewportTransform: null,
+    viewportAnchor: null,
   };
 
   function buildLayout() {
@@ -68,7 +72,69 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
     state.flat = state.layoutResult.flat;
   }
 
+  /**
+   * CR-011 §4: сохраняет текущий D3 transform ДО уничтожения SVG.
+   * Хранится в state, поэтому переживает пересоздание svg/zoom behavior.
+   */
+  function captureViewport() {
+    if (!state.viewport) {
+      state.viewportTransform = null;
+      return;
+    }
+    state.viewportTransform = state.viewport.getTransform();
+  }
+
+  /**
+   * CR-011 §6, §14: фиксирует экранную позицию центра карточки, по которой
+   * пользователь выполнил collapse/expand. Карточки Compact A4 лежат
+   * в SVG-координатах: PADDING + layout-координата * scale.
+   */
+  function captureAnchor(id) {
+    state.viewportAnchor = null;
+    if (!id || !state.viewportTransform || !state.flat) return;
+
+    const node = state.flat.find((n) => n.id === id);
+    if (!node) return;
+
+    const cx = PADDING_X + (node.x + node.cardWidth / 2) * state.scale;
+    const cy = PADDING_Y + HEADER_HEIGHT + (node.y + node.cardHeight / 2) * state.scale;
+    const screen = state.viewport.projectPoint({ x: cx, y: cy }, state.viewportTransform);
+    state.viewportAnchor = { id, screenX: screen.x, screenY: screen.y };
+  }
+
+  /**
+   * CR-011 §5, §10: восстанавливает сохранённый viewport после rerender
+   * (без автоматического fit). При наличии якоря translate корректируется
+   * так, чтобы карточка-якорь осталась в прежней экранной позиции.
+   */
+  function restoreViewport() {
+    const saved = state.viewportTransform;
+    if (!saved || !state.viewport) return;
+
+    const anchor = state.viewportAnchor;
+    let anchorOffset = null;
+    if (anchor) {
+      const node = state.flat.find((n) => n.id === anchor.id);
+      if (node) {
+        const cx = PADDING_X + (node.x + node.cardWidth / 2) * state.scale;
+        const cy = PADDING_Y + HEADER_HEIGHT + (node.y + node.cardHeight / 2) * state.scale;
+        anchorOffset = {
+          screenX: anchor.screenX,
+          screenY: anchor.screenY,
+          targetX: cx,
+          targetY: cy,
+        };
+      }
+    }
+
+    state.viewport.restoreTransform(saved, { anchor: anchorOffset });
+    state.viewportAnchor = null;
+  }
+
   function render() {
+    // CR-011 §10: сохранить текущий viewport ДО уничтожения SVG.
+    captureViewport();
+
     container.innerHTML = "";
     buildLayout();
 
@@ -85,7 +151,15 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
       // Диапазон zoom задаётся в общем viewport-хелпере (CR-011),
       // здесь не дублируем scaleExtent.
       state.viewport = createChartViewport({ svg, zoomLayer });
-      fit();
+
+      // CR-011 §3, §5: структурный rerender (collapse/expand) — восстановить
+      // сохранённый viewport, а не сбрасывать его на fit. fit() допустим
+      // только для первичного рендера.
+      if (state.viewportTransform) {
+        restoreViewport();
+      } else {
+        fit();
+      }
     } else {
       state.viewport = null;
     }
@@ -123,6 +197,11 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
   }
 
   function toggleCollapse(id) {
+    // CR-011 §10: до rerender зафиксировать viewport и якорь
+    // (карточка, по которой нажали collapse/expand).
+    captureViewport();
+    captureAnchor(id);
+
     if (state.collapsedIds.has(id)) {
       state.collapsedIds.delete(id);
     } else {
