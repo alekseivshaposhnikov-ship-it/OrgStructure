@@ -1,8 +1,12 @@
 // src/sidebar-tree.js
 
+import { HOLDING_LEADERSHIP_CONFIG } from "../rendering/holding-leadership.js";
+
 export function createSyntheticRoot(nodes) {
   const totalStaff = nodes.reduce((sum, n) => sum + (n.staffCount || 0), 0);
   const totalVac = nodes.reduce((sum, n) => sum + (n.vacancyCount || 0), 0);
+
+  const ceo = HOLDING_LEADERSHIP_CONFIG.ceo;
 
   return {
     department_name: "Холдинг LEGENDA",
@@ -11,8 +15,10 @@ export function createSyntheticRoot(nodes) {
     staffCount: totalStaff,
     vacancyCount: totalVac,
     totalWithVacancies: totalStaff + totalVac,
-    department_manager: "Селиванов Василий Геннадьевич",
-    department_manager_position: "Генеральный директор",
+    // CR-013 §9-10: руководитель Холдинга берётся из единой конфигурации
+    // верхнего руководства, а не дублируется здесь.
+    department_manager: ceo.name,
+    department_manager_position: ceo.title,
     users: [],
   };
 }

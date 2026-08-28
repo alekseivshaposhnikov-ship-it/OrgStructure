@@ -6,6 +6,7 @@
 
 import { renderCompactA4Screen } from "../rendering/compact-a4/compact-a4-screen-renderer.js";
 import { renderUnifiedScreen } from "../rendering/unified-screen-renderer.js";
+import { buildHoldingLeadershipTree } from "../rendering/holding-leadership.js";
 import { exportCompactA4ToPdf, exportOrgChartToPdf } from "../export/pdf-d3-export.js";
 import { VIEW_MODE_TITLES } from "../core/constants.js";
 import { openEmployeeDetails } from "./employee-modal.js";
@@ -17,7 +18,8 @@ export function initExportHandler(state) {
       document.getElementById("exportWithoutNames")?.checked;
 
     const payload = {
-      rootNodes: [state.selectedNode],
+      // CR-013 §31: PDF использует ту же holding hierarchy, что и экран.
+      rootNodes: [getChartRootNode(state)],
       title: getExportTitle(state.selectedNode),
       subtitle: getExportSubtitle({
         viewMode: state.viewMode,
@@ -94,6 +96,25 @@ export function isHoldingRoot(node) {
 }
 
 /**
+ * Возвращает корневой узел диаграммы с учётом CR-013: для корня Холдинга
+ * строится верхнеуровневая управленческая проекция (holding leadership
+ * projection); для отдельной дирекции — сам выбранный узел.
+ *
+ * @param {object} state
+ * @returns {object}
+ */
+export function getChartRootNode(state) {
+  if (!isHoldingRoot(state.selectedNode)) return state.selectedNode;
+
+  return buildHoldingLeadershipTree(state.selectedNode, {
+    // Режим «Изменения» строится из working tree и может не содержать
+    // неизменённую «Администрацию» — люди верхнего управления берутся
+    // из working tree (TO BE), а не из AS IS (CR-013 §17, §24).
+    fallbackTree: state.viewMode === "changes" ? state.scenario?.workingTree : null,
+  });
+}
+
+/**
  * Рендерит выбранную структуру в #orgChart в зависимости от дизайна карточек.
  * Мутирует state.chart и state.isOrgChartDelegationBound.
  *
@@ -104,11 +125,16 @@ export function isHoldingRoot(node) {
 export function renderScreenOrgChart(state, deps = {}) {
   if (!state.selectedNode) return;
 
-  const rootNodes = [state.selectedNode];
+  const rootNode = getChartRootNode(state);
+  const rootNodes = [rootNode];
+
+  const isHolding = isHoldingRoot(state.selectedNode);
 
   // CR-012: при выборе корня Холдинга дирекции верхнего уровня сворачиваются
-  // по умолчанию (структура до уровня Дирекций), детали — по запросу пользователя.
-  const collapseTopLevel = isHoldingRoot(state.selectedNode);
+  // по умолчанию. Для leadership-проекции (CR-013 §22) изначально свернуты
+  // дирекции под executive-узлами — список задаётся проекцией.
+  const collapseTopLevel = isHolding;
+  const initialCollapsedIds = isHolding ? rootNode.__initialCollapsedIds : null;
 
   // Компактный A4 использует тот же единый layout, но компактный рендер карточек
   if (state.cardDesign === "compact-a4") {
@@ -117,6 +143,7 @@ export function renderScreenOrgChart(state, deps = {}) {
       showVacancies: state.showVacancies,
       viewMode: state.viewMode,
       collapseTopLevel,
+      initialCollapsedIds,
     });
     if (!state.chart) return;
     window.orgChart = state.chart;
@@ -135,6 +162,7 @@ export function renderScreenOrgChart(state, deps = {}) {
     departmentHeight: getDepartmentNodeHeight({ isDepartment: true }, state.cardDesign),
     employeeHeight: 96,
     collapseTopLevel,
+    initialCollapsedIds,
   });
 
   if (!state.chart) return;

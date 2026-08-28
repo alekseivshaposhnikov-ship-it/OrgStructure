@@ -87,7 +87,14 @@ export function buildLayoutTree(
   { showVacancies = true, collapsedIds = null } = {},
 ) {
   const assistantsToSkip = new Set();
-  const rootAssistant = rootNode ? findAdministrativeAssistantInSubtree(rootNode) : null;
+  // CR-013 §18: для корня Холдинга ассистент привязан к Селиванову явно
+  // (holding leadership projection), а не выбирается «первый найденный».
+  const isHoldingPresentation = Boolean(rootNode && rootNode.__holdingPresentation === true);
+  const rootAssistant = isHoldingPresentation
+    ? rootNode.__assistant || null
+    : rootNode
+      ? findAdministrativeAssistantInSubtree(rootNode)
+      : null;
   if (rootAssistant?.id) assistantsToSkip.add(rootAssistant.id);
 
   function buildDepartment(node, isRoot) {
@@ -108,6 +115,20 @@ export function buildLayoutTree(
     // в data подразделения и используются только ролевым PDF-режимом.
     if (Array.isArray(node.pdfRoles)) {
       data.pdfRoles = node.pdfRoles;
+    }
+
+    // CR-013 §27: presentation-узел верхнего руководителя (executive) рендерится
+    // отдельной карточкой и несёт реальную запись человека для детального просмотра.
+    if (node.isHoldingExecutive) {
+      data.isHoldingExecutive = true;
+    }
+    if (node.__person) {
+      Object.assign(data, node.__person, {
+        id: data.id,
+        name: node.department_name || node.__person.full_name || data.name,
+        position: data.headPosition || node.__person.position || "",
+        isDepartment: true,
+      });
     }
 
     // Согласованная вертикальная геометрия ролевой карточки (CR-003-03-fix-height):

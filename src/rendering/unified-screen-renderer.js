@@ -65,6 +65,9 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     // CR-012: при выборе корня Холдинга дирекции верхнего уровня
     // сворачиваются по умолчанию. Применяется только к первичному рендеру.
     collapseTopLevel = false,
+    // CR-013 §22: явный список дирекций для initial collapse (leadership-проекция
+    // Холдинга: дирекции под executive-узлами). Имеет приоритет над collapseTopLevel.
+    initialCollapsedIds = null,
   } = options;
 
   const cardOptions = { cardDesign, showVacancies, viewMode };
@@ -91,6 +94,15 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
    * создаёт новый инстанс → снова дефолтное состояние, §12).
    */
   function initCollapsedIds() {
+    // CR-013 §22: явный список дирекций (leadership-проекция Холдинга) —
+    // имеет приоритет над «свернуть всех прямых детей root».
+    if (Array.isArray(initialCollapsedIds) && initialCollapsedIds.length) {
+      initialCollapsedIds.forEach((id) => {
+        if (id) state.collapsedIds.add(id);
+      });
+      return;
+    }
+
     if (!collapseTopLevel || !rootNodes || !rootNodes.length) return;
     const root = rootNodes[0];
     (root.children || []).forEach((child) => {

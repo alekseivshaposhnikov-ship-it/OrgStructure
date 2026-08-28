@@ -99,17 +99,22 @@ export function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies })
 
     if (node.type === NODE_DEPARTMENT) {
       const d = node.data;
+      const isHoldingExecutive = d.isHoldingExecutive === true;
       flat.push({
         id: d.id,
         type: "department",
         name: d.name,
         manager: hideNames ? "" : d.headName,
         position: d.headPosition,
-        count: showVacancies
-          ? d.totalWithVacancies ?? d.staffCount ?? 0
-          : d.staffCount ?? 0,
+        // Executive (CR-013 §27): искусственная численность не отображается.
+        count: isHoldingExecutive
+          ? null
+          : showVacancies
+            ? d.totalWithVacancies ?? d.staffCount ?? 0
+            : d.staffCount ?? 0,
         project: "",
         scenarioState: d.scenarioState,
+        isHoldingExecutive,
         parentId,
         x: node.x,
         y: node.y,

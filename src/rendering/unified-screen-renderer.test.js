@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { buildHoldingLeadershipTree } from "./holding-leadership.js";
 
 describe("unified-screen-renderer (CR-011)", () => {
   let renderUnifiedScreen;
@@ -171,6 +172,106 @@ describe("unified-screen-renderer (CR-011)", () => {
 
   function nodeExists(nodeId) {
     return Boolean(document.querySelector(`g.unified-node[data-node-id="${nodeId}"]`));
+  }
+
+  // Минимальный корень Холдинга для проверки leadership-проекции (CR-013).
+  function makeLeadershipHolding() {
+    return {
+      department_guid: "synthetic-root",
+      department_name: "Холдинг LEGENDA",
+      department_manager: "Селиванов Василий Геннадиевич",
+      department_manager_position: "Генеральный директор",
+      staffCount: 30,
+      totalWithVacancies: 30,
+      users: [],
+      children: [
+        {
+          department_guid: "admin",
+          department_name: "Администрация",
+          staffCount: 4,
+          totalWithVacancies: 4,
+          users: [
+            {
+              id: "luk",
+              full_name: "Лукьянов Алексей Александрович",
+              email: "laa@legenda-dom.ru",
+              position: "Операционный директор",
+              rawPosition: "Операционный директор",
+              subLevel: 1,
+              typeEmployment: "Основное место работы",
+              isVacancy: false,
+            },
+            {
+              id: "vin",
+              full_name: "Винник Лев Арнольдович",
+              email: "l.vinnik@legenda-dom.ru",
+              position: "Заместитель генерального директора по развитию",
+              rawPosition: "Заместитель генерального директора по развитию",
+              subLevel: 2,
+              typeEmployment: "Основное место работы",
+              isVacancy: false,
+            },
+            {
+              id: "klu",
+              full_name: "Клюев Алексей Васильевич",
+              email: "avk@legenda-dom.ru",
+              position: "Исполнительный директор",
+              rawPosition: "Исполнительный директор",
+              subLevel: 1,
+              typeEmployment: "Основное место работы",
+              isVacancy: false,
+            },
+            {
+              id: "soydan",
+              full_name: "Сойдан Айкут",
+              email: "a.soydan@legenda-dom.ru",
+              position: "Управляющий объектами коммерческой недвижимости",
+              rawPosition: "Управляющий объектами коммерческой недвижимости",
+              subLevel: 4,
+              typeEmployment: "Основное место работы",
+              isVacancy: false,
+            },
+            {
+              id: "volkova",
+              full_name: "Волкова Алина Викторовна",
+              name: "Волкова Алина Викторовна",
+              email: "a.volkova@legenda-dom.ru",
+              position: "Персональный ассистент",
+              rawPosition: "Персональный ассистент",
+              subLevel: 6,
+              typeEmployment: "Основное место работы",
+              isVacancy: false,
+            },
+          ],
+          children: [],
+        },
+        {
+          department_guid: "dir-it",
+          department_name: "Дирекция по информационным технологиям",
+          staffCount: 10,
+          totalWithVacancies: 10,
+          users: [],
+          children: [
+            {
+              department_guid: "dept-it1",
+              department_name: "Отдел 1С",
+              staffCount: 5,
+              totalWithVacancies: 5,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+        {
+          department_guid: "dir-inv",
+          department_name: "Дирекция по инвестициям",
+          staffCount: 10,
+          totalWithVacancies: 10,
+          users: [],
+          children: [],
+        },
+      ],
+    };
   }
 
   function parseTransform(str) {
@@ -456,5 +557,34 @@ describe("unified-screen-renderer (CR-011)", () => {
     expect(after.k).toBe(100);
     expect(Math.abs(after.x - before.x)).toBeLessThan(1e-6);
     expect(Math.abs(after.y - before.y)).toBeLessThan(1e-6);
+  });
+
+  it("leadership-проекция Холдинга рендерится: executives + дирекции (collapsed) (CR-013)", () => {
+    const root = buildHoldingLeadershipTree(makeLeadershipHolding());
+    const chart = renderUnifiedScreen([root], "#orgChart", {
+      initialCollapsedIds: root.__initialCollapsedIds,
+    });
+
+    expect(chart).toBeTruthy();
+
+    // Executive-карточки верхних руководителей.
+    const executives = document.querySelectorAll('[data-node-type="executive"]');
+    expect(executives.length).toBeGreaterThanOrEqual(3);
+    expect(document.querySelector('[data-node-type="executive"]').textContent).toContain(
+      "Лукьянов",
+    );
+
+    // Дирекции видимы (свёрнуты), их дети скрыты.
+    expect(nodeExists("dir-it")).toBe(true);
+    expect(nodeExists("dir-inv")).toBe(true);
+    expect(nodeExists("dept-it1")).toBe(false);
+
+    // Прямой подчинённый Клюева (Сойдан) отображается в колонке.
+    expect(document.querySelector('[data-employee-id="soydan"]')).toBeTruthy();
+
+    // Ассистент Селиванова — отдельная карточка с меткой ассистента.
+    const assistantCard = document.querySelector('[data-employee-id="volkova"]');
+    expect(assistantCard).toBeTruthy();
+    expect(assistantCard.textContent).toContain("Волкова");
   });
 });

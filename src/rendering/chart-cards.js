@@ -52,6 +52,10 @@ export function renderNodeContent(nd, options = {}) {
     isPdfExport = false,
   } = options;
 
+  if (nd.isHoldingExecutive) {
+    return renderHoldingExecutive(nd, viewMode);
+  }
+
   if (nd.isDepartment) {
     if (isPdfExport) {
       return renderDepartmentPdf(nd, showVacancies, hideNames);
@@ -268,6 +272,28 @@ function renderEmployee(nd, viewMode) {
       ${renderMenuButton(viewMode)}
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
       ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${renderLayoutDebug(nd)}
+      ${renderProject(nd)}
+    </div>
+  `;
+}
+
+/**
+ * Карточка верхнего руководителя Холдинга (CR-013 §27): ФИО + роль.
+ * Использует профильный дизайн сотрудника (data-node-type="executive");
+ * искусственная численность не отображается. Клик открывает детальную
+ * карточку человека (data-employee-id).
+ */
+function renderHoldingExecutive(nd, viewMode) {
+  return `
+    <div class="chart-card chart-card--employee chart-card--executive ${getScenarioClass(nd)}"
+         data-employee-id="${escapeHtml(nd.id)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="executive">
+      ${renderScenarioBadge(nd)}
+      ${renderMenuButton(viewMode)}
+      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      ${nd.headPosition ? `<div class="chart-card__position">${escapeHtml(nd.headPosition)}</div>` : ""}
       ${renderLayoutDebug(nd)}
       ${renderProject(nd)}
     </div>

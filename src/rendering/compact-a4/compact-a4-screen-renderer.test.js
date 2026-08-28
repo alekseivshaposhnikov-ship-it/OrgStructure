@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { PADDING_X, PADDING_Y, HEADER_HEIGHT } from "./compact-a4-layout.js";
+import { buildHoldingLeadershipTree } from "../holding-leadership.js";
 
 describe("compact-a4-screen-renderer (CR-008_1)", () => {
   let renderCompactA4Screen;
@@ -492,5 +493,84 @@ describe("compact-a4-screen-renderer (CR-008_1)", () => {
     expect(after.k).toBeCloseTo(before.k, 5);
     expect(Math.abs(after.x - before.x)).toBeLessThan(1e-6);
     expect(Math.abs(after.y - before.y)).toBeLessThan(1e-6);
+  });
+
+  it("Compact A4 рендерит leadership-проекцию Холдинга (CR-013 §14)", () => {
+    const root = buildHoldingLeadershipTree({
+      department_guid: "synthetic-root",
+      department_name: "Холдинг LEGENDA",
+      department_manager: "Селиванов Василий Геннадиевич",
+      department_manager_position: "Генеральный директор",
+      staffCount: 20,
+      totalWithVacancies: 20,
+      users: [],
+      children: [
+        {
+          department_guid: "admin",
+          department_name: "Администрация",
+          staffCount: 3,
+          totalWithVacancies: 3,
+          users: [
+            {
+              id: "klu",
+              full_name: "Клюев Алексей Васильевич",
+              email: "avk@legenda-dom.ru",
+              position: "Исполнительный директор",
+              rawPosition: "Исполнительный директор",
+              subLevel: 1,
+              typeEmployment: "Основное место работы",
+              isVacancy: false,
+            },
+            {
+              id: "soydan",
+              full_name: "Сойдан Айкут",
+              email: "a.soydan@legenda-dom.ru",
+              position: "Управляющий объектами коммерческой недвижимости",
+              rawPosition: "Управляющий объектами коммерческой недвижимости",
+              subLevel: 4,
+              typeEmployment: "Основное место работы",
+              isVacancy: false,
+            },
+          ],
+          children: [],
+        },
+        {
+          department_guid: "dir-it",
+          department_name: "Дирекция по информационным технологиям",
+          staffCount: 10,
+          totalWithVacancies: 10,
+          users: [],
+          children: [
+            {
+              department_guid: "dept-it1",
+              department_name: "Отдел 1С",
+              staffCount: 5,
+              totalWithVacancies: 5,
+              users: [],
+              children: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    const chart = renderCompactA4Screen([root], "#orgChart", {
+      initialCollapsedIds: root.__initialCollapsedIds,
+    });
+
+    const ids = chart.flatData.map((n) => n.id);
+    // Executive-карточка присутствует без искусственного счётчика.
+    expect(ids).toContain("klu");
+    const klyuevFlat = chart.flatData.find((n) => n.id === "klu");
+    expect(klyuevFlat.isHoldingExecutive).toBe(true);
+    expect(klyuevFlat.count).toBeNull();
+
+    // Дирекция видима (свёрнута), её отдел скрыт.
+    expect(ids).toContain("dir-it");
+    expect(ids).not.toContain("dept-it1");
+
+    // Прямой подчинённый Клюева — в колонке сотрудников.
+    const employeesFlat = chart.flatData.find((n) => n.type === "employees");
+    expect(employeesFlat.persons.some((person) => person.id === "soydan")).toBe(true);
   });
 });

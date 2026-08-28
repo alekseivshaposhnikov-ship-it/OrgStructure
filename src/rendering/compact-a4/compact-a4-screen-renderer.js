@@ -29,6 +29,9 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
     // CR-012: при выборе корня Холдинга дирекции верхнего уровня
     // сворачиваются по умолчанию. Применяется только к первичному рендеру.
     collapseTopLevel = false,
+    // CR-013 §22: явный список дирекций для initial collapse (leadership-проекция
+    // Холдинга: дирекции под executive-узлами). Имеет приоритет над collapseTopLevel.
+    initialCollapsedIds = null,
   } = options;
 
   const container = document.querySelector(containerSelector);
@@ -69,6 +72,15 @@ export function renderCompactA4Screen(rootNodes, containerSelector = "#orgChart"
    * Выполняется один раз при создании renderer'а.
    */
   function initCollapsedIds() {
+    // CR-013 §22: явный список дирекций (leadership-проекция Холдинга) —
+    // имеет приоритет над «свернуть всех прямых детей root».
+    if (Array.isArray(initialCollapsedIds) && initialCollapsedIds.length) {
+      initialCollapsedIds.forEach((id) => {
+        if (id) state.collapsedIds.add(id);
+      });
+      return;
+    }
+
     if (!collapseTopLevel || !rootNode) return;
     (rootNode.children || []).forEach((child) => {
       const id = child.department_guid || child.id;
