@@ -1,406 +1,465 @@
-# Дополнение к CR-013: корректный поиск top-management и устойчивый mapping дирекций
+1. Цель
 
-## 1. Цель
+Реализовать специальное представление верхнего уровня организационной структуры Холдинга LEGENDA.
 
-Исправить два системных дефекта, выявленных после реализации CR-013:
+При выборе корневого узла «Холдинг LEGENDA» схема должна отражать не техническую структуру API, а фактическую управленческую иерархию верхнего уровня:
 
-1. верхнеуровневые руководители с дробной занятостью могут исчезать из `holding leadership projection` до этапа построения executive nodes;
-2. привязка дирекций к executives через точное текстовое название подразделения слишком хрупкая и ломается при фактическом переименовании подразделения.
-
-На реальном кейсе это привело к тому, что:
-
-* Лукьянов не появился в верхнеуровневой структуре;
-* его дирекции не были подчинены ему;
-* `Дирекция по финансам и отчетности` осталась в fallback под root, потому что в конфигурации использовалось устаревшее название `Дирекция по финансам`.
-
-Это дополнение не меняет целевую управленческую структуру CR-013, а исправляет источник данных и устойчивость mapping.
-
----
-
-# 2. Не менять основную бизнес-логику CR-013
-
-Сохранить без изменений целевую структуру:
-
-```text
 Селиванов
+│
 ├── Лукьянов
 ├── Винник
 └── Клюев
-```
 
-и распределение дирекций, уже зафиксированное в CR-013. В частности, под Лукьяновым должны находиться инвестиции, экономика, строительство, финансы и проектирование.
+При этом:
 
-Не менять:
+руководители должны находиться независимо от особенностей их записей в API;
+один человек не должен дублироваться из-за нескольких записей занятости;
+дирекции должны распределяться между соответствующими executives;
+идентификация дирекций должна выполняться преимущественно по department_guid;
+LEGENDA Comfort должна находиться в ветке Клюева;
+непосредственные сотрудники executives должны отображаться в соответствующей ветке;
+персональные и административные ассистенты должны визуально располагаться рядом со своим непосредственным руководителем;
+внутренняя структура дирекций после executive projection должна продолжать строиться по обычной организационной иерархии.
+2. Область применения
 
-* `holding leadership projection`;
-* состав executives;
-* direct reports Клюева;
-* hierarchy;
-* Unified Layout;
-* collapse/expand;
-* zoom/pan;
-* PDF rendering logic;
-* `sub_level` semantics.
+Специальная логика применяется только при отображении Холдинга целиком, когда выбран root:
 
----
+Холдинг LEGENDA
 
-# 3. Проблема 1 — top-management теряется до holding projection
+Она формирует специальный верхний слой:
 
-Сейчас `holding-leadership.js` ищет людей через подготовленную структуру `node.users`.
+Holding
+↓
+CEO
+↓
+Executives
+↓
+Directorates
+↓
+обычная hierarchy
 
-Но `node.users` уже является визуально отфильтрованным набором сотрудников.
+При выборе отдельной дирекции или подразделения непосредственно в левом дереве специальный Holding Leadership Projection не должен искусственно перестраивать его внутреннюю структуру.
 
-Если на этапе `transformNode()` используется правило:
+3. Целевая структура Холдинга
 
-```js
-parseCount(emp.count) >= 1
-```
+Верхнеуровневая структура должна выглядеть концептуально следующим образом:
 
-то сотрудники с дробной занятостью:
+                         СЕЛИВАНОВ
+                             │
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+      ЛУКЬЯНОВ             ВИННИК              КЛЮЕВ
+          │                  │                  │
+      дирекции           дирекция           дирекции
+                                             +
+                                      direct reports
 
-```text
-0.02
-0.1
-0.5
-...
-```
+Селиванов является корневым руководителем Holding Leadership Projection.
 
-не попадают в `node.users`.
+Под ним должны находиться три executive node:
 
-Для обычного screen employee rendering это поведение может быть корректным и менять его глобально нельзя.
+Лукьянов Алексей Александрович
+Операционный директор Холдинга
 
-Но для поиска top-management это приводит к потере руководителей.
+Винник Лев Арнольдович
+Директор по развитию градостроительной подготовки проектов
 
----
+Клюев Алексей Васильевич
+Исполнительный директор Холдинга LEGENDA
 
-# 4. Целевое разделение данных
+Presentation title executives должен определяться конфигурацией Holding hierarchy, а не случайной должностью выбранной API-record.
 
-Необходимо явно разделить:
+4. Дирекции Лукьянова
 
-```text
-source employees
-```
+Под Лукьяновым должны находиться:
 
-и:
+Лукьянов
+│
+├── Дирекция по инвестициям
+├── Дирекция по экономике
+├── Дирекция по строительству
+├── Дирекция по финансам и отчетности
+└── Дирекция по проектированию
 
-```text
-visible users
-```
+Не использовать устаревшее название:
 
-## `sourceUsers`
+Дирекция по финансам
 
-Полный набор сотрудников подразделения, пришедший из API после технической нормализации, но ДО фильтрации по `count >= 1`.
+в качестве идентификатора подразделения.
 
-Используется для:
+Основная идентификация должна выполняться по department_guid.
 
-* holding leadership projection;
-* поиска executives;
-* поиска direct reports;
-* дедупликации top-management;
-* поиска ассистента конкретного руководителя.
+5. Дирекция Винника
 
-## `users`
+Под Винником должна находиться:
 
-Существующий визуальный набор сотрудников.
+Винник
+│
+└── Дирекция по развитию и
+    градостроительной подготовке проектов
 
-Продолжает использоваться для:
+После этого внутренняя структура данной дирекции строится по обычной hierarchy.
 
-* обычных employee columns;
-* карточек сотрудников;
-* сортировки;
-* отображения штатной структуры.
+Не создавать вручную mapping внутренних подразделений Винника, если для этого нет отдельного бизнес-правила.
 
-Правило:
+6. Дирекции Клюева
 
-> CR не должен менять то, какие обычные сотрудники отображаются на экране. Он только сохраняет нефильтрованный источник отдельно.
+Под Клюевым должны находиться:
 
----
+Клюев
+│
+├── Дирекция по маркетингу
+├── Дирекция брендинга и коммуникаций
+├── Дирекция по безопасности
+├── Дирекция по продажам
+├── Административно-правовая дирекция
+├── Дирекция по персоналу
+├── Дирекция по информационным технологиям
+└── LEGENDA Comfort
 
-# 5. Изменение `transformNode()`
+Таким образом, LEGENDA Comfort необходимо добавить в mapping Клюева.
 
-В функции подготовки department node добавить сохранение полного исходного employee list.
+Это именно подразделение Клюева, а не отдельная верхнеуровневая ветка Холдинга.
+
+7. LEGENDA Comfort
+
+Для LEGENDA Comfort специальная внутренняя leadership projection не требуется.
+
+Специальное правило заканчивается на:
+
+Клюев
+└── LEGENDA Comfort
+
+После этого используется обычная реальная hierarchy LEGENDA Comfort, полученная из API.
+
+То есть:
+
+Клюев
+│
+└── LEGENDA Comfort
+        │
+        └── existing API hierarchy
+
+Не hardcode:
+
+Мищуева;
+Николаеву;
+внутренние службы;
+внутренние подразделения;
+внутренних сотрудников LEGENDA Comfort.
+
+Их положение определяется обычными данными структуры.
+
+8. Непосредственные сотрудники Клюева
+
+Кроме дирекций, у Клюева имеются сотрудники, непосредственно подчиненные ему.
+
+В частности:
+
+Сойдан Айкут
+Управляющий объектами коммерческой недвижимости
+
+Кириллов Олег Сергеевич
+Руководитель направления ИИ-трансформации
+
+Они должны находиться в ветке Клюева.
 
 Концептуально:
 
-```js
-function transformNode(apiNode, parentId = null) {
-  const allEmployees = apiNode.employees || [];
+Клюев
+│
+├── Дирекция по маркетингу
+├── ...
+├── LEGENDA Comfort
+│
+├── Сойдан Айкут
+└── Кириллов Олег Сергеевич
 
-  const sourceUsers = allEmployees.map((emp) => ({
-    id: emp.id,
-    full_name: emp.full_name,
-    name: emp.full_name,
-    fullName: emp.full_name,
+При этом direct reports не должны ошибочно превращаться в department nodes.
 
-    email: emp.email || "",
-    phone: getPhone(emp),
-    photo: getPhoto(emp),
-    project: getProject(emp),
+Для них использовать employee/direct-report presentation соответствующего типа.
 
-    position: shortPosition(emp.position),
-    rawPosition: emp.position || "",
+9. Ассистенты руководителей
 
-    subLevel: parseSubLevel(emp.sub_level),
-    typeEmployment: emp.type_employment || "",
-    state: emp.state || "",
-    count: parseCount(emp.count),
+Персональный или административный ассистент должен быть связан с конкретным непосредственным руководителем, которому он подчиняется.
 
-    isVacancy: false,
-  }));
+Нельзя использовать глобальное правило вида:
 
-  // существующая логика отображаемых сотрудников
-  const validEmployees = allEmployees.filter(
-    (emp) => parseCount(emp.count) >= 1
-  );
+найти первого ассистента
+→ показать возле root
 
-  ...
-```
+или:
 
-В возвращаемый department node добавить:
+все ассистенты
+→ вывести отдельной общей веткой
 
-```js
+Ассистент является специальным employee node своего руководителя.
+
+10. Визуальное положение ассистента
+
+Ассистент должен отображаться максимально близко к карточке своего руководителя.
+
+Например:
+
+                 Руководитель
+                       │
+             [ассистент рядом]
+                       │
+                 подразделения
+
+Предпочтительно использовать существующий NODE_ASSISTANT / assistant-zone, если он уже предусмотрен Unified Layout.
+
+Ассистент:
+
+не является department;
+не должен создавать самостоятельный организационный уровень;
+не должен менять effectiveLayoutLevel дочерних departments;
+не должен становиться промежуточным parent между руководителем и подразделениями;
+не должен существенно увеличивать вертикальный разрыв между руководителем и его дочерними ветвями.
+11. Ассистент Селиванова
+
+Ассистент Селиванова должен располагаться рядом с Селивановым.
+
+При этом структура остается:
+
+                       Селиванов
+                    [ассистент рядом]
+                           │
+          ┌────────────────┼────────────────┐
+          │                │                │
+      Лукьянов           Винник            Клюев
+
+а не:
+
+Селиванов
+│
+Ассистент
+│
+Executives
+
+Ассистент не является отдельным уровнем hierarchy.
+
+12. Универсальность assistant logic
+
+Это правило не должно быть hardcoded только для Селиванова.
+
+Например, если API содержит:
+
+Мищуев
+├── Административный ассистент Николаева
+└── подразделения
+
+то визуально должно получаться:
+
+Мищуев + Николаева рядом
+          │
+     подразделения
+
+То же правило должно работать для любого руководителя структуры.
+
+Каждый assistant должен быть связан именно со своим непосредственным manager.
+
+13. Проблема source data top-management
+
+Нельзя искать executives только среди:
+
+node.users
+
+users уже является визуально отфильтрованным набором сотрудников.
+
+Например, существующая фильтрация:
+
+parseCount(emp.count) >= 1
+
+может исключить записи:
+
+count = 0.02
+count = 0.1
+count = 0.5
+
+В результате реальный executive существует в API, но исчезает до построения Holding Leadership Projection.
+
+Именно такой класс проблемы уже был обнаружен для Лукьянова.
+
+14. Разделить sourceUsers и users
+
+В department node необходимо хранить два набора.
+
+sourceUsers
+
+Полный нормализованный набор сотрудников API до визуальной фильтрации count >= 1.
+
+Используется для:
+
+executive lookup
+direct report lookup
+assistant lookup
+top-management deduplication
+holding leadership projection
+users
+
+Существующий визуально отфильтрованный набор.
+
+Используется для:
+
+standard employee rendering
+employee columns
+sorting
+обычных карточек сотрудников
+
+Принцип:
+
+API employees
+     │
+     ├── sourceUsers → leadership lookup
+     │
+     └── users       → standard rendering
+
+Добавление sourceUsers не должно менять существующее отображение обычных сотрудников. Это соответствует разделению, зафиксированному в исходном CR.
+
+15. Изменение transformNode()
+
+В transformNode() сохранить полный нормализованный employee source.
+
+Концептуально:
+
+const allEmployees = apiNode.employees || [];
+
+const sourceUsers = allEmployees.map((emp) => ({
+  id: emp.id,
+  full_name: emp.full_name,
+  name: emp.full_name,
+  fullName: emp.full_name,
+  email: emp.email || "",
+  phone: getPhone(emp),
+  photo: getPhoto(emp),
+  project: getProject(emp),
+  position: shortPosition(emp.position),
+  rawPosition: emp.position || "",
+  subLevel: parseSubLevel(emp.sub_level),
+  typeEmployment: emp.type_employment || "",
+  state: emp.state || "",
+  count: parseCount(emp.count),
+  isVacancy: false,
+}));
+
+Существующий:
+
+const validEmployees = allEmployees.filter(
+  (emp) => parseCount(emp.count) >= 1
+);
+
+оставить для формирования обычного users.
+
+В department node:
+
 return {
   ...
   users,
   sourceUsers,
   children,
 };
-```
 
-Конкретный shape привести к текущей архитектуре проекта.
+Не мутировать исходные API objects.
 
----
+16. Executive lookup
 
-# 6. Не использовать `sourceUsers` для обычного renderer
+holding-leadership.js должен искать executives прежде всего в:
 
-Это обязательное ограничение.
-
-Нельзя после добавления `sourceUsers` случайно начать строить обычные employee columns из него.
-
-Экранный renderer должен по-прежнему использовать:
-
-```js
-node.users
-```
-
-а не:
-
-```js
 node.sourceUsers
-```
 
-Иначе сотрудники с дробной занятостью начнут массово появляться в обычной оргструктуре.
+с fallback:
 
----
-
-# 7. Изменить `collectUsersByEmail()`
-
-Текущий `holding-leadership.js` должен индексировать сотрудников прежде всего по `sourceUsers`.
-
-Логика:
-
-```js
-export function collectUsersByEmail(nodes) {
-  const map = new Map();
-
-  (function walk(items) {
-    (items || []).forEach((node) => {
-      const source = Array.isArray(node.sourceUsers)
-        ? node.sourceUsers
-        : node.users || [];
-
-      source.forEach((user) => {
-        if (user.isVacancy) return;
-
-        const email = normalizeEmail(user.email);
-        if (!email) return;
-
-        if (!map.has(email)) {
-          map.set(email, []);
-        }
-
-        map.get(email).push(user);
-      });
-
-      walk(node.children || []);
-    });
-  })(nodes);
-
-  return map;
-}
-```
-
-Fallback на:
-
-```js
 node.users
-```
 
-сохранить для совместимости со старыми fixtures / сценариями, где `sourceUsers` отсутствует.
+для legacy fixtures.
 
----
+Концептуально:
 
-# 8. Факт существования executive не должен зависеть от `count >= 1`
+const source = Array.isArray(node.sourceUsers)
+  ? node.sourceUsers
+  : node.users || [];
 
-Для holding projection executive считается найденным, если присутствует хотя бы одна source-запись с соответствующим email.
-
-Например:
-
-```js
-const records = byEmail.get("laa@legenda-dom.ru");
-
-if (records?.length) {
-  // Лукьянов существует в source data
-}
-```
-
-Не проверять:
-
-```js
-record.count >= 1
-```
-
-для решения вопроса, создавать ли executive node.
-
----
-
-# 9. `selectPrimaryRecord()` оставить presentation-selector
-
-`selectPrimaryRecord()` должен выбирать наиболее подходящую запись для отображения человека, но не определять факт его существования.
-
-Приоритет сохранить или уточнить:
-
-```text
-1. Основное место работы
-2. заполненный sub_level
-3. верхнеуровневая / релевантная должность
-4. порядок source data
-```
+Executive считается существующим, если найдена source record с соответствующим стабильным идентификатором — в текущей реализации email.
 
 Не требовать:
 
-```text
-count >= 1
-```
+record.count >= 1
 
-как обязательное условие.
+для существования executive.
 
-CR-013 уже требует выбирать основную запись среди дубликатов, а не первую случайную.
+17. Primary record
 
----
+Если один человек присутствует в API несколько раз, Holding Projection должен создать одну карточку человека.
 
-# 10. Presentation title executive берется из config
+selectPrimaryRecord() используется только для выбора наиболее подходящих presentation data.
 
-Даже если primary API record Лукьянова имеет должность:
+Приоритет:
 
-```text
+1. Основное место работы
+2. заполненный sub_level
+3. релевантная executive record / должность
+4. остальные признаки
+5. source order как последний fallback
+
+count не является условием существования executive.
+
+Он может использоваться только как secondary tie-breaker.
+
+18. Presentation title executive
+
+Для executive node presentation title берется из:
+
+HOLDING_LEADERSHIP_CONFIG
+
+Например, даже если API возвращает Лукьянова как:
+
 Первый заместитель генерального директора
-```
 
-в Holding view должна отображаться зафиксированная бизнес-роль:
+Holding view показывает:
 
-```text
 Операционный директор Холдинга
-```
 
-То есть:
+API record используется для:
 
-```js
-executive.title = execCfg.title;
-```
+id
+email
+ФИО
+photo
+phone
+прочих персональных данных
 
-API record нужен для:
+Бизнес-роль в Holding Projection задается config.
 
-* id;
-* email;
-* ФИО;
-* photo;
-* телефона;
-* прочих персональных данных.
+19. Mapping дирекций
 
-Но presentation title для Holding hierarchy берется из `HOLDING_LEADERSHIP_CONFIG`.
+Не использовать название подразделения как основной идентификатор:
 
----
+execCfg.directorates.includes(
+  department.department_name
+)
 
-# 11. Проблема 2 — mapping дирекций по строковому названию
+Основной идентификатор:
 
-Сейчас дирекции сопоставляются примерно так:
-
-```js
-execCfg.directorates.includes(department.department_name)
-```
-
-Это хрупко.
-
-Например в CR было указано:
-
-```text
-Дирекция по финансам
-```
-
-а фактическое подразделение в API называется:
-
-```text
-Дирекция по финансам и отчетности
-```
-
-Из-за строгого сравнения узел не попадает под Лукьянова.
-
----
-
-# 12. Перейти на mapping по `department_guid`
-
-Основной идентификатор дирекции в leadership config должен быть:
-
-```text
 department_guid
-```
 
-Название используется только:
+Config должен использовать единый формат:
 
-* для читаемости config;
-* диагностики;
-* fallback при отсутствии id.
+directorates: [
+  {
+    id: "...",
+    name: "Дирекция ..."
+  }
+]
 
-Предпочтительная структура:
+для Лукьянова, Винника и Клюева.
 
-```js
-lukyanov: {
-  email: "laa@legenda-dom.ru",
-  title: "Операционный директор Холдинга",
+Исходный CR уже фиксирует необходимость перевести все executive mappings на единый формат, а не только ветку Лукьянова.
 
-  directorates: [
-    {
-      id: "34b41ed4-caf7-11e9-81e9-000c294addcc",
-      name: "Дирекция по инвестициям",
-    },
-    {
-      id: "0d8b980a-217c-11ea-81f2-000c294addcc",
-      name: "Дирекция по экономике",
-    },
-    {
-      id: "1b566222-15c1-11ea-81f1-000c294addcc",
-      name: "Дирекция по строительству",
-    },
-    {
-      id: "0f44f48a-39df-11ea-81f5-000c294addcc",
-      name: "Дирекция по финансам и отчетности",
-    },
-    {
-      id: "7bcb2f43-3a78-4c79-8a61-70b087b30f33",
-      name: "Дирекция по проектированию",
-    },
-  ],
-}
-```
+20. matchesConfiguredDepartment()
 
----
+Использовать единый helper:
 
-# 13. Общая функция сопоставления department
-
-Добавить единый helper:
-
-```js
 function matchesConfiguredDepartment(department, configured) {
   if (!department || !configured) return false;
 
@@ -412,565 +471,436 @@ function matchesConfiguredDepartment(department, configured) {
     return true;
   }
 
-  return (
+  return Boolean(
     configured.name &&
     department.department_name === configured.name
   );
 }
-```
 
 Приоритет:
 
-```text
-GUID
-↓
+department_guid
+      ↓
 name fallback
-```
 
-Не размножать эту логику по разным executives.
+Name fallback необходим для legacy/scenario nodes, у которых GUID может отсутствовать.
 
----
+21. Rename-safe hierarchy
 
-# 14. Все executive mappings перевести на единый формат
-
-Не ограничиваться только Лукьяновым.
-
-Если в config mapping дирекций Клюева и Винника сейчас тоже хранится как массив строк, перевести их на тот же формат:
-
-```js
-{
-  id,
-  name
-}
-```
-
-чтобы leadership projection не имела двух разных механизмов mapping.
-
----
-
-# 15. Rename не должен ломать hierarchy
-
-После перехода на GUID следующий сценарий должен работать:
-
-```text
-до:
-Дирекция по финансам
-
-после:
-Дирекция по финансам и отчетности
-```
+Изменение названия подразделения не должно ломать leadership hierarchy.
 
 Если:
 
-```text
-department_guid
-```
+GUID = X
 
-не изменился, hierarchy должна остаться:
+а название изменилось:
 
-```text
-Лукьянов
-└── Дирекция по финансам и отчетности
-```
+Дирекция по финансам
+↓
+Дирекция по финансам и отчетности
 
-без необходимости менять config.
-
----
-
-# 16. Не менять отображаемое имя department
+при неизменном GUID mapping продолжает работать.
 
 Config name не является presentation name.
 
-В карточке всегда использовать актуальное:
+На карточке всегда отображается актуальное:
 
-```js
 department.department_name
-```
+22. AS IS / TO BE / Changes
 
-из дерева текущего режима.
+Holding Leadership Projection должен работать во всех трех режимах:
 
-То есть config отвечает только за идентификацию parent relation.
+AS IS
+TO BE
+Changes
 
----
+При этом:
 
-# 17. AS IS / TO BE / Changes
+GUID mapping является основным;
+name используется как fallback;
+новые несопоставленные root departments идут в существующий fallback;
+сценарные изменения не должны разрушать executive hierarchy.
+23. Численность
 
-Новая логика должна работать во всех режимах.
+sourceUsers не должен участвовать в изменении существующей логики:
 
-Особенно важно:
-
-* при переименовании дирекции в TO BE mapping должен продолжать работать по GUID;
-* при отсутствии GUID у нового сценарного узла допускается name fallback;
-* новые несопоставленные корневые подразделения продолжают попадать в существующий fallback.
-
----
-
-# 18. Не мутировать source data
-
-Добавление:
-
-```js
-sourceUsers
-```
-
-не должно приводить к мутации API object.
-
-Не записывать:
-
-```js
-apiNode.employees = ...
-```
-
-и не изменять элементы исходного массива.
-
-Создавать нормализованные presentation/data objects.
-
----
-
-# 19. Численность не менять
-
-`sourceUsers` не участвует в расчете:
-
-```text
 staffCount
 vacancyCount
 totalWithVacancies
-```
 
-если текущая бизнес-логика считает их иначе.
+Добавление полного employee source не должно увеличивать отображаемую численность Холдинга из-за совместительств или дублирующихся записей.
 
-CR не должен случайно увеличить численность Холдинга из-за наличия нескольких совместительств.
+24. Unified Layout
 
----
+Не создавать отдельный layout engine для Holding Projection.
 
-# 20. Debug-диагностика
+После формирования специального дерева оно передается в существующий:
 
-На время проверки добавить debug output для executive resolution.
+Unified Layout
 
-Например:
+Сохраняются существующие механизмы:
 
-```js
-console.table([
-  {
-    executive: "lukyanov",
-    email: execCfg.email,
-    sourceRecords: records?.length || 0,
-    selectedName: person?.full_name,
-    selectedPosition: person?.rawPosition,
-    selectedEmployment: person?.typeEmployment,
-  },
-]);
-```
+effectiveLayoutLevel
+sibling alignment
+employee columns
+NODE_ASSISTANT
+collapse / expand
+zoom / pan
+card rendering
 
-И для department mapping:
+Специальная логика CR должна определять структуру, а не дублировать renderer/layout.
 
-```js
-console.table(
-  topDepartments.map((department) => ({
-    id: department.department_guid,
-    name: department.department_name,
-    executive: resolveExecutiveKey(department),
-  })),
-);
-```
+25. Collapse верхнего уровня Холдинга
 
-После стабилизации оставить под существующим debug flag.
+Сохранить ранее реализованное поведение: при первоначальном выборе всего Холдинга огромная структура не должна раскрываться до всех сотрудников.
 
----
+Первоначально должны быть доступны верхние управленческие уровни.
 
-# 21. Regression tests — обязательно
+После реализации CR пользователь должен получить читаемую картину:
 
-Добавить тесты как дополнение к существующим CR-013 tests.
-
-## Test 1 — fractional employment executive найден
-
-Fixture:
-
-```js
-{
-  email: "laa@legenda-dom.ru",
-  count: 0.02,
-  typeEmployment: "Основное место работы",
-  subLevel: 1.3
-}
-```
-
-Ожидается:
-
-```text
-Lukyanov executive exists
-```
-
----
-
-## Test 2 — обычный `users` не меняется
-
-Если:
-
-```text
-count = 0.02
-```
-
-такой сотрудник не должен автоматически появиться в обычном employee column, если текущая логика его скрывает.
-
-То есть:
-
-```js
-sourceUsers.includes(lukyanov) === true
-users.includes(lukyanov) === false
-```
-
-для соответствующего fixture.
-
----
-
-## Test 3 — leadership использует `sourceUsers`
-
-Если executive отсутствует в:
-
-```js
-node.users
-```
-
-но присутствует в:
-
-```js
-node.sourceUsers
-```
-
-он должен быть найден holding projection.
-
----
-
-## Test 4 — fallback на `users`
-
-Если fixture старого формата не имеет:
-
-```js
-sourceUsers
-```
-
-но имеет:
-
-```js
-users
-```
-
-текущие tests не должны сломаться.
-
----
-
-## Test 5 — primary record selection
-
-Для одного email:
-
-```text
-0.02 — Основное место работы
-0.50 — Внешнее совместительство
-1.00 — Внешнее совместительство
-```
-
-предпочтение получает:
-
-```text
-Основное место работы
-```
-
-если остальные условия не требуют иного.
-
----
-
-## Test 6 — GUID mapping
-
-Department:
-
-```js
-{
-  department_guid: "0f44f48a-39df-11ea-81f5-000c294addcc",
-  department_name: "Дирекция по финансам и отчетности"
-}
-```
-
-должен сопоставиться с Лукьяновым по GUID.
-
----
-
-## Test 7 — rename safe
-
-Config:
-
-```text
-id = X
-name = старое название
-```
-
-Tree:
-
-```text
-department_guid = X
-department_name = новое название
-```
-
-Ожидается:
-
-```text
-mapping still works
-```
-
----
-
-## Test 8 — name fallback
-
-Если у configured department нет id:
-
-```js
-{
-  name: "Дирекция по проектированию"
-}
-```
-
-mapping по имени продолжает работать.
-
----
-
-## Test 9 — неизвестный GUID
-
-Если:
-
-```text
-GUID не совпал
-name не совпало
-```
-
-department не должен ошибочно присваиваться executive.
-
-Он идет в существующий fallback unassigned.
-
----
-
-## Test 10 — все дирекции Лукьянова
-
-Проверить итоговый mapping:
-
-```text
-Инвестиции                 → Лукьянов
-Экономика                  → Лукьянов
-Строительство              → Лукьянов
-Финансы и отчетность       → Лукьянов
-Проектирование             → Лукьянов
-```
-
----
-
-## Test 11 — число executive nodes
-
-Несколько source records Лукьянова:
-
-```text
-same email × N
-```
-
-должны по-прежнему давать:
-
-```text
-1 executive card
-```
-
----
-
-## Test 12 — staffCount unchanged
-
-До и после добавления `sourceUsers`:
-
-```js
-staffCountBefore === staffCountAfter
-```
-
----
-
-## Test 13 — original API objects unchanged
-
-После `transformApiResponse()` raw employee records не мутированы.
-
----
-
-# 22. Обновить functionality
-
-Это дополнение обязательно должно быть отражено в актуальном `functionality`.
-
-Добавить в раздел верхнеуровневой структуры:
-
-### Источник данных top-management
-
-Зафиксировать:
-
-> Для поиска executives и direct reports Holding projection используется полный нормализованный набор `sourceUsers`, включающий сотрудников с дробной занятостью. Обычный `users` остается визуально отфильтрованным набором и используется стандартным employee renderer.
-
-Добавить схему:
-
-```text
-API employees
-      │
-      ├── sourceUsers → leadership / executive lookup
-      │
-      └── users       → standard employee rendering
-```
-
----
-
-# 23. Обновить functionality по mapping дирекций
-
-Зафиксировать:
-
-> Leadership mapping дирекций выполняется преимущественно по стабильному `department_guid`. Название подразделения используется только как fallback и диагностическое поле.
-
-Не описывать строгую строковую привязку по названию как основной механизм.
-
----
-
-# 24. Скорректировать старое правило primary record
-
-В текущем CR-013 есть правило приоритета primary record с пунктом:
-
-```text
-count >= 1
-```
-
-Его необходимо уточнить.
-
-Для top-management:
-
-```text
-count
-```
-
-не определяет факт существования executive.
-
-Предпочтительная семантика:
-
-```text
-1. Основное место работы
-2. заполненный sub_level
-3. релевантная executive record
-4. остальные признаки
-```
-
-`count` может использоваться только как secondary tie-breaker, но не как обязательный фильтр.
-
----
-
-# 25. Обновить старые CR-013 tests
-
-Проверить существующие tests, где Лукьянов создается с:
-
-```text
-count >= 1
-```
-
-Добавить отдельный реалистичный fixture с дробным `count`.
-
-Тест CR-013:
-
-```text
-дедупликация Лукьянова
-```
-
-должен теперь проверять не только несколько записей одного email, но и то, что все они могут иметь fractional `count`.
-
----
-
-# 26. Обязательная реальная проверка
-
-После реализации проверить на приложенном реальном JSON:
-
-Ожидаемая верхняя структура:
-
-```text
 Селиванов
 │
 ├── Лукьянов
-│   ├── Дирекция по инвестициям
-│   ├── Дирекция по экономике
-│   ├── Дирекция по строительству
-│   ├── Дирекция по финансам и отчетности
-│   └── Дирекция по проектированию
+├── Винник
+└── Клюев
+
+с возможностью последовательно раскрывать соответствующие ветви.
+
+26. Debug diagnostics
+
+Под существующим debug flag добавить диагностику executive resolution:
+
+executive
+email
+sourceRecords
+selectedName
+selectedPosition
+selectedEmployment
+
+и department mapping:
+
+department_guid
+department_name
+resolved executive
+match type: GUID | name | fallback
+
+Debug не должен постоянно засорять production console.
+
+27. Regression tests
+
+Обязательно дополнить тесты CR-003 / существующие Holding Leadership tests.
+
+Test 1 — три executives
+
+Для валидного source tree результат:
+
+Селиванов
+├── Лукьянов
+├── Винник
+└── Клюев
+Test 2 — fractional employment
+
+Лукьянов:
+
+{
+  email: "laa@legenda-dom.ru",
+  count: 0.02,
+  typeEmployment: "Основное место работы"
+}
+
+должен быть найден как executive.
+
+Test 3 — sourceUsers vs users
+
+При:
+
+count = 0.02
+
+ожидается:
+
+sourceUsers.includes(person) === true
+users.includes(person) === false
+
+если такое поведение соответствует существующей visual filtering.
+
+Test 4 — legacy fallback
+
+Если fixture не содержит sourceUsers, leadership lookup продолжает работать через users.
+
+Test 5 — deduplication
+
+Несколько записей одного executive с одинаковым email:
+
+same person × N
+
+дают:
+
+1 executive node
+Test 6 — primary record
+
+При нескольких employments предпочтение получает корректная primary record согласно установленным правилам.
+
+Test 7 — Лукьянов directorates
+
+Проверить:
+
+Инвестиции             → Лукьянов
+Экономика              → Лукьянов
+Строительство          → Лукьянов
+Финансы и отчетность   → Лукьянов
+Проектирование         → Лукьянов
+Test 8 — Винник
+
+Проверить:
+
+Дирекция по развитию и градостроительной
+подготовке проектов → Винник
+Test 9 — Клюев directorates
+
+Проверить все зафиксированные дирекции Клюева, включая:
+
+LEGENDA Comfort → Клюев
+Test 10 — LEGENDA Comfort не hardcoded внутри
+
+После:
+
+Клюев
+└── LEGENDA Comfort
+
+внутренняя структура сохраняет исходные parent-child relations API.
+
+Test 11 — direct reports Клюева
+
+Проверить, что:
+
+Сойдан Айкут
+Кириллов Олег Сергеевич
+
+попадают под Клюева и не становятся самостоятельными root nodes.
+
+Test 12 — assistant binding
+
+Fixture:
+
+Manager A
+├── Assistant A
+└── Department A
+
+Manager B
+├── Assistant B
+└── Department B
+
+Проверить:
+
+Assistant A → Manager A
+Assistant B → Manager B
+
+и отсутствие перекрестной привязки.
+
+Test 13 — assistant не создает hierarchy level
+
+Наличие assistant не должно изменять organizational row дочернего department.
+
+То есть:
+
+row(Department A)
+
+должен быть тем же с assistant и без него.
+
+Test 14 — assistant внутри LEGENDA Comfort
+
+Если Мищуев имеет административного ассистента Николаеву:
+
+Николаева → assistant of Мищуев
+
+но parent-child structure внутренних подразделений LEGENDA Comfort не меняется.
+
+Test 15 — GUID mapping
+
+Department с соответствующим department_guid сопоставляется с executive независимо от актуального display name.
+
+Test 16 — rename safe
+
+При сохранении GUID и изменении названия mapping продолжает работать.
+
+Test 17 — name fallback
+
+При отсутствии GUID mapping может выполняться по точному configured name.
+
+Test 18 — unknown department
+
+Если не совпал ни GUID, ни name, department не должен ошибочно назначаться executive.
+
+Использовать существующий fallback для unassigned departments.
+
+Test 19 — staffCount unchanged
+staffCountBefore === staffCountAfter
+Test 20 — API data immutable
+
+transformApiResponse() и Holding Projection не должны мутировать исходный API tree.
+
+Test 21 — режимы
+
+Проверить отсутствие regression минимум для:
+
+AS IS
+TO BE
+Changes
+28. Обновить functionality
+
+В рамках этого CR обязательно обновить актуальный functionality.
+
+Зафиксировать там следующие правила.
+
+Holding Leadership Projection
+
+При выборе всего Холдинга применяется специальный верхнеуровневый management projection:
+
+Селиванов
+├── Лукьянов
+├── Винник
+└── Клюев
+Источник top-management
+sourceUsers → leadership lookup
+users       → standard employee rendering
+Mapping подразделений
+
+Основной механизм:
+
+department_guid
+
+fallback:
+
+department_name
+LEGENDA Comfort
+LEGENDA Comfort → Клюев
+
+Внутренняя hierarchy подразделения не hardcode и продолжает строиться по обычному API tree.
+
+Assistants
+
+Ассистент:
+
+привязан к своему непосредственному руководителю, визуально располагается рядом с ним и не создает самостоятельный организационный уровень.
+
+Удалить из functionality старые формулировки, предполагающие поиск «первого ассистента» или привязку assistant исключительно к root.
+
+29. Не менять
+
+В рамках CR не переписывать без необходимости:
+
+Unified Layout engine
+effectiveLayoutLevel
+sibling fallback
+card renderer
+zoom/pan
+zoom persistence
+collapse/expand mechanics
+PDF rendering
+PDF role aggregation
+sub_level semantics
+обычную employee filtering
+
+Изменения должны быть локализованы прежде всего в:
+
+data preparation
+holding leadership projection
+leadership configuration
+assistant ownership/resolution
+tests
+functionality
+30. Обязательная проверка на реальных данных
+
+После реализации проверить не только synthetic fixtures, но и текущий реальный JSON.
+
+Минимальный ожидаемый результат:
+
+Селиванов
+│
+├── Лукьянов
+│   ├── Инвестиции
+│   ├── Экономика
+│   ├── Строительство
+│   ├── Финансы и отчетность
+│   └── Проектирование
 │
 ├── Винник
-│   └── ...
+│   └── Дирекция по развитию и
+│       градостроительной подготовке проектов
 │
 └── Клюев
-    └── ...
-```
+    ├── Маркетинг
+    ├── Брендинг и коммуникации
+    ├── Безопасность
+    ├── Продажи
+    ├── Административно-правовая дирекция
+    ├── Персонал
+    ├── Информационные технологии
+    ├── LEGENDA Comfort
+    ├── Сойдан Айкут
+    └── Кириллов Олег Сергеевич
 
-Не допускается:
+Ассистенты при этом находятся визуально рядом со своими managers.
 
-```text
-Селиванов
-├── Дирекция по финансам и отчетности
-├── ...
-├── Клюев
-```
+31. Критерии приемки
 
-при отсутствии Лукьянова.
+CR считается выполненным, если:
 
----
+ Селиванов является root Holding Leadership Projection.
+ Под Селивановым отображаются Лукьянов, Винник и Клюев.
+ Каждый executive отображается только одной карточкой.
+ Executive находится даже при count < 1.
+ Для leadership lookup используется sourceUsers.
+ Обычный renderer продолжает использовать users.
+ Лукьянов получает все пять своих дирекций.
+ Винник получает свою дирекцию.
+ Клюев получает все зафиксированные дирекции.
+ LEGENDA Comfort находится под Клюевым.
+ Внутренняя структура LEGENDA Comfort не hardcoded.
+ Direct reports Клюева находятся в его ветке.
+ Ассистент определяется относительно своего непосредственного руководителя.
+ Ассистент располагается визуально рядом с руководителем.
+ Ассистент не создает новый organizational level.
+ Несколько ассистентов разных managers корректно работают одновременно.
+ Mapping преимущественно работает по department_guid.
+ Rename подразделения при сохранении GUID не ломает hierarchy.
+ Name fallback сохранен.
+ staffCount не изменяется из-за sourceUsers.
+ API objects не мутируются.
+ AS IS работает.
+ TO BE работает.
+ Changes работает.
+ Collapse/expand не сломан.
+ Zoom/pan не сломан.
+ Существующий PDF export не сломан.
+ functionality обновлен.
+ Regression tests обновлены.
+ Все существующие tests проходят.
+ npm test проходит.
+ npm run build проходит.
+32. Порядок реализации для Cline
 
-# 27. Критерии приемки
+Перед внесением изменений:
 
-Дополнение считается выполненным, если:
+Изучить текущий functionality, CR-003/CR-013 и существующие Holding Leadership tests.
+Найти актуальные transformNode() и holding-leadership.js.
+Найти HOLDING_LEADERSHIP_CONFIG.
+Найти существующую реализацию NODE_ASSISTANT.
+Определить, каким образом сейчас устанавливается связь assistant → manager.
+Подтвердить проблему users / fractional count.
+Найти все string-based directorate mappings.
+Получить существующие department_guid всех перечисленных дирекций из данных/config, не придумывать GUID.
+Добавить sourceUsers.
+Перевести executive lookup на полный source.
+Перевести все directorate mappings на единый { id, name }.
+Добавить LEGENDA Comfort в mapping Клюева.
+Проверить direct reports Клюева.
+Обобщить assistant → manager resolution.
+Не создавать отдельный layout engine для Holding Projection.
+Обновить functionality.
+Обновить существующие tests и добавить regression tests этого CR.
+Запустить полный npm test.
+Запустить npm run build.
+Проверить реальный Holding view.
 
-* [ ] `sourceUsers` сохраняет полный employee source;
-* [ ] обычный `users` продолжает использовать старую визуальную фильтрацию;
-* [ ] employees с fractional count не начинают массово появляться на обычной диаграмме;
-* [ ] Лукьянов находится по `laa@legenda-dom.ru`, даже если все его записи имеют `count < 1`;
-* [ ] Лукьянов отображается одной executive card;
-* [ ] presentation title Лукьянова = `Операционный директор Холдинга`;
-* [ ] все пять его дирекций находятся под ним;
-* [ ] `Дирекция по финансам и отчетности` корректно привязана;
-* [ ] mapping дирекций работает прежде всего по `department_guid`;
-* [ ] rename department не ломает mapping при сохранении GUID;
-* [ ] name fallback сохраняется для legacy/scenario nodes;
-* [ ] `staffCount` не изменился;
-* [ ] исходное API tree не мутируется;
-* [ ] AS IS работает;
-* [ ] TO BE работает;
-* [ ] Changes работает;
-* [ ] fallback unassigned departments работает;
-* [ ] functionality обновлен;
-* [ ] CR-013 regression tests дополнены;
-* [ ] существующие tests проходят;
-* [ ] `npm test` проходит;
-* [ ] `npm run build` проходит.
-
----
-
-# 28. Порядок реализации
-
-Перед изменениями:
-
-1. Найти актуальный `transformNode()`.
-2. Подтвердить, где применяется `count >= 1`.
-3. Подтвердить, что `holding-leadership.js` сейчас индексирует `node.users`.
-4. Показать реальный кейс Лукьянова до исправления:
-
-   ```text
-   raw API → есть
-   node.users → отсутствует
-   holding projection → not found
-   ```
-5. Найти все string-based directorate mappings.
-6. Подготовить список GUID для executives directorates.
-7. Обновить implementation.
-8. Обновить functionality.
-9. Обновить tests.
-10. Запустить test/build.
-
----
-
-# Главный принцип
-
-> Визуальная фильтрация обычных сотрудников не должна уничтожать данные, необходимые для построения управленческой структуры.
-
-И отдельно:
-
-> Идентичность подразделения должна определяться стабильным GUID, а не его текущим отображаемым названием.
+Если фактическая архитектура проекта отличается от приведенных названий функций, адаптировать реализацию к существующему коду, но не менять бизнес-семантику CR.

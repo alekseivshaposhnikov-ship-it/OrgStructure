@@ -4,6 +4,8 @@ import {
   HOLDING_LEADERSHIP_CONFIG,
   collectUsersByEmail,
   selectPrimaryRecord,
+  matchesConfiguredDepartment,
+  resolveExecutiveKey,
 } from "./holding-leadership.js";
 import { computeUnifiedLayout, NODE_DEPARTMENT, NODE_ASSISTANT } from "./unified-layout.js";
 
@@ -158,6 +160,31 @@ function makeHoldingRoot() {
     users: [],
     children: [makeAdministration(), ...directorates],
   };
+}
+
+// Администрация с Лукьяновым только в sourceUsers (дробная занятость count < 1).
+function makeHoldingWithFractionalSource() {
+  const root = makeHoldingRoot();
+  const admin = root.children.find((child) => child.department_name === "Администрация");
+
+  admin.sourceUsers = [
+    ...admin.users,
+    {
+      id: "luk-frac",
+      full_name: "Лукьянов Алексей Александрович",
+      name: "Лукьянов Алексей Александрович",
+      email: "laa@legenda-dom.ru",
+      position: "Первый заместитель генерального директора /Администрация/",
+      rawPosition: "Первый заместитель генерального директора /Администрация/",
+      subLevel: 1.3,
+      typeEmployment: "Основное место работы",
+      count: 0.02,
+      isVacancy: false,
+    },
+  ];
+  // Визуальный users: Лукьянов отсутствует (все его записи count < 1).
+  admin.users = admin.users.filter((user) => user.email !== "laa@legenda-dom.ru");
+  return root;
 }
 
 describe("holding-leadership (CR-013)", () => {
@@ -366,6 +393,156 @@ describe("holding-leadership · layout и fallback (CR-013)", () => {
       { typeEmployment: "Основное место работы", subLevel: 1.3 },
     ];
     expect(selectPrimaryRecord(withSubLevel).subLevel).toBe(1.3);
+  });
+});
+
+
+describe("holding-leadership · fix (CR-013_fix)", () => {
+  it("executive с дробной занятостью находится через sourceUsers (CR-013_fix Test 1, Test 3)", () => {
+    const input = makeHoldingWithFractionalSource();
+    const admin = input.children.find((child) => child.department_name === "Администрация");
+
+    // Лукьянов есть в sourceUsers, но отсутствует в users.
+    expect(admin.sourceUsers.some((u) => u.email === "laa@legenda-dom.ru")).toBe(true);
+    expect(admin.users.some((u) => u.email === "laa@legenda-dom.ru")).toBe(false);
+
+    const root = buildHoldingLeadershipTree(input);
+    const lukyanov = root.children.find((exec) => exec.executiveKey === "lukyanov");
+
+    expect(lukyanov).toBeTruthy();
+    expect(lukyanov.department_manager_position).toBe("Операционный директор Холдинга");
+    expect(lukyanov.__person.count).toBe(0.02);
+  });
+
+  it("обычный users не меняется: дробный сотрудник не появляется в employee column (CR-013_fix Test 2)", () => {
+    const input = makeHoldingWithFractionalSource();
+    const admin = input.children.find((child) => child.department_name === "Администрация");
+
+    expect(admin.sourceUsers.some((u) => u.email === "laa@legenda-dom.ru")).toBe(true);
+    expect(admin.users.some((u) => u.email === "laa@legenda-dom.ru")).toBe(false);
+  });
+
+  it("fallback на users сохраняется для старых fixtures без sourceUsers (CR-013_fix Test 4)", () => {
+    // makeHoldingRoot не имеет sourceUsers — руководители ищутся по users.
+    const root = buildHoldingLeadershipTree(makeHoldingRoot());
+    const executives = root.children.filter((exec) => exec.isHoldingExecutive);
+    expect(executives).toHaveLength(3);
+  });
+
+  it("primary record: «Основное место работы» побеждает, count не обязателен (CR-013_fix Test 5)", () => {
+    const records = [
+      { typeEmployment: "Основное место работы", subLevel: 1.3, count: 0.02 },
+      { typeEmployment: "Внешнее совместительство", subLevel: Number.MAX_SAFE_INTEGER, count: 0.5 },
+      { typeEmployment: "Внешнее совместительство", subLevel: Number.MAX_SAFE_INTEGER, count: 1 },
+    ];
+    const primary = selectPrimaryRecord(records);
+    expect(primary.typeEmployment).toBe("Основное место работы");
+    expect(primary.count).toBe(0.02);
+  });
+
+  it("mapping дирекции по department_guid (CR-013_fix Test 6)", () => {
+    const department = {
+      department_guid: "0f44f48a-39df-11ea-81f5-000c294addcc",
+      department_name: "Дирекция по финансам и отчетности",
+    };
+    expect(resolveExecutiveKey(department)).toBe("lukyanov");
+
+    // Интеграционно: дирекция с реальным GUID попадает под Лукьянова.
+    const input = makeHoldingRoot();
+    const finance = input.children.find(
+      (d) => d.department_name === "Дирекция по финансам и отчетности",
+    );
+    finance.department_guid = "0f44f48a-39df-11ea-81f5-000c294addcc";
+
+    const root = buildHoldingLeadershipTree(input);
+    const lukyanov = root.children.find((exec) => exec.executiveKey === "lukyanov");
+    expect(lukyanov.children.map((d) => d.department_name)).toContain(
+      "Дирекция по финансам и отчетности",
+    );
+  });
+});
+
+
+describe("holding-leadership · fix mapping (CR-013_fix)", () => {
+  it("rename department не ломает mapping при сохранении GUID (CR-013_fix Test 7, Test 15)", () => {
+    const input = makeHoldingRoot();
+    const finance = input.children.find(
+      (d) => d.department_name === "Дирекция по финансам и отчетности",
+    );
+    // Стабильный GUID сохранён, название изменилось.
+    finance.department_guid = "0f44f48a-39df-11ea-81f5-000c294addcc";
+    finance.department_name = "Дирекция по финансам";
+
+    const root = buildHoldingLeadershipTree(input);
+    const lukyanov = root.children.find((exec) => exec.executiveKey === "lukyanov");
+
+    expect(lukyanov.children.map((d) => d.department_name)).toContain("Дирекция по финансам");
+    // В карточке используется актуальное название из дерева, а не конфигурационное.
+    expect(
+      lukyanov.children.some((d) => d.department_name === "Дирекция по финансам и отчетности"),
+    ).toBe(false);
+  });
+
+  it("name fallback работает, если у configured записи нет id (CR-013_fix Test 8)", () => {
+    expect(
+      matchesConfiguredDepartment(
+        { department_guid: "x", department_name: "Дирекция по проектированию" },
+        { name: "Дирекция по проектированию" },
+      ),
+    ).toBe(true);
+    expect(
+      matchesConfiguredDepartment(
+        { department_guid: "y", department_name: "Другое" },
+        { name: "Дирекция по проектированию" },
+      ),
+    ).toBe(false);
+  });
+
+  it("неизвестный GUID и name → дирекция уходит в fallback unassigned (CR-013_fix Test 9)", () => {
+    const input = makeHoldingRoot();
+    input.children.push({
+      department_guid: "unknown-guid-123",
+      department_name: "Новая неописанная дирекция",
+      staffCount: 5,
+      users: [],
+      children: [],
+    });
+
+    const root = buildHoldingLeadershipTree(input);
+    const fallback = root.children.find(
+      (child) => !child.isHoldingExecutive && child.department_name === "Новая неописанная дирекция",
+    );
+    expect(fallback).toBeTruthy();
+  });
+
+  it("все пять дирекций Лукьянова распределены под ним (CR-013_fix Test 10)", () => {
+    const root = buildHoldingLeadershipTree(makeHoldingRoot());
+    const lukyanov = root.children.find((exec) => exec.executiveKey === "lukyanov");
+
+    expect(lukyanov.children.map((d) => d.department_name)).toEqual(LUKYANOV_DIRECTORATES);
+  });
+
+  it("несколько source-записей одного email дают одну executive card (CR-013_fix Test 11)", () => {
+    const input = makeHoldingRoot();
+    const admin = input.children.find((child) => child.department_name === "Администрация");
+    admin.sourceUsers = [
+      ...admin.users,
+      { id: "luk-a", full_name: "Лукьянов Алексей Александрович", email: "laa@legenda-dom.ru", position: "Операционный директор", rawPosition: "Операционный директор", subLevel: Number.MAX_SAFE_INTEGER, typeEmployment: "Внешнее совместительство", count: 0.1, isVacancy: false },
+      { id: "luk-b", full_name: "Лукьянов Алексей Александрович", email: "laa@legenda-dom.ru", position: "Операционный директор", rawPosition: "Операционный директор", subLevel: Number.MAX_SAFE_INTEGER, typeEmployment: "Внешнее совместительство", count: 0.5, isVacancy: false },
+    ];
+
+    const root = buildHoldingLeadershipTree(input);
+    const lukyanov = root.children.filter((exec) => exec.executiveKey === "lukyanov");
+    expect(lukyanov).toHaveLength(1);
+  });
+
+  it("исходное дерево не мутируется при работе со sourceUsers (CR-013_fix §18)", () => {
+    const input = makeHoldingWithFractionalSource();
+    const snapshot = JSON.parse(JSON.stringify(input));
+
+    buildHoldingLeadershipTree(input);
+
+    expect(JSON.stringify(input)).toBe(JSON.stringify(snapshot));
   });
 });
 

@@ -43,32 +43,39 @@ export const HOLDING_LEADERSHIP_CONFIG = {
       key: "lukyanov",
       email: "laa@legenda-dom.ru",
       title: "Операционный директор Холдинга",
+      // Дирекции идентифицируются по стабильному department_guid (CR-013_fix §12);
+      // name — для читаемости, диагностики и fallback при отсутствии id.
       directorates: [
-        "Дирекция по инвестициям",
-        "Дирекция по экономике",
-        "Дирекция по строительству",
-        "Дирекция по финансам и отчетности",
-        "Дирекция по проектированию",
+        { id: "34b41ed4-caf7-11e9-81e9-000c294addcc", name: "Дирекция по инвестициям" },
+        { id: "0d8b980a-217c-11ea-81f2-000c294addcc", name: "Дирекция по экономике" },
+        { id: "1b566222-15c1-11ea-81f1-000c294addcc", name: "Дирекция по строительству" },
+        { id: "0f44f48a-39df-11ea-81f5-000c294addcc", name: "Дирекция по финансам и отчетности" },
+        { id: "7bcb2f43-3a78-4c79-8a61-70b087b30f33", name: "Дирекция по проектированию" },
       ],
     },
     vinnik: {
       key: "vinnik",
       email: "l.vinnik@legenda-dom.ru",
       title: "Заместитель генерального директора по развитию",
-      directorates: ["Дирекция по развитию и градостроительной подготовке проектов"],
+      directorates: [
+        {
+          id: "b805ce29-bfa4-11ec-b6d7-4c5262500118",
+          name: "Дирекция по развитию и градостроительной подготовке проектов",
+        },
+      ],
     },
     klyuev: {
       key: "klyuev",
       email: "avk@legenda-dom.ru",
       title: "Исполнительный директор Холдинга",
       directorates: [
-        "Дирекция по маркетингу",
-        "Дирекция брендинга и коммуникаций",
-        "Дирекция по безопасности",
-        "Дирекция по продажам",
-        "Административно-правовая дирекция",
-        "Дирекция по персоналу",
-        "Дирекция по информационным технологиям",
+        { id: "0e9d7eaa-c503-11ee-bbff-d85ed308d2c7", name: "Дирекция по маркетингу" },
+        { id: "ca4add27-c590-11ee-bbff-d85ed308d2c7", name: "Дирекция брендинга и коммуникаций" },
+        { id: "b5496644-000f-11ec-821d-000c294addcc", name: "Дирекция по безопасности" },
+        { id: "a751ef1b-fc81-11e9-81ee-000c294addcc", name: "Дирекция по продажам" },
+        { id: "4ec3380f-49aa-11ea-81f8-000c294addcc", name: "Административно-правовая дирекция" },
+        { id: "7e36c78d-aee7-11e9-81e5-000c294addcc", name: "Дирекция по персоналу" },
+        { id: "6a7a8792-efe7-11e9-81eb-000c294addcc", name: "Дирекция по информационным технологиям" },
       ],
       directReports: [
         { email: "a.soydan@legenda-dom.ru" },
@@ -93,13 +100,20 @@ function findDepartmentByName(nodes, name) {
 
 /**
  * Собирает всех сотрудников дерева в индекс по email.
+ *
+ * Индексирует прежде всего `sourceUsers` (полный нормализованный набор ДО
+ * визуальной фильтрации по count >= 1), чтобы руководители с дробной
+ * занятостью не терялись для holding projection (CR-013_fix §7).
+ * Fallback на `users` сохраняется для совместимости со старыми fixtures.
+ *
  * Возвращает Map<email, Array<user>> (одно совместительство — отдельная запись).
  */
 export function collectUsersByEmail(nodes) {
   const map = new Map();
   (function walk(items) {
     (items || []).forEach((node) => {
-      (node.users || []).forEach((user) => {
+      const source = Array.isArray(node.sourceUsers) ? node.sourceUsers : node.users || [];
+      source.forEach((user) => {
         if (user.isVacancy) return;
         const email = normalizeEmail(user.email);
         if (!email) return;
@@ -113,10 +127,15 @@ export function collectUsersByEmail(nodes) {
 }
 
 /**
- * Выбирает основную запись человека из нескольких записей (CR-013 §11):
+ * Выбирает основную запись человека из нескольких записей (CR-013 §9, §11;
+ * CR-013_fix §9, §24):
  * 1. type_employment === "Основное место работы";
  * 2. заполненный sub_level;
- * 3. первая по порядку обхода.
+ * 3. count — только secondary tie-breaker (не обязательный фильтр);
+ * 4. первая по порядку обхода.
+ *
+ * Факт существования человека определяется наличием хотя бы одной source-записи
+ * по email и НЕ зависит от count >= 1 (CR-013_fix §8).
  */
 export function selectPrimaryRecord(records) {
   const scored = [...records].map((record, index) => {
@@ -125,11 +144,42 @@ export function selectPrimaryRecord(records) {
     const score =
       (String(record.typeEmployment || "").trim() === "Основное место работы" ? 2 : 0) +
       (filledSubLevel ? 1 : 0);
-    return { record, score, index };
+    const countScore = Math.min(Math.max(Number(record.count) || 0, 0), 1);
+    return { record, score, countScore, index };
   });
 
-  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  scored.sort((a, b) => b.score - a.score || b.countScore - a.countScore || a.index - b.index);
   return scored[0].record;
+}
+
+/**
+ * Сопоставляет фактическое подразделение с записью конфигурации дирекции.
+ *
+ * Приоритет: стабильный department_guid → name fallback (CR-013_fix §13, §15).
+ */
+export function matchesConfiguredDepartment(department, configured) {
+  if (!department || !configured) return false;
+
+  if (configured.id && department.department_guid && configured.id === department.department_guid) {
+    return true;
+  }
+
+  return Boolean(configured.name && department.department_name === configured.name);
+}
+
+/**
+ * Возвращает ключ executive, которому принадлежит top-level подразделение,
+ * или null, если подразделение не сопоставлено ни с одним руководителем.
+ */
+export function resolveExecutiveKey(department) {
+  if (!department) return null;
+  const entries = Object.values(HOLDING_LEADERSHIP_CONFIG.executives);
+  for (const execCfg of entries) {
+    if (execCfg.directorates.some((configured) => matchesConfiguredDepartment(department, configured))) {
+      return execCfg.key;
+    }
+  }
+  return null;
 }
 
 /**
@@ -192,22 +242,21 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
   const administration = children.find((child) => child.department_name === ADMINISTRATION_NAME);
   const topDepartments = children.filter((child) => child.department_name !== ADMINISTRATION_NAME);
 
-  // Источник людей верхнего управления: «Администрация» из дерева режима.
-  const byEmail = collectUsersByEmail(administration ? [administration] : []);
+  // Источник людей верхнего управления: всё дерево текущего режима.
+  // Руководители могут находиться не только в «Администрации» (например,
+  // Винник является сотрудником своей дирекции), поэтому ищем по всему дереву,
+  // а записи «Администрации» считаем приоритетными при дублировании email.
+  const byEmail = collectUsersByEmail(children);
+  if (administration) {
+    const adminUsers = collectUsersByEmail([administration]);
+    adminUsers.forEach((records, email) => byEmail.set(email, records));
+  }
 
   // Fallback-дерево (Changes): «Администрация» берётся из working tree.
   if (fallbackTree) {
     const fallbackAdmin = findDepartmentByName(fallbackTree, ADMINISTRATION_NAME);
     const fallbackUsers = collectUsersByEmail(fallbackAdmin ? [fallbackAdmin] : []);
     fallbackUsers.forEach((records, email) => {
-      if (!byEmail.has(email)) byEmail.set(email, records);
-    });
-  }
-
-  // Если «Администрация» отсутствует в дереве режима — ищем людей во всём дереве.
-  if (!administration) {
-    const modeUsers = collectUsersByEmail(children);
-    modeUsers.forEach((records, email) => {
       if (!byEmail.has(email)) byEmail.set(email, records);
     });
   }
@@ -222,7 +271,8 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
   const mapping = [];
 
   Object.values(HOLDING_LEADERSHIP_CONFIG.executives).forEach((execCfg) => {
-    const person = findPerson(execCfg.email);
+    const records = byEmail.get(normalizeEmail(execCfg.email));
+    const person = records && records.length ? selectPrimaryRecord(records) : null;
     if (!person) {
       console.warn(
         `Holding projection: руководитель "${execCfg.title}" (${execCfg.email}) не найден в источнике данных — узел пропущен.`,
@@ -230,12 +280,16 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
       return;
     }
 
+    // Mapping по стабильному department_guid с name fallback (CR-013_fix §13).
     const directorates = topDepartments.filter((department) =>
-      execCfg.directorates.includes(department.department_name),
+      execCfg.directorates.some((configured) => matchesConfiguredDepartment(department, configured)),
     );
-    const missingDirectorates = execCfg.directorates.filter(
-      (name) => !topDepartments.some((department) => department.department_name === name),
-    );
+    const missingDirectorates = execCfg.directorates
+      .filter(
+        (configured) =>
+          !topDepartments.some((department) => matchesConfiguredDepartment(department, configured)),
+      )
+      .map((configured) => configured.name);
     if (missingDirectorates.length) {
       console.warn(
         `Holding projection: дирекции "${execCfg.title}" не найдены в дереве режима: ${missingDirectorates.join(", ")}.`,
@@ -247,6 +301,20 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
       .filter(Boolean);
 
     presentationChildren.push(buildExecutiveNode({ execCfg, person, directorates, directReports }));
+
+    if (PROJECTION_DEBUG) {
+      // Диагностика executive resolution (CR-013_fix §20).
+      console.table([
+        {
+          executive: execCfg.key,
+          email: execCfg.email,
+          sourceRecords: records?.length || 0,
+          selectedName: person.full_name,
+          selectedPosition: person.rawPosition,
+          selectedEmployment: person.typeEmployment,
+        },
+      ]);
+    }
 
     mapping.push({
       entity: person.full_name || person.name,
@@ -265,11 +333,16 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
   });
 
   // Нераспределённые top-level подразделения — fallback-группа под root (CR-013 §15, §26).
-  const assignedNames = new Set(
-    Object.values(HOLDING_LEADERSHIP_CONFIG.executives).flatMap((cfg) => cfg.directorates),
+  // Подразделение считается распределённым, если совпал GUID или name (CR-013_fix §13).
+  const configuredEntries = Object.values(HOLDING_LEADERSHIP_CONFIG.executives).flatMap(
+    (cfg) => cfg.directorates,
   );
+  const assignedGuids = new Set(configuredEntries.map((entry) => entry.id).filter(Boolean));
+  const assignedNames = new Set(configuredEntries.map((entry) => entry.name).filter(Boolean));
   const unassigned = topDepartments.filter(
-    (department) => !assignedNames.has(department.department_name),
+    (department) =>
+      !assignedGuids.has(department.department_guid) &&
+      !assignedNames.has(department.department_name),
   );
   unassigned.forEach((department) => {
     console.warn(
@@ -283,6 +356,17 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
       presentationParent: `${HOLDING_LEADERSHIP_CONFIG.ceo.name} (fallback)`,
     });
   });
+
+  if (PROJECTION_DEBUG) {
+    // Диагностика department mapping (CR-013_fix §20).
+    console.table(
+      topDepartments.map((department) => ({
+        id: department.department_guid,
+        name: department.department_name,
+        executive: resolveExecutiveKey(department),
+      })),
+    );
+  }
 
   // Дирекции всех executives и fallback-дирекции изначально свернуты (CR-012, CR-013 §22).
   const initialCollapsedIds = [];
