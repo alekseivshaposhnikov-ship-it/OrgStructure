@@ -176,6 +176,18 @@ LEGENDA Comfort / Мишуев → Николаева Татьяна Влади�
 
 Для остальных руководителей ассистенты определяются универсальным правилом: ассистент привязан к подразделению, в чьих `sourceUsers`/`users` он находится. Глобальное правило «первый найденный ассистент в ветке → рядом с root» не используется.
 
+### Геометрия связей (connector lines)
+
+* любой manager / department с organizational children имеет читаемую основную связь: main vertical stem от нижнего центра карточки до children junction;
+* junction располагается в свободной зоне между нижней границей parent (с учетом assistant) и верхом детей; линии не проходят через interior карточек;
+* connector assistant отделен от organizational children connector: короткая отдельная связь от нижней границы manager рядом с правым краем к верхнему центру assistant-карточки;
+* connector paths строятся на явных anchor points (нижний центр parent, верхний центр child) и рисуются до карточек (карточки поверх линий).
+
+### Положение toggle collapse / expand
+
+* toggle привязан к layout-геометрии, а не к переменной content height: `toggleX = node.x + node.width / 2`, `toggleY = node.y + node.height + TOGGLE_GAP`;
+* для siblings одного organizational row toggle controls имеют общий визуальный baseline независимо от высоты содержимого карточек.
+
 ---
 
 ## 4. Левая панель навигации

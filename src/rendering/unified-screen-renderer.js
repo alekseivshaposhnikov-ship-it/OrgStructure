@@ -10,9 +10,14 @@ import {
   computeUnifiedLayout,
   NODE_EMPLOYEES,
   NODE_DEPARTMENT,
+  NODE_ASSISTANT,
 } from "./unified-layout.js";
 import { renderNodeContent } from "./chart-cards.js";
 import { createChartViewport } from "./screen-viewport.js";
+
+// CR-014 §40-41: toggle привязан к layout-геометрии (низ карточки + TOGGLE_GAP),
+// а не к переменной content height.
+const TOGGLE_GAP = 14;
 
 function cardHtml(node, opts) {
   if (node.type === NODE_EMPLOYEES) {
@@ -36,14 +41,74 @@ function cardHtml(node, opts) {
   return `<div class="unified-card" style="width:100%;height:100%">${renderNodeContent(node.data, opts)}</div>`;
 }
 
-function connectorPath(parent, child) {
-  const fromX = parent.x + parent.width / 2;
-  const fromY = parent.y + parent.height;
-  const toX = child.x + child.width / 2;
-  const toY = child.y;
+/**
+ * Отдельная короткая связь manager → assistant (CR-014 §31, §75).
+ * Начинается у нижней границы manager рядом с его правым краем и идёт
+ * к верхнему центру assistant-карточки — не смешивается с organizational
+ * connector и не проходит через interior карточек (§34, §36).
+ */
+export function assistantConnectorPath(manager, assistant) {
+  const fromX = manager.x + manager.width - 16;
+  const fromY = manager.y + manager.height;
+  const toX = assistant.x + assistant.width / 2;
+  const toY = assistant.y;
   const midY = fromY + (toY - fromY) / 2;
 
   return `M ${fromX} ${fromY} L ${fromX} ${midY} L ${toX} ${midY} L ${toX} ${toY}`;
+}
+
+/**
+ * Строит connector paths по edges (CR-014 §32-38):
+ * - assistant: отдельная короткая связь;
+ * - organizational children: одна main vertical stem от parent bottom-center
+ *   до junctionY в свободной зоне, горизонтальная junction и drop-линии.
+ * JunctionY = середина свободной зоны между нижней границей parent и верхом
+ * детей (assistant-zone из fix2 гарантирует, что зона не пересекает карточки).
+ */
+export function buildConnectorPaths(edges) {
+  const paths = [];
+  const byParent = new Map();
+
+  edges.forEach((edge) => {
+    if (!byParent.has(edge.parent)) byParent.set(edge.parent, []);
+    byParent.get(edge.parent).push(edge.child);
+  });
+
+  byParent.forEach((children, parent) => {
+    const assistants = children.filter((child) => child.type === NODE_ASSISTANT);
+    const orgChildren = children.filter((child) => child.type !== NODE_ASSISTANT);
+
+    assistants.forEach((assistant) => {
+      paths.push(assistantConnectorPath(parent, assistant));
+    });
+
+    if (!orgChildren.length) return;
+
+    const fromX = parent.x + parent.width / 2;
+    const fromY = parent.y + parent.height;
+    const childrenTop = Math.min(...orgChildren.map((child) => child.y));
+    const junctionY = fromY + (childrenTop - fromY) / 2;
+
+    // Main vertical stem от parent bottom-center к junction (CR-014 §32-33, §73).
+    paths.push(`M ${fromX} ${fromY} L ${fromX} ${junctionY}`);
+
+    // Horizontal junction в свободной зоне (§35), гарантированно соединяющая
+    // stem с drop-линиями (даже для единственного смещённого child).
+    const centers = orgChildren.map((child) => child.x + child.width / 2);
+    const junctionStart = Math.min(fromX, ...centers);
+    const junctionEnd = Math.max(fromX, ...centers);
+    if (junctionEnd - junctionStart > 0.5) {
+      paths.push(`M ${junctionStart} ${junctionY} L ${junctionEnd} ${junctionY}`);
+    }
+
+    // Drop-линии к каждому child (§34).
+    orgChildren.forEach((child) => {
+      const cx = child.x + child.width / 2;
+      paths.push(`M ${cx} ${junctionY} L ${cx} ${child.y}`);
+    });
+  });
+
+  return paths;
 }
 
 export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) {
@@ -220,14 +285,19 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     // восстанавливаем сохранённый viewport вместо автоматического fit.
     restoreViewport();
 
+    // Connector paths: main organizational stems/junctions + отдельные
+    // assistant-connectors (CR-014 §31-38). Lines рисуются ДО карточек
+    // (edges layer раньше nodes layer → карточки поверх линий).
+    const connectorPaths = buildConnectorPaths(edges);
+
     zoomLayer
       .append("g")
       .attr("class", "unified-orgchart__edges")
       .selectAll("path")
-      .data(edges)
+      .data(connectorPaths)
       .enter()
       .append("path")
-      .attr("d", (edge) => connectorPath(edge.parent, edge.child))
+      .attr("d", (path) => path)
       .attr("fill", "none")
       .attr("stroke", "#cbd5e1")
       .attr("stroke-width", 2);
@@ -256,8 +326,9 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
       .filter((node) => node.type === NODE_DEPARTMENT && (node.children.length || node.collapsed))
       .each(function renderToggle(node) {
         const group = d3.select(this);
+        // Layout-якорь (CR-014 §40): центр нижней границы карточки + TOGGLE_GAP.
         const cx = node.width / 2;
-        const cy = node.height + 14;
+        const cy = node.height + TOGGLE_GAP;
 
         const button = group
           .append("g")

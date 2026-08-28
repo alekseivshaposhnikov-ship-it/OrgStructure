@@ -1,5 +1,7 @@
 # CR-014 — Верхнеуровневая структура Холдинга, LEGENDA Comfort, ассистенты и геометрия связей
 
+Статус: Реализован
+
 ## 1. Цель
 
 Доработать отображение верхнего уровня организационной структуры Холдинга LEGENDA и стабилизировать геометрию диаграммы после внедрения Holding Leadership Projection.
@@ -1855,50 +1857,50 @@ expand
 
 CR считается выполненным только если одновременно выполняются все основные условия:
 
-- [ ] Селиванов является root Holding Leadership Projection.
-- [ ] Под ним находятся Лукьянов, Винник и Клюев.
-- [ ] Все три executive отображаются одной карточкой каждый.
-- [ ] Executive lookup работает даже при `count < 1`.
-- [ ] Для leadership lookup используется `sourceUsers`.
-- [ ] Standard rendering продолжает использовать `users`.
-- [ ] Все пять дирекций Лукьянова находятся под ним.
-- [ ] Дирекция Винника находится под ним.
-- [ ] Все утвержденные дирекции Клюева находятся под ним.
-- [ ] `LEGENDA Comfort` находится под Клюевым.
-- [ ] Manager `LEGENDA Comfort` = Мишуев Александр Адольфович.
-- [ ] Мишуев не создает искусственный organizational level между Клюевым и `LEGENDA Comfort`.
-- [ ] Сойдан и Кириллов находятся в presentation-ветке Клюева.
-- [ ] Directorate mapping преимущественно работает по `department_guid`.
-- [ ] Rename при сохранении GUID не ломает mapping.
-- [ ] Name fallback сохранен.
-- [ ] Assistant привязан к конкретному непосредственному manager.
-- [ ] Assistant находится визуально рядом с manager.
-- [ ] Assistant преимущественно расположен справа с небольшим vertical offset.
-- [ ] Assistant не уезжает далеко вправо из-за ширины subtree.
-- [ ] Assistant не создает новый organizational row.
-- [ ] Assistant не меняет `effectiveLayoutLevel`.
-- [ ] Assistant не становится parent departments.
-- [ ] Под Лукьяновым видна vertical connector stem.
-- [ ] Под Винником видна vertical connector stem.
-- [ ] Под Клюевым видна vertical connector stem.
-- [ ] Connector lines не проходят через interiors карточек.
-- [ ] Horizontal junction располагается в свободной зоне.
-- [ ] Assistant connector отделен от organizational children connector.
-- [ ] Toggle controls имеют стабильную геометрическую привязку.
-- [ ] Variable-height cards не приводят к хаотичному положению toggle.
-- [ ] Collapse / expand работает.
-- [ ] Zoom / pan работает.
-- [ ] Viewport сохраняется при collapse / expand.
-- [ ] `staffCount` не изменился из-за `sourceUsers`.
-- [ ] API source data не мутируются.
-- [ ] AS IS работает.
-- [ ] TO BE работает.
-- [ ] Changes работает.
-- [ ] `functionality` обновлен.
-- [ ] Regression tests обновлены.
-- [ ] Все существующие tests проходят.
-- [ ] `npm test` проходит.
-- [ ] `npm run build` проходит.
+- [x] Селиванов является root Holding Leadership Projection.
+- [x] Под ним находятся Лукьянов, Винник и Клюев.
+- [x] Все три executive отображаются одной карточкой каждый.
+- [x] Executive lookup работает даже при `count < 1`.
+- [x] Для leadership lookup используется `sourceUsers`.
+- [x] Standard rendering продолжает использовать `users`.
+- [x] Все пять дирекций Лукьянова находятся под ним.
+- [x] Дирекция Винника находится под ним.
+- [x] Все утвержденные дирекции Клюева находятся под ним.
+- [x] `LEGENDA Comfort` находится под Клюевым.
+- [x] Manager `LEGENDA Comfort` = Мишуев Александр Адольфович.
+- [x] Мишуев не создает искусственный organizational level между Клюевым и `LEGENDA Comfort`.
+- [x] Сойдан и Кириллов находятся в presentation-ветке Клюева.
+- [x] Directorate mapping преимущественно работает по `department_guid`.
+- [x] Rename при сохранении GUID не ломает mapping.
+- [x] Name fallback сохранен.
+- [x] Assistant привязан к конкретному непосредственному manager.
+- [x] Assistant находится визуально рядом с manager.
+- [x] Assistant преимущественно расположен справа с небольшим vertical offset.
+- [x] Assistant не уезжает далеко вправо из-за ширины subtree.
+- [x] Assistant не создает новый organizational row.
+- [x] Assistant не меняет `effectiveLayoutLevel`.
+- [x] Assistant не становится parent departments.
+- [x] Под Лукьяновым видна vertical connector stem.
+- [x] Под Винником видна vertical connector stem.
+- [x] Под Клюевым видна vertical connector stem.
+- [x] Connector lines не проходят через interiors карточек.
+- [x] Horizontal junction располагается в свободной зоне.
+- [x] Assistant connector отделен от organizational children connector.
+- [x] Toggle controls имеют стабильную геометрическую привязку.
+- [x] Variable-height cards не приводят к хаотичному положению toggle.
+- [x] Collapse / expand работает.
+- [x] Zoom / pan работает.
+- [x] Viewport сохраняется при collapse / expand.
+- [x] `staffCount` не изменился из-за `sourceUsers`.
+- [x] API source data не мутируются.
+- [x] AS IS работает.
+- [x] TO BE работает.
+- [x] Changes работает.
+- [x] `functionality` обновлен.
+- [x] Regression tests обновлены.
+- [x] Все существующие tests проходят.
+- [x] `npm test` проходит.
+- [x] `npm run build` проходит.
 
 ---
 

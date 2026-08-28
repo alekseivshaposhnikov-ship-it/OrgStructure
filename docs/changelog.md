@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.29.0 (2026-08-27)
+ - CR-014: стабилизирована геометрия connector lines. Для любого node с organizational children строится читаемая main vertical stem от нижнего центра карточки до children junction (junction в свободной зоне между parent и детьми); линии не проходят через interior карточек.
+ - Connector assistant отделён от organizational children connector: короткая отдельная связь от нижней границы manager рядом с правым краем к верхнему центру assistant-карточки. Связи строятся на явных anchor points и рисуются до карточек.
+ - Toggle collapse/expand привязан к layout-геометрии (`node.x + node.width/2`, `node.y + node.height + TOGGLE_GAP`), а не к переменной content height; для siblings одного row toggle controls имеют общий baseline.
+
 ## 2.28.0 (2026-08-27)
  - CR-013_assistant_fix2: layout резервирует реальную assistant-zone для manager с ассистентами. Высота row менеджера с ассистентом учитывает `assistantVerticalGap + assistant.height + assistantToChildrenGap`, поэтому sidecar-карточка и её connector полностью находятся выше следующего organizational row и не пересекаются с department cards и horizontal junction.
  - Для manager без ассистента дополнительная вертикальная зона не создается (behavior не меняется); несколько ассистентов образуют компактную sidecar-группу, зона рассчитывается по фактическому bounding box группы. Assistant по-прежнему не создаёт новый row/level и не меняет effectiveLayoutLevel/sub_level/parent-child hierarchy.

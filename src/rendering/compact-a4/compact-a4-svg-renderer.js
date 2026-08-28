@@ -66,21 +66,36 @@ function drawAllConnectors(group, flat, map) {
 
   byParent.forEach((children, pid) => {
     const p = map.get(pid); if (!p) return;
+
+    // CR-014 §31, §75: assistant — отдельная короткая связь от нижней границы
+    // manager рядом с правым краем к верхнему центру assistant-карточки.
+    const assistants = children.filter(c => c.type === 'assistant');
+    assistants.forEach(a => {
+      const fromX = p.x + p.cardWidth - 12;
+      const fromY = p.y + p.cardHeight;
+      const toX = a.x + a.cardWidth / 2;
+      const toY = a.y;
+      drawPath(group, fromX, fromY, toX, toY);
+    });
+
+    const orgChildren = children.filter(c => c.type !== 'assistant');
+    if (!orgChildren.length) return;
+
     const px = p.x + p.cardWidth / 2;
     const py = p.y + p.cardHeight;
-    if (children.length === 1) {
-      const c = children[0];
+    if (orgChildren.length === 1) {
+      const c = orgChildren[0];
       drawPath(group, px, py, c.x + c.cardWidth / 2, c.y);
       return;
     }
-    const sorted = [...children].sort((a, b) => a.y - b.y);
+    const sorted = [...orgChildren].sort((a, b) => a.y - b.y);
     const first = sorted[0];
     const trunkY = py + (first.y - py) / 2;
     drawPath(group, px, py, px, trunkY);
     let minX = Infinity, maxX = -Infinity;
-    children.forEach(c => { const cx = c.x + c.cardWidth / 2; if (cx < minX) minX = cx; if (cx > maxX) maxX = cx; });
+    orgChildren.forEach(c => { const cx = c.x + c.cardWidth / 2; if (cx < minX) minX = cx; if (cx > maxX) maxX = cx; });
     drawPath(group, minX, trunkY, maxX, trunkY);
-    children.forEach(c => drawPath(group, c.x + c.cardWidth / 2, trunkY, c.x + c.cardWidth / 2, c.y));
+    orgChildren.forEach(c => drawPath(group, c.x + c.cardWidth / 2, trunkY, c.x + c.cardWidth / 2, c.y));
   });
 }
 

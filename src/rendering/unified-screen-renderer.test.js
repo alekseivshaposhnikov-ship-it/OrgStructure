@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { buildHoldingLeadershipTree } from "./holding-leadership.js";
+import { buildConnectorPaths, assistantConnectorPath } from "./unified-screen-renderer.js";
+import { NODE_ASSISTANT, NODE_DEPARTMENT } from "./unified-layout.js";
 
 describe("unified-screen-renderer (CR-011)", () => {
   let renderUnifiedScreen;
@@ -588,3 +590,135 @@ describe("unified-screen-renderer (CR-011)", () => {
     expect(assistantCard.textContent).toContain("Волкова");
   });
 });
+
+describe("unified-screen-renderer · connector geometry (CR-014)", () => {
+  // Минимальные layout-узлы для проверки connector paths.
+  function makeLayoutNode(overrides = {}) {
+    return {
+      type: overrides.type || NODE_DEPARTMENT,
+      x: overrides.x ?? 0,
+      y: overrides.y ?? 0,
+      width: overrides.width ?? 350,
+      height: overrides.height ?? 130,
+      ...overrides,
+    };
+  }
+
+  it("main vertical stem существует для manager с children (CR-014 Test 73)", () => {
+    const manager = makeLayoutNode({ x: 100, y: 100 });
+    const childA = makeLayoutNode({ x: 40, y: 400, width: 200 });
+    const childB = makeLayoutNode({ x: 280, y: 400, width: 200 });
+
+    const paths = buildConnectorPaths([
+      { parent: manager, child: childA },
+      { parent: manager, child: childB },
+    ]);
+
+    const stemX = manager.x + manager.width / 2; // 275
+    const parentBottom = manager.y + manager.height; // 230
+    const childrenTop = 400;
+    const junctionY = parentBottom + (childrenTop - parentBottom) / 2; // 315
+
+    // Вертикальный stem от нижнего центра manager к junction.
+    expect(paths.some((p) => p === `M ${stemX} ${parentBottom} L ${stemX} ${junctionY}`)).toBe(true);
+    // Горизонтальная junction.
+    expect(
+      paths.some((p) => p.startsWith(`M ${40 + 100} ${junctionY} L ${280 + 100} ${junctionY}`)),
+    ).toBe(true);
+    // Drop-линии к детям.
+    expect(paths.some((p) => p === `M ${40 + 100} ${junctionY} L ${40 + 100} ${400}`)).toBe(true);
+  });
+
+  it("junctionY находится в свободной зоне между parent и children (CR-014 Test 74)", () => {
+    const manager = makeLayoutNode({ x: 100, y: 100 });
+    const children = [0, 1, 2].map((i) => makeLayoutNode({ x: 40 + i * 240, y: 500, width: 200 }));
+
+    const paths = buildConnectorPaths(children.map((child) => ({ parent: manager, child })));
+
+    const parentBottom = manager.y + manager.height;
+    const childrenTop = 500;
+    // Вертикальный stem: его нижняя точка — junctionY, лежит между parentBottom и childrenTop.
+    const stem = paths.find((p) => p.startsWith(`M ${manager.x + manager.width / 2} ${parentBottom} L`));
+    expect(stem).toBeTruthy();
+    const junctionY = Number(stem.split(" L ")[1].split(" ")[1]);
+    expect(junctionY).toBeGreaterThan(parentBottom);
+    expect(junctionY).toBeLessThan(childrenTop);
+  });
+
+  it("assistant connector отделён от organizational connector (CR-014 Test 75)", () => {
+    const manager = makeLayoutNode({ x: 100, y: 100 });
+    const assistant = makeLayoutNode({
+      type: NODE_ASSISTANT,
+      x: manager.x + manager.width + 16,
+      y: manager.y + manager.height + 12,
+      width: 240,
+      height: 44,
+    });
+    const childA = makeLayoutNode({ x: 40, y: 400, width: 200 });
+
+    const paths = buildConnectorPaths([
+      { parent: manager, child: assistant },
+      { parent: manager, child: childA },
+    ]);
+
+    // Отдельная assistant-связь от нижней границы manager справа.
+    const expectedAssistant = assistantConnectorPath(manager, assistant);
+    expect(paths).toContain(expectedAssistant);
+    expect(expectedAssistant.startsWith(`M ${manager.x + manager.width - 16} ${manager.y + manager.height}`)).toBe(true);
+    expect(expectedAssistant.endsWith(`L ${assistant.x + assistant.width / 2} ${assistant.y}`)).toBe(true);
+
+    // Organizational children имеют main stem от центра manager.
+    const stemX = manager.x + manager.width / 2;
+    const parentBottom = manager.y + manager.height;
+    const junctionY = parentBottom + (400 - parentBottom) / 2;
+    expect(paths.some((p) => p === `M ${stemX} ${parentBottom} L ${stemX} ${junctionY}`)).toBe(true);
+  });
+
+  it("toggle controls имеют стабильный baseline для siblings (CR-014 Test 77)", async () => {
+    const mod = await import("./unified-screen-renderer.js");
+    const renderFn = mod.renderUnifiedScreen;
+    const root = {
+      department_guid: "root",
+      department_name: "ROOT",
+      department_manager: "Manager",
+      users: [],
+      children: [
+        {
+          department_guid: "a",
+          department_name: "A",
+          staffCount: 1,
+          users: [],
+          children: [{ department_guid: "a1", department_name: "A1", staffCount: 1, users: [], children: [] }],
+        },
+        {
+          department_guid: "b",
+          department_name: "B",
+          staffCount: 1,
+          users: [],
+          children: [{ department_guid: "b1", department_name: "B1", staffCount: 1, users: [], children: [] }],
+        },
+      ],
+    };
+    renderFn([root], "#orgChart", {});
+
+    // Toggle-кнопки у A и B (row 1) — общий baseline по Y.
+    const toggles = document.querySelectorAll("g.unified-node__toggle");
+    const ys = Array.from(toggles)
+      .filter((t) => {
+        const nodeId = t.parentElement.getAttribute("data-node-id");
+        return nodeId === "a" || nodeId === "b";
+      })
+      .map((t) => {
+        const group = t.parentElement;
+        const nodeTranslate = group.getAttribute("transform").match(/translate\(([-\d.e]+),([-\d.e]+)\)/);
+        const toggleTranslate = t.getAttribute("transform").match(/translate\(([-\d.e]+),([-\d.e]+)\)/);
+        return parseFloat(nodeTranslate[2]) + parseFloat(toggleTranslate[2]);
+      });
+
+    expect(ys.length).toBeGreaterThanOrEqual(2);
+    ys.forEach((y) => {
+      expect(Math.abs(y - ys[0])).toBeLessThanOrEqual(1e-6);
+    });
+  });
+});
+
