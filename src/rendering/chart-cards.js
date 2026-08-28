@@ -1,5 +1,6 @@
 import { escapeHtml, normalizeProjects } from "../core/utils/string.js";
 import { getScenarioLabel } from "./tokens.js";
+import { normalizeAssistantLabel } from "./unified-layout.js";
 
 /**
  * Единый флаг диагностики уровней (CR-010 §3).
@@ -187,19 +188,17 @@ function renderProjectPdf(nd) {
   `;
 }
 
-function renderAssistantCard(nd, viewMode) {
+function renderAssistantCard(nd, _viewMode) {
+  // CR-013_assistant §6, §13: sidecar-карточка ассистента — метка роли + имя.
+  const label = normalizeAssistantLabel(nd.position);
   return `
     <div class="chart-card chart-card--assistant ${getScenarioClass(nd)}"
          data-employee-id="${escapeHtml(nd.id)}"
          data-node-id="${escapeHtml(nd.id)}"
-         data-node-type="employee">
+         data-node-type="assistant">
       ${renderScenarioBadge(nd)}
-      ${renderMenuButton(viewMode)}
-      <div class="chart-card__assistant-label">Административный ассистент</div>
-      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
-      ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
-      ${renderLayoutDebug(nd)}
-      ${renderProject(nd)}
+      <div class="chart-card__assistant-label">${escapeHtml(label)}</div>
+      <div class="chart-card__assistant-name">${escapeHtml(nd.name)}</div>
     </div>
   `;
 }

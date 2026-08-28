@@ -1,0 +1,308 @@
+# Дополнение к CR-013 — исправление геометрии assistant-zone
+
+## Проблема
+
+После реализации паттерна `assistant под-справа` логическая связь manager → assistant стала корректной, но assistant-card может пересекаться с нижним organizational row.
+
+На текущем кейсе:
+
+```text
+Клюев
+    └── Лихачева Екатерина Олеговна
+        Персональный ассистент
+
+assistant визуально налезает на карточку:
+
+Дирекция по маркетингу
+
+и частично попадает в область линии следующего уровня.
+
+Проблема состоит в том, что assistant позиционируется как sidecar относительно manager, но layout не резервирует достаточную вертикальную assistant-zone перед началом следующего organizational row.
+
+Целевое поведение
+
+Assistant должен оставаться:
+
+под-справа от manager;
+визуально близко к manager;
+полностью выше следующего organizational row;
+без пересечения с department cards;
+без пересечения с horizontal connector line следующего уровня.
+
+Ожидаемая композиция:
+
+                Клюев
+                   │
+                   └──── Ассистент
+
+        [свободная вертикальная зона]
+
+   ───────────── organizational junction ─────────────
+
+   Дирекция A       Дирекция B       Дирекция C
+
+Ассистент не должен занимать пространство самих department cards.
+
+1. Ввести реальную assistant-zone
+
+Для manager с assistant необходимо вычислять дополнительную локальную вертикальную зону:
+
+assistantZoneHeight
+
+Она должна включать:
+
+assistantVerticalGap
++ assistant.height
++ assistantToChildrenGap
+
+Концептуально:
+
+assistantZoneHeight =
+  assistantVerticalGap
+  + assistant.height
+  + assistantToChildrenGap;
+
+Эта зона влияет только на геометрию следующего organizational row.
+
+Она НЕ создает новый row и НЕ меняет effectiveLayoutLevel.
+
+2. Следующий organizational row должен учитывать assistant-zone
+
+Если у manager есть assistant, Y следующего row должен рассчитываться не только от нижней границы manager card.
+
+НЕПРАВИЛЬНО:
+
+childrenY =
+  manager.y
+  + manager.height
+  + rowGap;
+
+ПРАВИЛЬНО:
+
+childrenY =
+  manager.y
+  + manager.height
+  + assistantZoneHeight
+  + rowGap;
+
+или эквивалентно в текущей архитектуре layout.
+
+Главный принцип:
+
+assistant занимает физическое место в SVG, но не занимает organizational level.
+
+3. Assistant должен быть ближе к manager, чем к children
+
+Необходимо соблюдать визуальное соотношение:
+
+manager → assistant
+
+значительно меньше, чем:
+
+assistant → следующий organizational row
+
+Например:
+
+assistantVerticalGap = 12..20px;
+assistantToChildrenGap = 24..40px;
+
+Конкретные значения подобрать под размеры текущих карточек.
+
+Не hardcode значения под Клюева — использовать общие layout options.
+
+4. Горизонтальное положение сохранить
+
+Существующий паттерн под-справа сохранить.
+
+Assistant не должен возвращаться строго под центр manager.
+
+Но необходимо ограничить его X так, чтобы он не попадал непосредственно поверх карточки первого/среднего child department.
+
+Предпочтительно вычислять:
+
+assistant.x =
+  manager.x
+  + manager.width
+  + assistantHorizontalGap;
+
+но с ограничением относительно локальной manager-zone.
+
+Если справа недостаточно свободного места, допустимо уменьшить horizontal offset, но не переносить assistant в произвольную дальнюю точку subtree.
+
+5. Connector manager → assistant
+
+Короткий connector:
+
+manager
+   │
+   └──── assistant
+
+должен полностью находиться выше horizontal connector line children.
+
+Не допускается пересечение:
+
+assistant connector
+
+и:
+
+children junction
+6. Children junction
+
+Horizontal connector к дочерним подразделениям должен начинаться ниже assistant-zone.
+
+То есть:
+
+Manager
+   │
+   └── Assistant
+
+        [assistant-zone]
+
+──────── children junction ────────
+
+а не:
+
+Manager
+   │
+──────── children junction ────────
+        Assistant
+7. Без assistant поведение не менять
+
+Если manager не имеет assistant:
+
+Manager
+   │
+children
+
+не добавлять:
+
+пустую assistant-zone;
+дополнительный vertical gap;
+дополнительную высоту subtree.
+
+То есть новая логика должна быть conditional.
+
+8. Несколько assistants
+
+Если у одного manager несколько assistant-type nodes:
+
+Manager
+   │
+   ├── Assistant 1
+   └── Assistant 2
+
+assistant-zone должна рассчитываться по фактическому bounding box всей assistant-group.
+
+Не использовать фиксированную высоту одного assistant.
+
+9. Bounding box
+
+При расчете subtree / node bounding box assistant необходимо учитывать как visual sidecar.
+
+То есть assistant не участвует в organizational depth, но должен учитываться в:
+
+visual bounding box
+collision detection
+fit
+subtree extents
+
+Иначе возможны пересечения с соседними ветками.
+
+10. Collision prevention
+
+После вычисления assistant position необходимо гарантировать отсутствие пересечения:
+
+rectsOverlap(assistantRect, childDepartmentRect) === false
+
+и желательно:
+
+rectsOverlap(assistantRect, siblingAssistantRect) === false
+
+Не реализовывать тяжелый generic collision engine, если текущая архитектура этого не требует.
+
+Достаточно корректно зарезервировать assistant-zone и локальный horizontal offset.
+
+11. Regression test — Клюев
+
+Fixture:
+
+Клюев
+├── Assistant
+├── Department A
+├── Department B
+└── Department C
+
+Проверить:
+
+assistant.bottom < childrenRowTop
+
+с минимальным gap:
+
+childrenRowTop - assistant.bottom >= MIN_ASSISTANT_TO_CHILDREN_GAP
+12. Regression test — без assistant
+
+Fixture:
+
+Manager
+├── Department A
+└── Department B
+
+должен иметь тот же Y-layout, что и до изменения.
+
+13. Regression test — широкий subtree
+
+Создать manager с:
+
+8-10 child departments
+
+и assistant.
+
+Проверить:
+
+assistant остается локально около manager;
+assistant не съезжает к центру/краю всей subtree;
+assistant не пересекается с child cards.
+14. Regression test — несколько managers
+Manager A + Assistant A
+Manager B + Assistant B
+Manager C
+
+Проверить:
+
+assistant-zone каждого manager независима;
+один assistant не влияет на позицию другого;
+общий row children остается согласованным.
+15. Обновить functionality
+
+Дополнить правило ассистентов:
+
+Assistant является sidecar-node manager. Он не создает organizational row, но его фактический bounding box учитывается при расчете вертикального расстояния до следующего organizational row. Следующий row не может пересекаться с assistant-card или ее connector.
+
+Добавить:
+
+Для manager с assistant layout резервирует локальную assistant-zone между manager card и children junction. Для manager без assistant дополнительная зона не создается.
+
+Критерий приемки
+
+На реальном кейсе Клюева должно получиться:
+
+                 Клюев
+                   │
+                   └──── Лихачева
+
+          [свободное пространство]
+
+──────────── children line ────────────
+
+Безопасность      ИТ      Маркетинг      ...
+
+Ни assistant-card, ни ее connector не должны пересекать:
+
+карточки дирекций;
+horizontal children line;
+соседние ветки.
+
+Логика под-справа сохраняется.
+
+
+Сейчас главная правка именно такая: **не менять связь и не двигать ассистента “куда-то ещё”, а научить layout резервировать под него реальное место**.

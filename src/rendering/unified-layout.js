@@ -44,6 +44,12 @@ const DEFAULT_OPTIONS = {
   rowGap: 60,
   personGap: 8,
   contentGap: 30,
+  // CR-013_assistant §6, §9-11: assistant — sidecar-node руководителя.
+  // Позиция рассчитывается от карточки manager (под-справа), а не от subtree.
+  assistantHorizontalGap: 16,
+  assistantVerticalGap: 12,
+  assistantSidecarWidth: 240,
+  assistantSidecarHeight: 44,
   paddingX: 40,
   paddingY: 40,
   // Ролевая presentation для PDF (CR-003-02): department-card получает
@@ -76,6 +82,17 @@ export function isAssistantUser(user) {
   );
 }
 
+/**
+ * Нормализует метку assistant-карточки (CR-013_assistant §13): вместо длинной
+ * должности API показывается краткая роль.
+ */
+export function normalizeAssistantLabel(position) {
+  const p = String(position || "").toLowerCase();
+  return p.includes("персональный ассистент")
+    ? "Персональный ассистент"
+    : "Административный ассистент";
+}
+
 export function findAdministrativeAssistant(users) {
   return (users || []).find((user) => isAdministrativeAssistant(user)) || null;
 }
@@ -100,30 +117,30 @@ export function buildLayoutTree(
   rootNode,
   { showVacancies = true, collapsedIds = null } = {},
 ) {
-  // Универсальная привязка ассистентов (CR-013_fix §9, §12):
-  // каждый assistant является специальным employee node своего непосредственного
-  // руководителя — department, в чьих sourceUsers/users он находится.
-  // Глобальное правило «первый ассистент в ветке → рядом с root» не используется.
-  // Для корня Холдинга (holding projection) ассистент задаётся конфигурацией.
-  const isHoldingPresentation = Boolean(rootNode && rootNode.__holdingPresentation === true);
-  const rootAssistant = isHoldingPresentation ? rootNode.__assistant || null : null;
+  // Универсальная привязка ассистентов (CR-013_fix §9, §12; CR-013_assistant §12):
+  // каждый assistant является sidecar-node своего непосредственного руководителя —
+  // department, в чьих sourceUsers/users он находится. Явные presentation-ассистенты
+  // (__assistant, задаются конфигурацией верхнего руководства) имеют приоритет.
+  const assistantOwners = new Map();
+  (function collectOwners(node) {
+    if (node.__assistant?.id) assistantOwners.set(node.__assistant.id, node);
+    (node.children || []).forEach(collectOwners);
+  })(rootNode);
 
-  const assistantsToSkip = new Set();
-  if (rootAssistant?.id) assistantsToSkip.add(rootAssistant.id);
-
-  /**
-   * Собственные ассистенты подразделения: из sourceUsers (полный набор ДО
-   * фильтрации по count >= 1) с fallback на users — как в executive lookup.
-   * В ролевом PDF-режиме (CR-003-02) сотрудники агрегированы в roles,
-   * отдельные assistant-узлы не создаются.
-   */
   function findOwnAssistants(node) {
-    if (Array.isArray(node.pdfRoles)) return [];
+    const explicit = node.__assistant ? [node.__assistant] : [];
+    // Ролевой PDF (CR-003-02) агрегирует сотрудников в roles — отдельные
+    // assistant-узлы создаются только для явных presentation-ассистентов.
+    if (Array.isArray(node.pdfRoles)) return explicit;
+
     const source = Array.isArray(node.sourceUsers) ? node.sourceUsers : node.users || [];
-    return source
+    const fromUsers = source
       .filter((user) => !user.isVacancy)
       .filter((user) => isAssistantUser(user))
-      .filter((user) => !assistantsToSkip.has(user.id));
+      // Не привязываем повторно ассистентов, явно закреплённых за другим department.
+      .filter((user) => !(assistantOwners.has(user.id) && assistantOwners.get(user.id) !== node));
+
+    return [...explicit, ...fromUsers];
   }
 
   function makeAssistantNode(assistant) {
@@ -132,6 +149,7 @@ export function buildLayoutTree(
       data: {
         ...assistant,
         id: assistant.id,
+        position: normalizeAssistantLabel(assistant.position),
         isDepartment: false,
         isVacancy: false,
         isAssistant: true,
@@ -139,7 +157,7 @@ export function buildLayoutTree(
     };
   }
 
-  function buildDepartment(node, isRoot) {
+  function buildDepartment(node, _isRoot) {
     const data = {
       id: node.department_guid || node.id,
       isDepartment: true,
@@ -185,17 +203,14 @@ export function buildLayoutTree(
     const users = (node.users || [])
       .filter((user) => showVacancies || !user.isVacancy)
       .filter((user) => !isAssistantUser(user))
-      .filter((user) => !assistantsToSkip.has(user.id));
+      // Не показываем в колонке ассистентов, явно привязанных к другому department
+      // (CR-013_assistant §12) — они выводятся как sidecar.
+      .filter((user) => !(assistantOwners.has(user.id) && assistantOwners.get(user.id) !== node));
 
     const children = [];
 
-    // Ассистент корня (holding projection): задан конфигурацией (CR-013 §18).
-    if (isRoot && rootAssistant?.id) {
-      children.push(makeAssistantNode(rootAssistant));
-    }
-
-    // Собственные ассистенты подразделения — рядом с карточкой руководителя
-    // (CR-013_fix §9-12): не создают организационный уровень.
+    // Собственные ассистенты подразделения — sidecar рядом с карточкой
+    // руководителя (CR-013_assistant §6-8): не создают организационный уровень.
     ownAssistants.forEach((assistant) => {
       children.push(makeAssistantNode(assistant));
     });
@@ -345,6 +360,10 @@ function computeRows(tree) {
         const mappedRow = levelToRow.get(node.effectiveLayoutLevel) ?? parentRow + 1;
         node.row = Math.max(mappedRow, parentRow + 1);
       }
+    } else if (node.type === NODE_ASSISTANT) {
+      // Sidecar (CR-013_assistant §8): assistant не создаёт organizational row —
+      // row совпадает с row своего руководителя.
+      node.row = parentRow;
     } else {
       node.row = parentRow + 1;
     }
@@ -393,8 +412,9 @@ function computeSizes(node, opts) {
       node.height = opts.departmentHeight;
     }
   } else if (node.type === NODE_ASSISTANT) {
-    node.width = opts.assistantWidth;
-    node.height = opts.assistantHeight;
+    // Sidecar-карточка ассистента (CR-013_assistant §6, §9): компактный размер.
+    node.width = opts.assistantSidecarWidth ?? opts.assistantWidth;
+    node.height = opts.assistantSidecarHeight ?? opts.assistantHeight;
   } else if (node.type === NODE_EMPLOYEES) {
     node.width = opts.employeeWidth;
     const n = node.persons.length;
@@ -417,9 +437,16 @@ function computeSubtreeWidths(node, colGap) {
     return node.subtreeWidth;
   }
 
+  // Sidecar-ассистенты (CR-013_assistant §7, §10) не участвуют в ширине ветки.
+  const children = node.children.filter((child) => child.type !== NODE_ASSISTANT);
+  if (!children.length) {
+    node.subtreeWidth = node.width;
+    return node.subtreeWidth;
+  }
+
   const childrenWidth =
-    node.children.reduce((sum, child) => sum + computeSubtreeWidths(child, colGap), 0) +
-    (node.children.length - 1) * colGap;
+    children.reduce((sum, child) => sum + computeSubtreeWidths(child, colGap), 0) +
+    (children.length - 1) * colGap;
 
   node.subtreeWidth = Math.max(node.width, childrenWidth);
   return node.subtreeWidth;
@@ -430,12 +457,16 @@ function assignX(node, left, colGap) {
   node.x = center - node.width / 2;
 
   if (node.children && node.children.length) {
+    // Sidecar-ассистенты позиционируются отдельно от потока children (CR-013_assistant §7).
+    const visibleChildren = node.children.filter((child) => child.type !== NODE_ASSISTANT);
+    if (!visibleChildren.length) return;
+
     const childrenWidth =
-      node.children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
-      (node.children.length - 1) * colGap;
+      visibleChildren.reduce((sum, child) => sum + child.subtreeWidth, 0) +
+      (visibleChildren.length - 1) * colGap;
 
     let childLeft = center - childrenWidth / 2;
-    node.children.forEach((child) => {
+    visibleChildren.forEach((child) => {
       assignX(child, childLeft, colGap);
       childLeft += child.subtreeWidth + colGap;
     });
@@ -482,10 +513,36 @@ function computeRowTops(tree, opts) {
 function assignY(node, rowTops, rowIndexMap, parent, opts) {
   if (node.type === NODE_DEPARTMENT) {
     node.y = rowTops[rowIndexMap.get(node.row)];
-  } else {
+  } else if (node.type !== NODE_ASSISTANT) {
+    // Sidecar-ассистенты позиционируются отдельно (placeAssistantSidecars).
     node.y = parent.y + parent.height + opts.contentGap;
   }
   (node.children || []).forEach((child) => assignY(child, rowTops, rowIndexMap, node, opts));
+}
+
+/**
+ * CR-013_assistant §6, §9-11: позиционирует sidecar-ассистентов относительно
+ * карточки их руководителя (под-справа), а не относительно subtree/row.
+ *
+ * - x = manager.x + manager.width + assistantHorizontalGap (несколько
+ *   ассистентов укладываются компактной группой с тем же gap);
+ * - y = manager.y + manager.height + assistantVerticalGap, если под manager
+ *   хватает вертикального места (rowGap), иначе — по нижнему краю manager.
+ */
+function placeAssistantSidecars(tree, opts) {
+  (function walk(node) {
+    const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
+    let cursorX = node.x + node.width + opts.assistantHorizontalGap;
+    assistants.forEach((assistant) => {
+      const fitsBelow = opts.assistantVerticalGap + assistant.height <= opts.rowGap;
+      assistant.y = fitsBelow
+        ? node.y + node.height + opts.assistantVerticalGap
+        : node.y + node.height - assistant.height;
+      assistant.x = cursorX;
+      cursorX += assistant.width + opts.assistantHorizontalGap;
+    });
+    (node.children || []).forEach(walk);
+  })(tree);
 }
 
 function collect(tree, nodes, edges, flatData, parent) {
@@ -527,6 +584,9 @@ export function computeUnifiedLayout(rootNode, options = {}) {
 
   const { rowTops, rowIndexMap } = computeRowTops(tree, opts);
   assignY(tree, rowTops, rowIndexMap, null, opts);
+
+  // Sidecar-ассистенты — позиция от карточки руководителя (CR-013_assistant §6).
+  placeAssistantSidecars(tree, opts);
 
   attachLayoutMeta(tree);
 

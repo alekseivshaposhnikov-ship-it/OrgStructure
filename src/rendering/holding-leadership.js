@@ -36,13 +36,16 @@ export const HOLDING_LEADERSHIP_CONFIG = {
   ceo: {
     name: "Селиванов Василий Геннадиевич",
     title: "Генеральный директор",
-    assistantEmail: "a.volkova@legenda-dom.ru",
+    // CR-013_assistant §13: ассистент Селиванова — Давыдова Наталья Владимировна.
+    assistantEmail: "n.davidova@legenda-dom.ru",
   },
   executives: {
     lukyanov: {
       key: "lukyanov",
       email: "laa@legenda-dom.ru",
       title: "Операционный директор Холдинга",
+      // CR-013_assistant §13: ассистент Лукьянова — Волкова Алина Викторовна.
+      assistantEmail: "a.volkova@legenda-dom.ru",
       // Дирекции идентифицируются по стабильному department_guid (CR-013_fix §12);
       // name — для читаемости, диагностики и fallback при отсутствии id.
       directorates: [
@@ -68,6 +71,8 @@ export const HOLDING_LEADERSHIP_CONFIG = {
       key: "klyuev",
       email: "avk@legenda-dom.ru",
       title: "Исполнительный директор Холдинга LEGENDA",
+      // CR-013_assistant §13: ассистент Клюева — Лихачева Екатерина Олеговна.
+      assistantEmail: "e.lihacheva@legenda-dom.ru",
       directorates: [
         { id: "0e9d7eaa-c503-11ee-bbff-d85ed308d2c7", name: "Дирекция по маркетингу" },
         { id: "ca4add27-c590-11ee-bbff-d85ed308d2c7", name: "Дирекция брендинга и коммуникаций" },
@@ -83,6 +88,19 @@ export const HOLDING_LEADERSHIP_CONFIG = {
         { email: "a.soydan@legenda-dom.ru" },
         { email: "o.kirillov@legenda-dom.ru" },
       ],
+    },
+  },
+  // CR-013_assistant §4: presentation overrides для дирекций.
+  // Ключ — стабильный department_guid; ФИО/email руководителя и ассистента
+  // берутся из данных (при наличии) или из конфигурации.
+  departmentOverrides: {
+    "9b30e683-df6d-11e9-81eb-000c294addcc": {
+      // LEGENDA Comfort: руководитель — Мишуев Александр Адольфович.
+      managerEmail: "a.mishuev@legenda-comfort.ru",
+      manager: "Мишуев Александр Адольфович",
+      managerPosition: "Генеральный директор №1",
+      // CR-013_assistant §13: ассистент Мишуева — Николаева Татьяна Владимировна.
+      assistantEmail: "t.nikolaeva@legenda-comfort.ru",
     },
   },
 };
@@ -204,6 +222,18 @@ export function resolveDepartmentMatch(department) {
 }
 
 /**
+ * Нормализует presentation-запись ассистента (CR-013_assistant §13): краткая
+ * роль вместо длинной должности API.
+ */
+export function normalizeAssistantPerson(person) {
+  const position = String(person.rawPosition || person.position || "").toLowerCase();
+  const label = position.includes("персональный ассистент")
+    ? "Персональный ассистент"
+    : "Административный ассистент";
+  return { ...person, name: person.full_name || person.name, position: label };
+}
+
+/**
  * Строит presentation-узел executive (верхний руководитель) в shape,
  * совместимом с buildLayoutTree: department-подобный узел с маркером
  * isHoldingExecutive и реальной записью человека в __person.
@@ -211,8 +241,10 @@ export function resolveDepartmentMatch(department) {
  * Сотрудники не добавляются к staffCount (CR-013 §28): численность считается
  * только из реальных department nodes.
  */
-function buildExecutiveNode({ execCfg, person, directorates, directReports }) {
+function buildExecutiveNode({ execCfg, person, directorates, directReports, findPerson }) {
   const personName = person.full_name || person.name || execCfg.title;
+
+  const assistantPerson = execCfg.assistantEmail ? findPerson(execCfg.assistantEmail) : null;
 
   return {
     department_guid: person.id || `holding-executive-${execCfg.key}`,
@@ -229,8 +261,31 @@ function buildExecutiveNode({ execCfg, person, directorates, directReports }) {
     isHoldingExecutive: true,
     executiveKey: execCfg.key,
     scenarioState: person.scenarioState || "",
+    // CR-013_assistant §13: presentation-ассистент руководителя (sidecar).
+    ...(assistantPerson ? { __assistant: normalizeAssistantPerson(assistantPerson) } : {}),
     // Реальная запись человека — для карточки и детального просмотра (CR-013 §27, §30).
     __person: { ...person, name: personName, position: execCfg.title },
+  };
+}
+
+/**
+ * CR-013_assistant §4, §16: presentation override дирекции по стабильному
+ * department_guid (например, LEGENDA Comfort). Возвращает копию узла —
+ * исходное API-дерево не мутируется.
+ */
+function applyDepartmentOverride(department, findPerson) {
+  const override = HOLDING_LEADERSHIP_CONFIG.departmentOverrides?.[department.department_guid];
+  if (!override) return department;
+
+  const managerPerson = override.managerEmail ? findPerson(override.managerEmail) : null;
+  const assistantPerson = override.assistantEmail ? findPerson(override.assistantEmail) : null;
+
+  return {
+    ...department,
+    department_manager: managerPerson?.full_name || override.manager || department.department_manager,
+    department_manager_position:
+      override.managerPosition || department.department_manager_position,
+    ...(assistantPerson ? { __assistant: normalizeAssistantPerson(assistantPerson) } : {}),
   };
 }
 
@@ -302,9 +357,13 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
     }
 
     // Mapping по стабильному department_guid с name fallback (CR-013_fix §13).
-    const directorates = topDepartments.filter((department) =>
-      execCfg.directorates.some((configured) => matchesConfiguredDepartment(department, configured)),
-    );
+    // Presentation overrides (CR-013_assistant §4) применяются к отдельным
+    // дирекциям (LEGENDA Comfort) и не мутируют исходное дерево.
+    const directorates = topDepartments
+      .filter((department) =>
+        execCfg.directorates.some((configured) => matchesConfiguredDepartment(department, configured)),
+      )
+      .map((department) => applyDepartmentOverride(department, findPerson));
     const missingDirectorates = execCfg.directorates
       .filter(
         (configured) =>
@@ -321,7 +380,9 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
       .map((report) => findPerson(report.email))
       .filter(Boolean);
 
-    presentationChildren.push(buildExecutiveNode({ execCfg, person, directorates, directReports }));
+    presentationChildren.push(
+      buildExecutiveNode({ execCfg, person, directorates, directReports, findPerson }),
+    );
 
     if (PROJECTION_DEBUG) {
       // Диагностика executive resolution (CR-013_fix §20).

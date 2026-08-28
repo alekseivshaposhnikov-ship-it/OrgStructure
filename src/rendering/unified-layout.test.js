@@ -4,6 +4,7 @@ import {
   normalizeManagementLevel,
   NODE_DEPARTMENT,
   NODE_EMPLOYEES,
+  NODE_ASSISTANT,
 } from "./unified-layout.js";
 
 function dept(id, name, overrides = {}) {
@@ -481,3 +482,101 @@ describe("unified-layout", () => {
     });
   });
 });
+
+describe("unified-layout · assistant sidecar (CR-013_assistant)", () => {
+  function makeManagerTree({ withAssistant = true, branchCount = 1, usersPerBranch = 0 } = {}) {
+    return dept("manager", "Manager", {
+      managerSubLevel: 2,
+      users: withAssistant
+        ? [user("ast-1", "Anna", { position: "Административный ассистент" })]
+        : [],
+      children: Array.from({ length: branchCount }, (_, i) =>
+        dept(`branch-${i}`, `Branch ${i}`, {
+          managerSubLevel: 3,
+          users: Array.from({ length: usersPerBranch }, (_, j) => user(`u${i}-${j}`, `Emp ${i}-${j}`)),
+        }),
+      ),
+    });
+  }
+
+  it("assistant расположен под-справа от manager (CR-013_assistant Test 6)", () => {
+    const { nodes } = computeUnifiedLayout(makeManagerTree());
+    const manager = byId(nodes, "manager");
+    const ast = byId(nodes, "ast-1");
+
+    expect(ast).toBeTruthy();
+    expect(ast.y).toBeGreaterThan(manager.y);
+    expect(ast.x).toBeGreaterThan(manager.x + manager.width);
+    // локальный offset: x = manager.x + manager.width + assistantHorizontalGap (16)
+    expect(ast.x).toBeCloseTo(manager.x + manager.width + 16, 5);
+    expect(ast.y).toBeCloseTo(manager.y + manager.height + 12, 5);
+  });
+
+  it("assistant не влияет на hierarchy дочернего department (CR-013_assistant Test 7)", () => {
+    const withAst = computeUnifiedLayout(makeManagerTree({ branchCount: 1 }));
+    const noAst = computeUnifiedLayout(makeManagerTree({ withAssistant: false, branchCount: 1 }));
+
+    const aWith = byId(withAst.nodes, "branch-0");
+    const aNo = byId(noAst.nodes, "branch-0");
+
+    expect(aWith.row).toBe(aNo.row);
+    expect(aWith.effectiveLayoutLevel).toBe(aNo.effectiveLayoutLevel);
+    expect(aWith.y).toBe(aNo.y);
+  });
+
+  it("assistant не уезжает вправо при росте ширины subtree (CR-013_assistant Test 8)", () => {
+    const small = computeUnifiedLayout(makeManagerTree({ branchCount: 2, usersPerBranch: 2 }));
+    const large = computeUnifiedLayout(makeManagerTree({ branchCount: 6, usersPerBranch: 2 }));
+
+    const astSmall = byId(small.nodes, "ast-1");
+    const astLarge = byId(large.nodes, "ast-1");
+    const managerSmall = byId(small.nodes, "manager");
+    const managerLarge = byId(large.nodes, "manager");
+
+    // Смещение assistant относительно manager не зависит от ширины ветки.
+    expect(astLarge.x - managerLarge.x).toBeCloseTo(astSmall.x - managerSmall.x, 5);
+    expect(astLarge.x).toBeLessThan(managerLarge.x + managerLarge.width + 100);
+  });
+
+  it("manager без assistant не получает пустую assistant зону (CR-013_assistant Test 9)", () => {
+    const { nodes } = computeUnifiedLayout(makeManagerTree({ withAssistant: false }));
+    expect(nodes.some((node) => node.type === NODE_ASSISTANT)).toBe(false);
+  });
+
+  it("несколько managers: каждый assistant у своего manager (CR-013_assistant Test 10)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        dept("mgr-a", "Manager A", {
+          managerSubLevel: 2,
+          users: [user("ast-a", "Assistant A", { position: "Административный ассистент" })],
+        }),
+        dept("mgr-b", "Manager B", {
+          managerSubLevel: 2,
+          users: [user("ast-b", "Assistant B", { position: "Персональный ассистент" })],
+        }),
+        dept("mgr-c", "Manager C", { managerSubLevel: 2 }),
+      ],
+    });
+
+    const { tree } = computeUnifiedLayout(root);
+    const mgrA = tree.children.find((c) => c.data.id === "mgr-a");
+    const mgrB = tree.children.find((c) => c.data.id === "mgr-b");
+    const mgrC = tree.children.find((c) => c.data.id === "mgr-c");
+
+    const astA = mgrA.children.find((c) => c.type === NODE_ASSISTANT);
+    const astB = mgrB.children.find((c) => c.type === NODE_ASSISTANT);
+
+    expect(astA.data.id).toBe("ast-a");
+    expect(astB.data.id).toBe("ast-b");
+    // без перекрёстной привязки
+    expect(astA.data.id).not.toBe("ast-b");
+    expect(mgrC.children.some((c) => c.type === NODE_ASSISTANT)).toBe(false);
+
+    // Assistant A рядом с Manager A
+    expect(astA.x).toBeCloseTo(mgrA.x + mgrA.width + 16, 5);
+    // Assistant B рядом с Manager B
+    expect(astB.x).toBeCloseTo(mgrB.x + mgrB.width + 16, 5);
+  });
+});
+

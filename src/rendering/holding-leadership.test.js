@@ -127,7 +127,18 @@ function makeAdministration() {
         typeEmployment: "Основное место работы",
         isVacancy: false,
       },
-      // Ассистент Селиванова (задан в config, CR-013 §18).
+      // Ассистенты руководителей (CR-013_assistant §13): Селиванов→Давыдова,
+      // Лукьянов→Волкова, Клюев→Лихачева.
+      {
+        id: "davidova-1",
+        full_name: "Давыдова Наталья Владимировна",
+        email: "n.davidova@legenda-dom.ru",
+        position: "Персональный ассистент /Администрация/",
+        rawPosition: "Персональный ассистент /Администрация/",
+        subLevel: 1.1,
+        typeEmployment: "Основное место работы",
+        isVacancy: false,
+      },
       {
         id: "volkova-1",
         full_name: "Волкова Алина Викторовна",
@@ -135,6 +146,16 @@ function makeAdministration() {
         position: "Персональный ассистент /Администрация/",
         rawPosition: "Персональный ассистент /Администрация/",
         subLevel: 6.1,
+        typeEmployment: "Основное место работы",
+        isVacancy: false,
+      },
+      {
+        id: "lihacheva-1",
+        full_name: "Лихачева Екатерина Олеговна",
+        email: "e.lihacheva@legenda-dom.ru",
+        position: "Персональный ассистент /Администрация/",
+        rawPosition: "Персональный ассистент /Администрация/",
+        subLevel: 1.3,
         typeEmployment: "Основное место работы",
         isVacancy: false,
       },
@@ -591,9 +612,11 @@ describe("holding-leadership · LEGENDA Comfort и ассистенты (CR-013_
     const klyuev = root.children.find((exec) => exec.executiveKey === "klyuev");
     const comfortNode = klyuev.children.find((d) => d.department_name === "LEGENDA Comfort");
 
-    // Ветка Клюева содержит исходный узел LEGENDA Comfort целиком (референс),
-    // его внутренняя структура сохранена как в API.
-    expect(comfortNode).toBe(comfort);
+    // Presentation-копия с override руководителя (CR-013_assistant §4), но
+    // внутренняя структура подразделения сохранена как в API (по ссылке).
+    expect(comfortNode).not.toBe(comfort);
+    expect(comfortNode.department_manager).toBe("Мишуев Александр Адольфович");
+    expect(comfortNode.children).toBe(comfort.children);
     expect(comfortNode.children.map((c) => c.department_name)).toEqual([
       "Служба эксплуатации",
       "Служба управления",
@@ -696,6 +719,96 @@ describe("holding-leadership · LEGENDA Comfort и ассистенты (CR-013_
 
     // Parent-child структура внутренних подразделений не меняется.
     expect(mishuev.children.some((c) => c.data.id === "comfort-inner")).toBe(true);
+  });
+});
+
+
+describe("holding-leadership · CR-013_assistant (ассистенты и LEGENDA Comfort)", () => {
+  const LEGENDA_COMFORT_GUID = "9b30e683-df6d-11e9-81eb-000c294addcc";
+
+  it("LEGENDA Comfort: manager Мишуев, ассистент Николаева (CR-013_assistant Test 4, Test 5)", () => {
+    const input = makeHoldingRoot();
+    input.children.push({
+      department_guid: LEGENDA_COMFORT_GUID,
+      department_name: "LEGENDA Comfort",
+      staffCount: 12,
+      users: [],
+      children: [
+        {
+          department_guid: "comfort-admin",
+          department_name: "Администрация",
+          department_manager: "Мишуев Александр Адольфович",
+          users: [
+            {
+              id: "mishuev-1",
+              full_name: "Мишуев Александр Адольфович",
+              email: "a.mishuev@legenda-comfort.ru",
+              position: "Генеральный директор №1 /Администрация/",
+              rawPosition: "Генеральный директор №1 /Администрация/",
+              isVacancy: false,
+            },
+            {
+              id: "nikolaeva-1",
+              full_name: "Николаева Татьяна Владимировна",
+              email: "t.nikolaeva@legenda-comfort.ru",
+              position: "Административный ассистент /Администрация/",
+              rawPosition: "Административный ассистент /Администрация/",
+              isVacancy: false,
+            },
+          ],
+          children: [],
+        },
+      ],
+    });
+
+    const root = buildHoldingLeadershipTree(input);
+    const klyuev = root.children.find((exec) => exec.executiveKey === "klyuev");
+    const comfort = klyuev.children.find((d) => d.department_name === "LEGENDA Comfort");
+
+    // presentation parent = Клюев; manager = Мишуев (без промежуточного уровня).
+    expect(comfort).toBeTruthy();
+    expect(comfort.department_manager).toBe("Мишуев Александр Адольфович");
+    expect(klyuev.children.some((c) => c.department_name === "Мишуев Александр Адольфович")).toBe(false);
+
+    // ассистент Мишуева / LEGENDA Comfort = Николаева.
+    expect(comfort.__assistant).toBeTruthy();
+    expect(comfort.__assistant.email).toBe("t.nikolaeva@legenda-comfort.ru");
+    expect(comfort.__assistant.position).toBe("Административный ассистент");
+  });
+
+  it("ассистенты executives: Селиванов→Давыдова, Лукьянов→Волкова, Клюев→Лихачева (CR-013_assistant Test 5)", () => {
+    const root = buildHoldingLeadershipTree(makeHoldingRoot());
+    const layout = computeUnifiedLayout(root, {
+      collapsedIds: new Set(root.__initialCollapsedIds),
+    });
+
+    const assistantNodes = layout.nodes.filter((node) => node.type === NODE_ASSISTANT);
+    const emails = assistantNodes.map((node) => node.data.email);
+
+    expect(emails).toContain("n.davidova@legenda-dom.ru"); // Селиванов
+    expect(emails).toContain("a.volkova@legenda-dom.ru"); // Лукьянов
+    expect(emails).toContain("e.lihacheva@legenda-dom.ru"); // Клюев
+
+    // У каждого ассистента краткая роль.
+    assistantNodes.forEach((node) => {
+      expect(["Персональный ассистент", "Административный ассистент"]).toContain(node.data.position);
+    });
+  });
+
+  it("sidecar-геометрия: ассистент ниже и правее manager в layout (CR-013_assistant Test 6)", () => {
+    const root = buildHoldingLeadershipTree(makeHoldingRoot());
+    const layout = computeUnifiedLayout(root, {
+      collapsedIds: new Set(root.__initialCollapsedIds),
+    });
+
+    const managerNodes = layout.nodes.filter((node) => node.type === NODE_DEPARTMENT);
+    managerNodes.forEach((manager) => {
+      (manager.children || []).forEach((child) => {
+        if (child.type !== NODE_ASSISTANT) return;
+        expect(child.y).toBeGreaterThan(manager.y);
+        expect(child.x).toBeGreaterThan(manager.x + manager.width);
+      });
+    });
   });
 });
 
