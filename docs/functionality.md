@@ -158,8 +158,10 @@ Leadership mapping дирекций выполняется преимущест�
 Правила:
 
 * ассистент не является самостоятельным организационным уровнем: не создает новый organizational row, не изменяет effectiveLayoutLevel, sub_level и parent-child hierarchy дочерних подразделений;
+* assistant является sidecar-node manager: он не создает organizational row, но его фактический bounding box учитывается при расчете вертикального расстояния до следующего organizational row; следующий row не может пересекаться с assistant-card или ее connector;
+* для manager с ассистентом layout резервирует локальную assistant-zone между manager card и children junction (`assistantVerticalGap + assistant.height + assistantToChildrenGap`); для manager без ассистента дополнительная зона не создается;
 * позиция ассистента рассчитывается от карточки руководителя (локальные параметры `assistantHorizontalGap` / `assistantVerticalGap`), а не от ширины subtree;
-* несколько ассистентов одного руководителя образуют компактную sidecar-группу рядом с карточкой;
+* несколько ассистентов одного руководителя образуют компактную sidecar-группу рядом с карточкой; assistant-zone рассчитывается по фактическому bounding box группы;
 * ассистенты разных руководителей отображаются одновременно, каждый у своего manager, без перекрестной привязки;
 * при сворачивании руководителя ассистент скрывается вместе с его веткой, при раскрытии снова располагается по правилу «под-справа».
 

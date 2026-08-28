@@ -1,0 +1,2075 @@
+# CR-014 — Верхнеуровневая структура Холдинга, LEGENDA Comfort, ассистенты и геометрия связей
+
+## 1. Цель
+
+Доработать отображение верхнего уровня организационной структуры Холдинга LEGENDA и стабилизировать геометрию диаграммы после внедрения Holding Leadership Projection.
+
+Необходимо одновременно обеспечить:
+
+1. корректную верхнеуровневую управленческую структуру Холдинга;
+2. устойчивый поиск top-management независимо от дробной занятости;
+3. устойчивое сопоставление дирекций с executives преимущественно по `department_guid`;
+4. размещение `LEGENDA Comfort` в ветке Клюева;
+5. корректного руководителя `LEGENDA Comfort`;
+6. корректное отображение direct reports executives;
+7. универсальное правило отображения персональных и административных ассистентов;
+8. размещение assistant максимально близко к manager по паттерну `рядом / справа с небольшим смещением`;
+9. корректную геометрию connector lines;
+10. стабильное положение collapse / expand controls;
+11. отсутствие прохождения линий через карточки;
+12. обновление `functionality`;
+13. обновление и расширение automated regression tests.
+
+Изменения должны быть минимально инвазивными.
+
+Не переписывать существующий Unified Layout без необходимости.
+
+---
+
+# 2. Область применения Holding Leadership Projection
+
+Специальная логика применяется при отображении корневой структуры:
+
+```text
+Холдинг LEGENDA
+```
+
+Она формирует presentation hierarchy верхнего уровня:
+
+```text
+Holding
+↓
+CEO
+↓
+Executives
+↓
+Directorates
+↓
+обычная hierarchy
+```
+
+После попадания в конкретную дирекцию используется существующая реальная organizational hierarchy.
+
+Holding Leadership Projection не является отдельной организационной базой данных и не должен мутировать исходное API tree.
+
+---
+
+# 3. Корневой руководитель
+
+Корневой узел:
+
+```text
+Холдинг LEGENDA
+```
+
+отображается с руководителем:
+
+```text
+Селиванов Василий Геннадиевич
+Генеральный директор
+```
+
+Существующий virtual root можно сохранить.
+
+Необходимо только убедиться, что верхнеуровневая presentation hierarchy строится от него корректно.
+
+---
+
+# 4. Верхнеуровневые executives
+
+Непосредственно под Селивановым должны находиться три руководителя:
+
+```text
+Селиванов
+│
+├── Лукьянов Алексей Александрович
+│   Операционный директор Холдинга
+│
+├── Винник Лев Арнольдович
+│   Директор по развитию / градостроительной подготовке проектов
+│
+└── Клюев Алексей Васильевич
+    Исполнительный директор Холдинга LEGENDA
+```
+
+Все три executive должны находиться на одном organizational level.
+
+Они являются siblings одного presentation parent:
+
+```text
+Селиванов
+```
+
+Не определять эти parent-child relations только по `sub_level`.
+
+`sub_level` остается metadata управленческого уровня, но не является `reports_to`.
+
+---
+
+# 5. Дирекции Лукьянова
+
+Под Лукьяновым должны находиться:
+
+```text
+Дирекция по инвестициям
+Дирекция по экономике
+Дирекция по строительству
+Дирекция по финансам и отчетности
+Дирекция по проектированию
+```
+
+Ожидаемая структура:
+
+```text
+Лукьянов
+│
+├── Дирекция по инвестициям
+├── Дирекция по экономике
+├── Дирекция по строительству
+├── Дирекция по финансам и отчетности
+└── Дирекция по проектированию
+```
+
+После этого внутренняя структура каждой дирекции строится по обычным правилам приложения.
+
+---
+
+# 6. Ветка Винника
+
+Под Винником должна находиться:
+
+```text
+Дирекция по развитию и градостроительной подготовке проектов
+```
+
+Ожидаемая структура:
+
+```text
+Винник
+│
+└── Дирекция по развитию и градостроительной подготовке проектов
+```
+
+После этой точки используется обычная hierarchy подразделения.
+
+Не hardcode внутреннюю структуру данной дирекции.
+
+---
+
+# 7. Дирекции Клюева
+
+Под Клюевым должны находиться:
+
+```text
+Дирекция по маркетингу
+Дирекция брендинга и коммуникаций
+Дирекция по безопасности
+Дирекция по продажам
+Административно-правовая дирекция
+Дирекция по персоналу
+Дирекция по информационным технологиям
+LEGENDA Comfort
+```
+
+Ожидаемая структура:
+
+```text
+Клюев
+│
+├── Дирекция по маркетингу
+├── Дирекция брендинга и коммуникаций
+├── Дирекция по безопасности
+├── Дирекция по продажам
+├── Административно-правовая дирекция
+├── Дирекция по персоналу
+├── Дирекция по информационным технологиям
+└── LEGENDA Comfort
+```
+
+---
+
+# 8. Direct reports Клюева
+
+Кроме дирекций, непосредственно в presentation-ветке Клюева должны отображаться:
+
+```text
+Сойдан Айкут
+Управляющий объектами коммерческой недвижимости
+
+Кириллов Олег Сергеевич
+Руководитель направления ИИ-трансформации
+```
+
+Они должны оставаться employee/direct-report nodes.
+
+Не создавать из них departments.
+
+Они не должны становиться самостоятельными root nodes.
+
+Одна реальная персона должна отображаться одной карточкой.
+
+---
+
+# 9. LEGENDA Comfort
+
+`LEGENDA Comfort` является подразделением в ветке Клюева.
+
+Правильно:
+
+```text
+Клюев
+│
+└── LEGENDA Comfort
+```
+
+Внутренняя hierarchy `LEGENDA Comfort` после этого строится по обычным данным API.
+
+Не создавать отдельную специальную leadership projection для внутренней структуры `LEGENDA Comfort`.
+
+---
+
+# 10. Руководитель LEGENDA Comfort
+
+Руководителем подразделения:
+
+```text
+LEGENDA Comfort
+```
+
+является:
+
+```text
+Мишуев Александр Адольфович
+```
+
+Это означает:
+
+```text
+Клюев
+│
+└── LEGENDA Comfort
+    manager = Мишуев Александр Адольфович
+```
+
+НЕПРАВИЛЬНО:
+
+```text
+Клюев
+│
+└── Мишуев
+    │
+    └── LEGENDA Comfort
+```
+
+Мишуев не создает дополнительный organizational level.
+
+Он является manager самой department-card `LEGENDA Comfort`.
+
+Если API уже корректно определяет Мишуева как manager, использовать API.
+
+Если текущие данные API этого не обеспечивают, использовать отдельный presentation/config override.
+
+Не мутировать исходный API object.
+
+Не создавать дублирующую карточку Мишуева.
+
+---
+
+# 11. Источник данных top-management
+
+Нельзя искать executives только среди:
+
+```js
+node.users
+```
+
+`node.users` является уже визуально отфильтрованным набором сотрудников.
+
+Например, если используется:
+
+```js
+parseCount(emp.count) >= 1
+```
+
+то сотрудники с:
+
+```text
+0.02
+0.1
+0.5
+```
+
+могут исчезнуть до построения Holding Leadership Projection.
+
+Это недопустимо для поиска top-management.
+
+---
+
+# 12. Разделить `sourceUsers` и `users`
+
+В department node необходимо хранить два набора.
+
+## `sourceUsers`
+
+Полный нормализованный набор employee records из API ДО визуальной фильтрации `count >= 1`.
+
+Используется для:
+
+```text
+executive lookup
+direct report lookup
+assistant lookup
+top-management deduplication
+Holding Leadership Projection
+```
+
+## `users`
+
+Существующий визуально отфильтрованный набор сотрудников.
+
+Используется для:
+
+```text
+standard employee rendering
+employee columns
+sorting
+обычных employee cards
+```
+
+Схема:
+
+```text
+API employees
+     │
+     ├── sourceUsers → leadership lookup
+     │
+     └── users       → standard rendering
+```
+
+Добавление `sourceUsers` не должно менять существующий screen rendering обычных сотрудников.
+
+---
+
+# 13. Изменение `transformNode()`
+
+Сохранить полный source employee list.
+
+Концептуально:
+
+```js
+const allEmployees = apiNode.employees || [];
+
+const sourceUsers = allEmployees.map((emp) => ({
+  id: emp.id,
+  full_name: emp.full_name,
+  name: emp.full_name,
+  fullName: emp.full_name,
+
+  email: emp.email || "",
+  phone: getPhone(emp),
+  photo: getPhoto(emp),
+  project: getProject(emp),
+
+  position: shortPosition(emp.position),
+  rawPosition: emp.position || "",
+
+  subLevel: parseSubLevel(emp.sub_level),
+  typeEmployment: emp.type_employment || "",
+  state: emp.state || "",
+  count: parseCount(emp.count),
+
+  isVacancy: false,
+}));
+```
+
+Существующий:
+
+```js
+const validEmployees = allEmployees.filter(
+  (emp) => parseCount(emp.count) >= 1
+);
+```
+
+оставить для формирования `users`.
+
+В возвращаемый department node добавить:
+
+```js
+return {
+  ...
+  users,
+  sourceUsers,
+  children,
+};
+```
+
+Не мутировать `apiNode.employees`.
+
+---
+
+# 14. Executive lookup
+
+Holding Leadership Projection должен индексировать прежде всего:
+
+```js
+node.sourceUsers
+```
+
+с fallback:
+
+```js
+node.users
+```
+
+для legacy fixtures.
+
+Концептуально:
+
+```js
+const source = Array.isArray(node.sourceUsers)
+  ? node.sourceUsers
+  : node.users || [];
+```
+
+Факт существования executive не зависит от:
+
+```js
+count >= 1
+```
+
+Если хотя бы одна source record найдена по стабильному employee identifier, executive существует.
+
+---
+
+# 15. Дедупликация executives
+
+Один реальный человек должен давать одну executive card.
+
+Приоритет идентификации:
+
+```text
+1. корпоративный email
+2. стабильный employee id
+3. normalized full_name как fallback
+```
+
+Не создавать несколько карточек Лукьянова или Клюева из-за нескольких employment records.
+
+---
+
+# 16. `selectPrimaryRecord()`
+
+`selectPrimaryRecord()` определяет только наиболее подходящую record для presentation data.
+
+Он не определяет сам факт существования executive.
+
+Приоритет:
+
+```text
+1. Основное место работы
+2. заполненный sub_level
+3. релевантная executive record
+4. остальные признаки
+5. source order как последний fallback
+```
+
+`count` может быть secondary tie-breaker, но не обязательным фильтром.
+
+---
+
+# 17. Presentation title executive
+
+Presentation title executive берется из leadership config.
+
+Например, даже если API record Лукьянова содержит:
+
+```text
+Первый заместитель генерального директора
+```
+
+Holding view должен показывать утвержденную роль:
+
+```text
+Операционный директор Холдинга
+```
+
+API record используется для:
+
+```text
+employee id
+email
+ФИО
+photo
+phone
+прочих персональных данных
+```
+
+Role/title верхнеуровневой схемы определяется config.
+
+---
+
+# 18. Mapping дирекций
+
+Не использовать название подразделения как основной идентификатор.
+
+Хрупкий вариант:
+
+```js
+execCfg.directorates.includes(
+  department.department_name
+);
+```
+
+не должен быть основной логикой.
+
+Основной идентификатор:
+
+```text
+department_guid
+```
+
+Config должен иметь единый формат:
+
+```js
+directorates: [
+  {
+    id: "...",
+    name: "Дирекция ..."
+  }
+]
+```
+
+для Лукьянова, Винника и Клюева.
+
+---
+
+# 19. Общий helper mapping
+
+Использовать единый helper:
+
+```js
+function matchesConfiguredDepartment(department, configured) {
+  if (!department || !configured) return false;
+
+  if (
+    configured.id &&
+    department.department_guid &&
+    configured.id === department.department_guid
+  ) {
+    return true;
+  }
+
+  return Boolean(
+    configured.name &&
+    department.department_name === configured.name
+  );
+}
+```
+
+Приоритет:
+
+```text
+department_guid
+      ↓
+department_name fallback
+```
+
+Не размножать эту логику отдельно для каждого executive.
+
+---
+
+# 20. Rename-safe mapping
+
+Переименование подразделения не должно ломать hierarchy.
+
+Например:
+
+```text
+Дирекция по финансам
+↓
+Дирекция по финансам и отчетности
+```
+
+при неизменном:
+
+```text
+department_guid
+```
+
+должно продолжать находиться под Лукьяновым.
+
+Config `name` используется для:
+
+```text
+читаемости
+диагностики
+fallback
+```
+
+но presentation name всегда берется из актуального:
+
+```js
+department.department_name
+```
+
+---
+
+# 21. Не назначать GUID вручную без проверки
+
+Перед обновлением config необходимо получить реальные `department_guid` из текущих данных/API.
+
+Не придумывать GUID.
+
+Если GUID отсутствует для scenario node, использовать name fallback.
+
+---
+
+# 22. Нераспределенные root departments
+
+Если корневое подразделение:
+
+- не исключено;
+- не является `Администрация`;
+- не является `Администрация+`;
+- не сопоставлено ни с одним executive;
+
+его нельзя молча потерять.
+
+Использовать существующий fallback:
+
+```text
+Unassigned / Прочие
+```
+
+или другой уже реализованный механизм.
+
+Добавить diagnostic warning.
+
+---
+
+# 23. Администрация
+
+`Администрация` при Holding view используется как технический source top-management employees.
+
+Она не должна отображаться как обычная корневая дирекция Холдинга.
+
+При отдельном выборе `Администрация` в левом дереве сохранить обычное поведение приложения.
+
+---
+
+# 24. Администрация+
+
+Сохранить существующее исключение:
+
+```text
+Администрация+
+```
+
+Не включать ее в Holding Leadership Projection.
+
+---
+
+# 25. Ассистенты — бизнес-правило
+
+Персональный / административный ассистент должен быть связан с конкретным непосредственным руководителем.
+
+Нельзя использовать логику:
+
+```text
+найти первого assistant в ветке
+→ привязать к root
+```
+
+или:
+
+```text
+все assistants
+→ общая отдельная ветка
+```
+
+Assistant является специальным visual sidecar-node конкретного manager.
+
+---
+
+# 26. Assistant не является organizational level
+
+Assistant НЕ должен:
+
+- создавать новый `effectiveLayoutLevel`;
+- создавать новый organizational `row`;
+- менять `sub_level`;
+- становиться parent подразделений;
+- менять parent-child hierarchy departments;
+- влиять на sibling management level.
+
+Data semantics:
+
+```text
+Manager
+├── Assistant [sidecar]
+├── Department A
+├── Department B
+└── Department C
+```
+
+а не:
+
+```text
+Manager
+└── Assistant
+    ├── Department A
+    ├── Department B
+    └── Department C
+```
+
+---
+
+# 27. Целевой визуальный паттерн assistant
+
+Ассистент должен располагаться **рядом с manager**, преимущественно справа, с небольшим вертикальным offset.
+
+Предпочтительный вариант:
+
+```text
+┌────────────────────┐   ┌────────────────────┐
+│      Manager       │   │     Assistant      │
+└────────────────────┘   └────────────────────┘
+```
+
+или:
+
+```text
+┌────────────────────┐
+│      Manager       │
+└────────────────────┘
+          └──────────────┐
+                         ┌────────────────────┐
+                         │     Assistant      │
+                         └────────────────────┘
+```
+
+Assistant не должен находиться значительно ниже manager.
+
+Assistant не должен уходить далеко вправо в зависимости от ширины subtree.
+
+---
+
+# 28. Assistant position рассчитывается от manager card
+
+Не позиционировать assistant относительно:
+
+```text
+subtree center
+subtree width
+общего row
+siblings
+```
+
+Позиционировать от manager card.
+
+Концептуально:
+
+```js
+assistant.x =
+  manager.x +
+  manager.width +
+  ASSISTANT_HORIZONTAL_GAP;
+
+assistant.y =
+  manager.y +
+  ASSISTANT_VERTICAL_OFFSET;
+```
+
+где:
+
+```text
+ASSISTANT_HORIZONTAL_GAP
+```
+
+— небольшой постоянный или конфигурируемый gap;
+
+```text
+ASSISTANT_VERTICAL_OFFSET
+```
+
+— `0` или небольшой положительный offset.
+
+Не использовать абсолютные координаты конкретных сотрудников.
+
+---
+
+# 29. Assistant не должен чрезмерно увеличивать высоту ветки
+
+Если assistant находится рядом с manager, visual bottom manager-block рассчитывать как:
+
+```js
+const managerVisualBottom = Math.max(
+  manager.y + manager.height,
+  assistant
+    ? assistant.y + assistant.height
+    : manager.y + manager.height
+);
+```
+
+Следующий organizational row должен начинаться ниже фактического visual bounding box manager + assistant.
+
+Но не использовать:
+
+```text
+manager bottom
++ full assistant height
++ большой assistant row
+```
+
+если assistant находится сбоку и не требует отдельной вертикальной строки.
+
+---
+
+# 30. Реальные связи assistants
+
+Обязательно проверить минимум следующие кейсы:
+
+```text
+Селиванов → Давыдова Наталья Владимировна
+Лукьянов → Волкова Алина Викторовна
+Клюев → Лихачева Екатерина Олеговна
+Мишуев / LEGENDA Comfort → Николаева Татьяна Владимировна
+```
+
+Каждый assistant должен находиться возле своего manager.
+
+Не смешивать assistants между executives.
+
+---
+
+# 31. Assistant connector
+
+Assistant connector является отдельной визуальной связью.
+
+Пример:
+
+```text
+Manager ─── Assistant
+```
+
+или:
+
+```text
+Manager
+   └──── Assistant
+```
+
+Это отдельная связь от organizational children connector.
+
+Не использовать assistant как промежуточный node основного connector tree.
+
+---
+
+# 32. Main organizational connector
+
+У любого manager / department node с organizational children должна быть читаемая основная связь:
+
+```text
+parent bottom-center
+        │
+        │
+children junction
+```
+
+Даже если рядом находится assistant.
+
+Assistant не должен заменять main vertical stem.
+
+---
+
+# 33. Проблема отсутствующих вертикальных связей
+
+На текущей схеме у отдельных executives, например:
+
+```text
+Лукьянов
+Винник
+```
+
+короткая вертикальная линия от карточки к horizontal children junction может визуально отсутствовать.
+
+Это считать дефектом.
+
+Для любого node с organizational children должна существовать:
+
+```text
+card
+ │
+ │
+junction
+```
+
+---
+
+# 34. Anchor model для connectors
+
+Использовать явные anchor points.
+
+## Parent bottom anchor
+
+```js
+const parentBottomAnchor = {
+  x: parent.x + parent.width / 2,
+  y: parent.y + parent.height,
+};
+```
+
+## Child top anchor
+
+```js
+const childTopAnchor = {
+  x: child.x + child.width / 2,
+  y: child.y,
+};
+```
+
+Connector должен касаться карточки только в этих или других явно определенных boundary anchor points.
+
+---
+
+# 35. Junction Y
+
+Horizontal connector junction должен находиться в свободной зоне между parent visual block и children row.
+
+Концептуально:
+
+```js
+const parentVisualBottom = Math.max(
+  parent.y + parent.height,
+  assistant
+    ? assistant.y + assistant.height
+    : parent.y + parent.height
+);
+
+const childrenTop = Math.min(
+  ...children.map((child) => child.y)
+);
+
+const junctionY =
+  parentVisualBottom +
+  (childrenTop - parentVisualBottom) / 2;
+```
+
+Конкретная реализация может отличаться, но принцип должен сохраняться.
+
+Horizontal line не должна проходить через карточки.
+
+---
+
+# 36. Lines не должны проходить за карточками
+
+Сейчас connector lines иногда физически проходят через области, занятые карточками, и оказываются визуально за ними.
+
+Это ухудшает читаемость.
+
+Необходимо исправить не только `z-index` / SVG drawing order, но и geometry paths.
+
+Connector path не должен проходить через interior bounding box:
+
+```text
+manager card
+assistant card
+department card
+employee card
+```
+
+Допустимо касаться только anchor boundary.
+
+---
+
+# 37. SVG drawing order
+
+Использовать понятный порядок слоев:
+
+```text
+1. background
+2. organizational connectors
+3. node cards
+4. assistant cards / sidecars
+5. toggle controls
+6. menus / overlays
+```
+
+Но правильный drawing order не заменяет правильную геометрию.
+
+Нельзя полагаться только на то, что карточка перекроет проходящую под ней линию.
+
+---
+
+# 38. Connector paths должны обходить карточки
+
+Orthogonal connector должен строиться через свободную зону:
+
+```text
+parent
+   │
+   │
+   ├──────────── junction
+   │      │
+ child  child
+```
+
+Не использовать `midY`, который может оказаться внутри card rectangle.
+
+---
+
+# 39. Toggle collapse / expand — текущая проблема
+
+Сейчас положение toggle control может «плавать» в зависимости от фактической высоты карточки.
+
+Карточки могут иметь разную высоту из-за:
+
+```text
+длинного названия
+двухстрочного title
+manager name
+должности
+другого content
+```
+
+Toggle должен иметь стабильную геометрическую привязку.
+
+---
+
+# 40. Toggle не привязывать к случайной content height
+
+Не рассчитывать toggle относительно внутренних DOM/text элементов.
+
+Использовать layout anchor.
+
+Предпочтительно:
+
+```js
+toggleX = node.x + node.width / 2;
+toggleY = nodeChildrenAnchorY;
+```
+
+или другой явно определенный connector anchor.
+
+Если toggle располагается непосредственно под card:
+
+```js
+toggleY =
+  node.y +
+  node.height +
+  TOGGLE_GAP;
+```
+
+но необходимо обеспечить общий визуальный baseline для siblings одного row.
+
+---
+
+# 41. Toggle baseline
+
+Для siblings одного organizational row toggle controls должны выглядеть согласованно.
+
+Не должно получаться:
+
+```text
+Card A     Card B     Card C
+   +          +
+                       +
+```
+
+из-за различной card height.
+
+Предпочтительный вариант при variable-height cards:
+
+```text
+toggle привязан к row / connector geometry,
+а не к content-height
+```
+
+---
+
+# 42. Разная высота карточек
+
+Не запрещать variable-height cards.
+
+Но Unified Layout должен корректно учитывать их bounding boxes.
+
+Для одного visual row:
+
+```text
+row visual bottom =
+max(bottom всех карточек row)
+```
+
+Следующая connector-zone должна начинаться ниже этого значения.
+
+Это предотвращает прохождение линий через более высокие карточки.
+
+---
+
+# 43. Assistant + children geometry
+
+Для manager с assistant и children целевой pattern:
+
+```text
+Manager      Assistant
+   │
+   │
+──────────── children junction ───────────
+│          │          │          │
+Dept A     Dept B     Dept C     Dept D
+```
+
+Assistant:
+
+- рядом с manager;
+- не перекрывает junction;
+- не перекрывает departments;
+- не является parent departments.
+
+Main vertical stem идет непосредственно от Manager.
+
+---
+
+# 44. Manager без assistant
+
+Если assistant отсутствует:
+
+```text
+Manager
+   │
+──────── children junction
+│       │       │
+...
+```
+
+Не создавать:
+
+- пустую assistant-zone;
+- лишний horizontal gap;
+- дополнительную vertical height;
+- пустой connector.
+
+---
+
+# 45. Несколько assistants
+
+Если в будущем одному manager соответствует несколько assistant-type employees, layout должен оставаться устойчивым.
+
+Допускается компактная sidecar-group около manager.
+
+Не создавать каждому assistant отдельный organizational row.
+
+Bounding box всей assistant-group должен учитываться при collision prevention.
+
+---
+
+# 46. Collision rules
+
+Не требуется внедрять тяжелый generic collision engine, если текущий layout может решить задачу детерминированной геометрией.
+
+Но в итоговом layout должно выполняться:
+
+```js
+rectsOverlap(
+  assistantRect,
+  departmentRect
+) === false;
+```
+
+и connector paths не должны пересекать card interiors.
+
+---
+
+# 47. Collapse / expand
+
+Существующая логика collapse / expand должна сохраниться.
+
+При collapse manager / directorate:
+
+- соответствующая organizational branch скрывается;
+- assistant остается логически связанным с manager;
+- при скрытии manager вместе с веткой assistant также не остается отдельно;
+- при expand assistant возвращается в позицию рядом с manager.
+
+Не менять текущую business semantics collapse без необходимости.
+
+---
+
+# 48. Viewport persistence
+
+Сохранить ранее реализованное поведение:
+
+```text
+collapse / expand
+→ текущий zoom сохраняется
+→ текущий pan сохраняется
+→ пользователь не возвращается к default fit
+```
+
+Этот CR не должен сломать viewport persistence.
+
+---
+
+# 49. AS IS / TO BE / Changes
+
+Вся логика должна работать в:
+
+```text
+AS IS
+TO BE
+Changes
+```
+
+Порядок:
+
+```text
+получить дерево текущего режима
+↓
+построить Holding Leadership Projection при необходимости
+↓
+compute Unified Layout
+↓
+render
+```
+
+Не создавать отдельную реализацию для каждого режима.
+
+---
+
+# 50. Scenario nodes
+
+Для scenario-created department без стабильного `department_guid` допускается:
+
+```text
+name fallback
+```
+
+Новая дирекция, не указанная в leadership config, не должна теряться.
+
+Она должна попадать в существующий fallback unassigned root department.
+
+---
+
+# 51. Численность
+
+Holding Leadership Projection и `sourceUsers` не должны менять:
+
+```text
+staffCount
+vacancyCount
+totalWithVacancies
+```
+
+Executive presentation nodes не добавляют людей повторно в business counters.
+
+Direct reports не должны удваиваться.
+
+---
+
+# 52. Detail cards
+
+Для executive / direct-report nodes использовать существующую employee detail logic, если соответствующий person object доступен.
+
+Не создавать отдельный detail-card implementation.
+
+---
+
+# 53. PDF
+
+В рамках данного CR не переписывать PDF renderer.
+
+Если PDF уже использует ту же prepared hierarchy / Unified Layout model, он должен автоматически получить обновленную Holding hierarchy.
+
+Не создавать отдельный leadership mapping внутри PDF.
+
+Специальный layout assistants для PDF менять только если PDF использует тот же Unified Layout и это не требует отдельной архитектурной задачи.
+
+---
+
+# 54. Debug diagnostics
+
+Под существующим debug flag добавить diagnostics top-management resolution:
+
+```text
+executive
+email
+sourceRecords
+selectedName
+selectedPosition
+selectedEmployment
+```
+
+Department mapping:
+
+```text
+department_guid
+department_name
+executive
+matchType = GUID | NAME | FALLBACK
+```
+
+Assistant mapping:
+
+```text
+assistant
+manager
+relation source
+assistant x/y
+manager x/y
+```
+
+В production console debug не должен постоянно выводиться.
+
+---
+
+# 55. Обновить `functionality`
+
+После реализации обязательно обновить актуальный `functionality`.
+
+В нем должны быть явно описаны следующие правила.
+
+## Holding Leadership Projection
+
+```text
+Селиванов
+├── Лукьянов
+├── Винник
+└── Клюев
+```
+
+## Ветка Лукьянова
+
+```text
+Инвестиции
+Экономика
+Строительство
+Финансы и отчетность
+Проектирование
+```
+
+## Ветка Винника
+
+```text
+Дирекция по развитию и градостроительной подготовке проектов
+```
+
+## Ветка Клюева
+
+```text
+Маркетинг
+Брендинг и коммуникации
+Безопасность
+Продажи
+Административно-правовая
+Персонал
+ИТ
+LEGENDA Comfort
+```
+
+## LEGENDA Comfort
+
+Зафиксировать:
+
+> `LEGENDA Comfort` относится к presentation-ветке Клюева. Руководителем подразделения является Мишуев Александр Адольфович. Мишуев отображается как manager карточки `LEGENDA Comfort`, а не как отдельный organizational level между Клюевым и подразделением.
+
+## Source employees
+
+Зафиксировать:
+
+```text
+sourceUsers → leadership lookup
+users       → standard rendering
+```
+
+## Mapping
+
+Зафиксировать:
+
+> Основной механизм идентификации подразделений в leadership config — `department_guid`. Название подразделения используется как fallback и диагностическое поле.
+
+## Assistants
+
+Зафиксировать:
+
+> Персональный / административный ассистент привязан к своему непосредственному руководителю и является visual sidecar-node. Ассистент располагается максимально близко к manager, преимущественно справа с небольшим vertical offset.
+
+Добавить:
+
+> Assistant не является самостоятельным organizational level и не меняет `effectiveLayoutLevel`, `sub_level`, `row` или parent-child hierarchy подразделений.
+
+## Connector geometry
+
+Зафиксировать:
+
+> Organizational children connector строится независимо от assistant. Для любого node с organizational children должна существовать читаемая vertical stem от parent card до children junction.
+
+Добавить:
+
+> Connector paths строятся по layout anchors и не должны проходить через bounding boxes карточек.
+
+## Toggle
+
+Зафиксировать:
+
+> Collapse / expand control привязан к layout / connector anchor и не должен зависеть от внутренней высоты текстового контента карточки.
+
+---
+
+# 56. Regression tests — Holding hierarchy
+
+Добавить / обновить существующие tests.
+
+## Test 1 — executives
+
+Ожидается:
+
+```text
+Селиванов
+├── Лукьянов
+├── Винник
+└── Клюев
+```
+
+Все три executives имеют одного presentation parent.
+
+---
+
+# 57. Test — fractional employment executive
+
+Fixture:
+
+```js
+{
+  email: "laa@legenda-dom.ru",
+  count: 0.02,
+  typeEmployment: "Основное место работы",
+  subLevel: 1.3
+}
+```
+
+Лукьянов должен существовать как executive.
+
+---
+
+# 58. Test — `sourceUsers` vs `users`
+
+Для employee:
+
+```text
+count = 0.02
+```
+
+проверить:
+
+```js
+sourceUsers.includes(person) === true;
+users.includes(person) === false;
+```
+
+если существующая visual filtering требует этого.
+
+---
+
+# 59. Test — legacy fallback
+
+Если fixture не содержит:
+
+```js
+sourceUsers
+```
+
+но содержит:
+
+```js
+users
+```
+
+leadership lookup продолжает работать.
+
+---
+
+# 60. Test — executive deduplication
+
+Несколько records с одинаковым corporate email дают:
+
+```text
+1 executive node
+```
+
+а не N карточек.
+
+---
+
+# 61. Test — primary record
+
+При records:
+
+```text
+0.02 — Основное место работы
+0.50 — Внешнее совместительство
+1.00 — Внешнее совместительство
+```
+
+primary record выбирается согласно установленным правилам, а не просто по максимальному `count`.
+
+---
+
+# 62. Test — Лукьянов directorates
+
+Проверить:
+
+```text
+Инвестиции               → Лукьянов
+Экономика                → Лукьянов
+Строительство            → Лукьянов
+Финансы и отчетность     → Лукьянов
+Проектирование           → Лукьянов
+```
+
+---
+
+# 63. Test — Винник directorate
+
+Проверить:
+
+```text
+Дирекция по развитию и градостроительной подготовке проектов
+→ Винник
+```
+
+---
+
+# 64. Test — Клюев directorates
+
+Проверить:
+
+```text
+Маркетинг                         → Клюев
+Брендинг и коммуникации          → Клюев
+Безопасность                      → Клюев
+Продажи                           → Клюев
+Административно-правовая         → Клюев
+Персонал                          → Клюев
+Информационные технологии        → Клюев
+LEGENDA Comfort                   → Клюев
+```
+
+---
+
+# 65. Test — LEGENDA Comfort manager
+
+Проверить:
+
+```text
+presentation parent LEGENDA Comfort = Клюев
+manager LEGENDA Comfort = Мишуев Александр Адольфович
+```
+
+Не должно существовать:
+
+```text
+Клюев → Мишуев → LEGENDA Comfort
+```
+
+Правильно:
+
+```text
+Клюев → LEGENDA Comfort(manager = Мишуев)
+```
+
+---
+
+# 66. Test — LEGENDA Comfort internal hierarchy
+
+После mapping под Клюева внутренняя структура `LEGENDA Comfort` должна сохранять исходные API parent-child relations.
+
+Не hardcode внутренние departments.
+
+---
+
+# 67. Test — direct reports Клюева
+
+Проверить:
+
+```text
+Сойдан Айкут → Клюев
+Кириллов Олег Сергеевич → Клюев
+```
+
+Они не должны становиться departments.
+
+---
+
+# 68. Test — assistant ownership
+
+Проверить минимум:
+
+```text
+Селиванов → Давыдова
+Лукьянов → Волкова
+Клюев → Лихачева
+Мишуев / LEGENDA Comfort → Николаева
+```
+
+Assistant A не может оказаться возле Manager B.
+
+---
+
+# 69. Test — assistant near manager
+
+Для manager + assistant:
+
+```js
+assistant.x > manager.x;
+```
+
+и:
+
+```js
+Math.abs(
+  assistant.y - manager.y
+) <= MAX_ASSISTANT_VERTICAL_OFFSET;
+```
+
+Тест не должен зависеть от одной абсолютной pixel-coordinate.
+
+---
+
+# 70. Test — assistant does not depend on subtree width
+
+Создать manager с assistant и большим количеством широких child branches.
+
+При увеличении subtree width assistant не должен пропорционально уезжать вправо.
+
+Его position остается локальной относительно manager.
+
+---
+
+# 71. Test — assistant does not change hierarchy
+
+Сравнить:
+
+```text
+Manager
+└── Department
+```
+
+и:
+
+```text
+Manager
+├── Assistant
+└── Department
+```
+
+У Department должны остаться одинаковыми:
+
+```text
+parent
+effectiveLayoutLevel
+organizational row
+```
+
+---
+
+# 72. Test — manager without assistant
+
+Manager без assistant не должен получать:
+
+```text
+пустую assistant zone
+assistant connector
+дополнительный gap
+новый row
+```
+
+---
+
+# 73. Test — main vertical stem
+
+Для любого node с organizational children проверить существование connector segment:
+
+```text
+parentBottomAnchor
+→ junctionY
+```
+
+Это особенно проверить для:
+
+```text
+Лукьянов
+Винник
+Клюев
+```
+
+---
+
+# 74. Test — connector free zone
+
+Проверить:
+
+```text
+junctionY > parentVisualBottom
+junctionY < childrenTop
+```
+
+Horizontal connector не должен находиться внутри card bounding box.
+
+---
+
+# 75. Test — assistant connector separate
+
+Для manager с assistant + departments должны существовать независимые visual connections:
+
+```text
+manager → assistant
+manager → children junction
+```
+
+---
+
+# 76. Test — variable card heights
+
+Создать sibling cards:
+
+```text
+1-line title
+2-line title
+3-line title
+```
+
+Проверить:
+
+- connectors не проходят через карточки;
+- toggle controls визуально согласованы;
+- следующий row учитывает максимальный visual bottom.
+
+---
+
+# 77. Test — toggle baseline
+
+Для sibling nodes одного organizational row:
+
+```js
+Math.abs(
+  toggleA.y - toggleB.y
+) <= tolerance;
+```
+
+если по layout они должны иметь общий control baseline.
+
+---
+
+# 78. Test — rename safe
+
+Config:
+
+```text
+id = X
+name = старое название
+```
+
+Tree:
+
+```text
+department_guid = X
+department_name = новое название
+```
+
+Mapping должен продолжать работать.
+
+---
+
+# 79. Test — name fallback
+
+Если GUID отсутствует, mapping по точному configured name продолжает работать.
+
+---
+
+# 80. Test — unknown department
+
+Если не совпали ни GUID, ни name:
+
+```text
+department → fallback / unassigned
+```
+
+Не назначать его случайному executive.
+
+---
+
+# 81. Test — staff count unchanged
+
+После добавления `sourceUsers` и leadership projection:
+
+```js
+staffCountBefore === staffCountAfter;
+```
+
+---
+
+# 82. Test — source immutability
+
+После:
+
+```text
+transformApiResponse
+Holding Leadership Projection
+Unified Layout
+```
+
+исходные API employee / department objects не должны быть мутированы.
+
+---
+
+# 83. Test — modes
+
+Проверить:
+
+```text
+AS IS
+TO BE
+Changes
+```
+
+Holding projection не должен подставлять случайно AS IS nodes в TO BE и наоборот.
+
+---
+
+# 84. Test — viewport regression
+
+После:
+
+```text
+zoom
+pan
+collapse
+expand
+```
+
+текущий viewport не должен сбрасываться в default fit.
+
+---
+
+# 85. Критерии приемки
+
+CR считается выполненным только если одновременно выполняются все основные условия:
+
+- [ ] Селиванов является root Holding Leadership Projection.
+- [ ] Под ним находятся Лукьянов, Винник и Клюев.
+- [ ] Все три executive отображаются одной карточкой каждый.
+- [ ] Executive lookup работает даже при `count < 1`.
+- [ ] Для leadership lookup используется `sourceUsers`.
+- [ ] Standard rendering продолжает использовать `users`.
+- [ ] Все пять дирекций Лукьянова находятся под ним.
+- [ ] Дирекция Винника находится под ним.
+- [ ] Все утвержденные дирекции Клюева находятся под ним.
+- [ ] `LEGENDA Comfort` находится под Клюевым.
+- [ ] Manager `LEGENDA Comfort` = Мишуев Александр Адольфович.
+- [ ] Мишуев не создает искусственный organizational level между Клюевым и `LEGENDA Comfort`.
+- [ ] Сойдан и Кириллов находятся в presentation-ветке Клюева.
+- [ ] Directorate mapping преимущественно работает по `department_guid`.
+- [ ] Rename при сохранении GUID не ломает mapping.
+- [ ] Name fallback сохранен.
+- [ ] Assistant привязан к конкретному непосредственному manager.
+- [ ] Assistant находится визуально рядом с manager.
+- [ ] Assistant преимущественно расположен справа с небольшим vertical offset.
+- [ ] Assistant не уезжает далеко вправо из-за ширины subtree.
+- [ ] Assistant не создает новый organizational row.
+- [ ] Assistant не меняет `effectiveLayoutLevel`.
+- [ ] Assistant не становится parent departments.
+- [ ] Под Лукьяновым видна vertical connector stem.
+- [ ] Под Винником видна vertical connector stem.
+- [ ] Под Клюевым видна vertical connector stem.
+- [ ] Connector lines не проходят через interiors карточек.
+- [ ] Horizontal junction располагается в свободной зоне.
+- [ ] Assistant connector отделен от organizational children connector.
+- [ ] Toggle controls имеют стабильную геометрическую привязку.
+- [ ] Variable-height cards не приводят к хаотичному положению toggle.
+- [ ] Collapse / expand работает.
+- [ ] Zoom / pan работает.
+- [ ] Viewport сохраняется при collapse / expand.
+- [ ] `staffCount` не изменился из-за `sourceUsers`.
+- [ ] API source data не мутируются.
+- [ ] AS IS работает.
+- [ ] TO BE работает.
+- [ ] Changes работает.
+- [ ] `functionality` обновлен.
+- [ ] Regression tests обновлены.
+- [ ] Все существующие tests проходят.
+- [ ] `npm test` проходит.
+- [ ] `npm run build` проходит.
+
+---
+
+# 86. Порядок реализации для Cline
+
+Перед внесением изменений:
+
+1. Изучить актуальный `functionality`.
+2. Изучить текущую реализацию CR-014 / Holding Leadership Projection.
+3. Найти актуальный `transformNode()`.
+4. Подтвердить существующую фильтрацию `count >= 1`.
+5. Найти текущий executive lookup.
+6. Найти `HOLDING_LEADERSHIP_CONFIG`.
+7. Найти все string-based mappings directorates.
+8. Получить реальные `department_guid` из текущих данных/config.
+9. Найти текущую реализацию assistant lookup.
+10. Найти `NODE_ASSISTANT` или аналог.
+11. Определить, как assistant сейчас влияет на subtree geometry.
+12. Определить, почему assistant смещается относительно ширины subtree.
+13. Найти текущую функцию построения connector paths.
+14. Найти место вычисления `junctionY`.
+15. Найти место размещения toggle controls.
+16. Проверить drawing order SVG layers.
+17. Кратко описать найденную текущую архитектуру и причины визуальных дефектов.
+18. Только после этого вносить изменения.
+
+После реализации:
+
+1. обновить `functionality`;
+2. обновить существующие tests;
+3. добавить regression tests из этого CR;
+4. запустить `npm test`;
+5. запустить `npm run build`;
+6. проверить реальный Holding view;
+7. проверить отдельно Лукьянова;
+8. проверить отдельно Винника;
+9. проверить отдельно Клюева;
+10. проверить `LEGENDA Comfort`;
+11. проверить assistants Селиванова, Лукьянова, Клюева и Мишуева;
+12. проверить variable-height department cards;
+13. проверить collapse / expand и viewport persistence;
+14. показать список измененных файлов;
+15. подтвердить, что исходный API tree не мутируется.
+
+---
+
+# 87. Ограничения реализации
+
+Не исправлять проблему набором координат для конкретных ФИО.
+
+Не создавать hardcoded visual positions для:
+
+```text
+Селиванов
+Лукьянов
+Винник
+Клюев
+Мишуев
+Давыдова
+Волкова
+Лихачева
+Николаева
+```
+
+Бизнес mapping верхнего уровня может быть configuration-based.
+
+Геометрия должна быть универсальной.
+
+Не внедрять второй layout engine.
+
+Не дублировать Unified Layout для Holding.
+
+Не решать connector overlap только через `z-index`.
+
+Не решать toggle drift простым фиксированным `top`.
+
+Не менять `sub_level` semantics.
+
+Не менять standard employee filtering без отдельной причины.
+
+---
+
+# 88. Главный архитектурный принцип
+
+Holding Leadership Projection определяет только специальную presentation hierarchy верхнего уровня:
+
+```text
+CEO
+↓
+Executives
+↓
+Directorates
+```
+
+После этого реальная внутренняя структура подразделения снова определяется обычным API tree.
+
+---
+
+# 89. Главный принцип данных
+
+Визуальная фильтрация обычных сотрудников не должна уничтожать данные, необходимые для построения управленческой структуры.
+
+Поэтому:
+
+```text
+sourceUsers
+```
+
+используется для leadership lookup,
+
+а:
+
+```text
+users
+```
+
+для standard rendering.
+
+---
+
+# 90. Главный принцип идентификации
+
+Идентичность подразделения должна определяться стабильным:
+
+```text
+department_guid
+```
+
+а не его текущим отображаемым названием.
+
+Название используется как fallback.
+
+---
+
+# 91. Главный принцип assistant
+
+Assistant является локальным visual sidecar конкретного manager.
+
+Он:
+
+```text
+не является department
+не является organizational level
+не является parent departments
+```
+
+и должен находиться визуально рядом со своим manager.
+
+---
+
+# 92. Главный принцип connectors
+
+Connector geometry должна строиться от layout anchors и свободных зон.
+
+Линии не должны физически проходить через карточки.
+
+Для любого manager с children main vertical stem должна оставаться видимой независимо от наличия assistant.
+
+---
+
+# 93. Главный принцип toggle
+
+Collapse / expand control является частью layout geometry, а не частью случайной внутренней высоты карточки.
+
+Его положение должно быть устойчивым при:
+
+```text
+1 строка title
+2 строки title
+3 строки title
+разная высота manager content
+```
+
+и не должно визуально «плавать» между sibling cards.

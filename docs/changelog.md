@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.28.0 (2026-08-27)
+ - CR-013_assistant_fix2: layout резервирует реальную assistant-zone для manager с ассистентами. Высота row менеджера с ассистентом учитывает `assistantVerticalGap + assistant.height + assistantToChildrenGap`, поэтому sidecar-карточка и её connector полностью находятся выше следующего organizational row и не пересекаются с department cards и horizontal junction.
+ - Для manager без ассистента дополнительная вертикальная зона не создается (behavior не меняется); несколько ассистентов образуют компактную sidecar-группу, зона рассчитывается по фактическому bounding box группы. Assistant по-прежнему не создаёт новый row/level и не меняет effectiveLayoutLevel/sub_level/parent-child hierarchy.
+ - Новый layout-параметр `assistantToChildrenGap` (по умолчанию 28px); паттерн «под-справа» сохранён.
+
 ## 2.27.0 (2026-08-27)
  - CR-013_assistant: визуальное размещение ассистентов изменено на паттерн «под-справа» (sidecar). Ассистент позиционируется относительно карточки своего руководителя (локальные параметры `assistantHorizontalGap`/`assistantVerticalGap`), а не относительно ширины subtree — больше не уезжает далеко вправо при росте ветвей.
  - Ассистент является sidecar-node: не создает организационный уровень, не меняет row/effectiveLayoutLevel/sub_level и parent-child hierarchy дочерних подразделений; несколько ассистентов одного руководителя образуют компактную группу; при collapse руководителя ассистент скрывается вместе с веткой.

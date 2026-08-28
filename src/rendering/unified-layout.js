@@ -48,6 +48,7 @@ const DEFAULT_OPTIONS = {
   // Позиция рассчитывается от карточки manager (под-справа), а не от subtree.
   assistantHorizontalGap: 16,
   assistantVerticalGap: 12,
+  assistantToChildrenGap: 28,
   assistantSidecarWidth: 240,
   assistantSidecarHeight: 44,
   paddingX: 40,
@@ -487,19 +488,41 @@ function buildRowIndexMap(tree) {
   return map;
 }
 
-function collectRowHeights(node, rowHeights, rowIndexMap) {
+/**
+ * CR-013_assistant_fix2 §1-3, §6-8: высота row учитывает локальную assistant-zone
+ * для manager с ассистентами. Зона резервирует вертикальное место под
+ * sidecar-карточки и их connector перед следующим organizational row, но НЕ
+ * создаёт новый row и не меняет effectiveLayoutLevel. Для manager без
+ * ассистентов зона не добавляется (conditional).
+ */
+function collectRowHeights(node, rowHeights, rowIndexMap, opts) {
   if (node.type === NODE_DEPARTMENT) {
     const index = rowIndexMap.get(node.row);
-    rowHeights[index] = Math.max(rowHeights[index] || 0, node.height);
+    let rowHeight = node.height;
+
+    const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
+    if (assistants.length) {
+      // Bounding box группы ассистентов (они расположены в ряд на одном y).
+      const groupHeight = Math.max(...assistants.map((assistant) => assistant.height));
+      rowHeight = Math.max(
+        rowHeight,
+        node.height +
+          opts.assistantVerticalGap +
+          groupHeight +
+          opts.assistantToChildrenGap,
+      );
+    }
+
+    rowHeights[index] = Math.max(rowHeights[index] || 0, rowHeight);
   }
-  (node.children || []).forEach((child) => collectRowHeights(child, rowHeights, rowIndexMap));
+  (node.children || []).forEach((child) => collectRowHeights(child, rowHeights, rowIndexMap, opts));
 }
 
 function computeRowTops(tree, opts) {
   const rowIndexMap = buildRowIndexMap(tree);
   const rowCount = rowIndexMap.size;
   const rowHeights = new Array(rowCount).fill(0);
-  collectRowHeights(tree, rowHeights, rowIndexMap);
+  collectRowHeights(tree, rowHeights, rowIndexMap, opts);
 
   const rowTops = new Array(rowCount);
   rowTops[0] = opts.paddingY;
@@ -526,18 +549,16 @@ function assignY(node, rowTops, rowIndexMap, parent, opts) {
  *
  * - x = manager.x + manager.width + assistantHorizontalGap (несколько
  *   ассистентов укладываются компактной группой с тем же gap);
- * - y = manager.y + manager.height + assistantVerticalGap, если под manager
- *   хватает вертикального места (rowGap), иначе — по нижнему краю manager.
+ * - y = manager.y + manager.height + assistantVerticalGap. Вертикальное место
+ *   под ассистентом резервируется assistant-zone в collectRowHeights
+ *   (CR-013_assistant_fix2 §1-3).
  */
 function placeAssistantSidecars(tree, opts) {
   (function walk(node) {
     const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
     let cursorX = node.x + node.width + opts.assistantHorizontalGap;
     assistants.forEach((assistant) => {
-      const fitsBelow = opts.assistantVerticalGap + assistant.height <= opts.rowGap;
-      assistant.y = fitsBelow
-        ? node.y + node.height + opts.assistantVerticalGap
-        : node.y + node.height - assistant.height;
+      assistant.y = node.y + node.height + opts.assistantVerticalGap;
       assistant.x = cursorX;
       cursorX += assistant.width + opts.assistantHorizontalGap;
     });

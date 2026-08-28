@@ -207,9 +207,11 @@ describe("unified-layout", () => {
         dept("B", "B", { managerSubLevel: 3, children: [dept("B1", "B1", { managerSubLevel: 4 })] }),
       ],
     });
-    const yWith = byId(computeUnifiedLayout(withAst).nodes, "B1").y;
-    const yNo = byId(computeUnifiedLayout(noAst).nodes, "B1").y;
-    expect(yWith).toBe(yNo);
+    // CR-013_assistant_fix2: assistant не создаёт новый row/level (row не меняется),
+    // но резервирует вертикальное место — Y следующего уровня может сместиться.
+    const rowWith = byId(computeUnifiedLayout(withAst).nodes, "B1").row;
+    const rowNo = byId(computeUnifiedLayout(noAst).nodes, "B1").row;
+    expect(rowWith).toBe(rowNo);
   });
 
   it("collapsed department не влияет на соседние ветки", () => {
@@ -519,9 +521,11 @@ describe("unified-layout · assistant sidecar (CR-013_assistant)", () => {
     const aWith = byId(withAst.nodes, "branch-0");
     const aNo = byId(noAst.nodes, "branch-0");
 
+    // Структура (row, level) не меняется; CR-013_assistant_fix2 — Y может
+    // сместиться из-за резервирования assistant-zone.
     expect(aWith.row).toBe(aNo.row);
     expect(aWith.effectiveLayoutLevel).toBe(aNo.effectiveLayoutLevel);
-    expect(aWith.y).toBe(aNo.y);
+    expect(aWith.y).toBeGreaterThan(aNo.y);
   });
 
   it("assistant не уезжает вправо при росте ширины subtree (CR-013_assistant Test 8)", () => {
@@ -577,6 +581,109 @@ describe("unified-layout · assistant sidecar (CR-013_assistant)", () => {
     expect(astA.x).toBeCloseTo(mgrA.x + mgrA.width + 16, 5);
     // Assistant B рядом с Manager B
     expect(astB.x).toBeCloseTo(mgrB.x + mgrB.width + 16, 5);
+  });
+});
+
+
+describe("unified-layout · assistant-zone (CR-013_assistant_fix2)", () => {
+  it("assistant полностью выше следующего row: assistant.bottom < childrenRowTop (Test 11)", () => {
+    const tree = dept("klyuev", "Клюев", {
+      managerSubLevel: 2,
+      users: [user("ast-1", "Лихачева", { position: "Персональный ассистент" })],
+      children: ["A", "B", "C"].map((name, i) =>
+        dept(`dept-${i}`, `Department ${name}`, { managerSubLevel: 3 }),
+      ),
+    });
+    const { nodes } = computeUnifiedLayout(tree);
+
+    const manager = byId(nodes, "klyuev");
+    const ast = byId(nodes, "ast-1");
+    const childrenRowTop = Math.min(
+      ...["A", "B", "C"].map((_, i) => byId(nodes, `dept-${i}`).y),
+    );
+
+    expect(ast.y).toBeGreaterThan(manager.y);
+    expect(ast.x).toBeGreaterThan(manager.x + manager.width);
+    expect(ast.y + ast.height).toBeLessThan(childrenRowTop);
+    // Минимальный зазор до следующего row (assistantToChildrenGap).
+    expect(childrenRowTop - (ast.y + ast.height)).toBeGreaterThanOrEqual(28);
+  });
+
+  it("без assistant Y-layout не меняется (Test 12)", () => {
+    const tree = dept("manager", "Manager", {
+      managerSubLevel: 2,
+      children: [
+        dept("A", "A", { managerSubLevel: 3 }),
+        dept("B", "B", { managerSubLevel: 3 }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(tree);
+
+    const manager = byId(nodes, "manager");
+    const a = byId(nodes, "A");
+    const b = byId(nodes, "B");
+
+    // Стандартная формула без assistant-zone.
+    expect(a.y).toBe(manager.y + manager.height + 60);
+    expect(b.y).toBe(a.y);
+  });
+
+  it("assistant остаётся локально у manager при широком subtree (Test 13)", () => {
+    const tree = dept("manager", "Manager", {
+      managerSubLevel: 2,
+      users: [user("ast-1", "Anna", { position: "Административный ассистент" })],
+      children: Array.from({ length: 10 }, (_, i) => dept(`d${i}`, `D${i}`, { managerSubLevel: 3 })),
+    });
+    const { nodes } = computeUnifiedLayout(tree);
+
+    const manager = byId(nodes, "manager");
+    const ast = byId(nodes, "ast-1");
+
+    expect(ast.x).toBeGreaterThan(manager.x + manager.width);
+    expect(ast.x).toBeLessThan(manager.x + manager.width + 100);
+    for (let i = 0; i < 10; i += 1) {
+      const child = byId(nodes, `d${i}`);
+      expect(ast.y + ast.height).toBeLessThanOrEqual(child.y);
+    }
+  });
+
+  it("assistant-zone независима: каждый assistant у своего manager, row детей согласован (Test 14)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        dept("mgr-a", "Manager A", {
+          managerSubLevel: 2,
+          users: [user("ast-a", "Assistant A", { position: "Административный ассистент" })],
+          children: [dept("a1", "A1", { managerSubLevel: 3 })],
+        }),
+        dept("mgr-b", "Manager B", {
+          managerSubLevel: 2,
+          users: [user("ast-b", "Assistant B", { position: "Персональный ассистент" })],
+          children: [dept("b1", "B1", { managerSubLevel: 3 })],
+        }),
+        dept("mgr-c", "Manager C", {
+          managerSubLevel: 2,
+          children: [dept("c1", "C1", { managerSubLevel: 3 })],
+        }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    const mgrA = byId(nodes, "mgr-a");
+    const mgrB = byId(nodes, "mgr-b");
+    const astA = byId(nodes, "ast-a");
+    const astB = byId(nodes, "ast-b");
+
+    // Каждый assistant у своего manager, без перекрёстной привязки.
+    expect(astA.x).toBeGreaterThan(mgrA.x + mgrA.width);
+    expect(astB.x).toBeGreaterThan(mgrB.x + mgrB.width);
+    expect(astA.x).toBeLessThan(mgrB.x);
+    // Ассистенты выше своих детей.
+    expect(astA.y + astA.height).toBeLessThanOrEqual(byId(nodes, "a1").y);
+    expect(astB.y + astB.height).toBeLessThanOrEqual(byId(nodes, "b1").y);
+    // Общий row детей остаётся согласованным.
+    expect(byId(nodes, "a1").y).toBe(byId(nodes, "b1").y);
+    expect(byId(nodes, "b1").y).toBe(byId(nodes, "c1").y);
   });
 });
 
