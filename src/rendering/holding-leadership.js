@@ -56,7 +56,7 @@ export const HOLDING_LEADERSHIP_CONFIG = {
     vinnik: {
       key: "vinnik",
       email: "l.vinnik@legenda-dom.ru",
-      title: "Заместитель генерального директора по развитию",
+      title: "Директор по развитию градостроительной подготовки проектов",
       directorates: [
         {
           id: "b805ce29-bfa4-11ec-b6d7-4c5262500118",
@@ -67,7 +67,7 @@ export const HOLDING_LEADERSHIP_CONFIG = {
     klyuev: {
       key: "klyuev",
       email: "avk@legenda-dom.ru",
-      title: "Исполнительный директор Холдинга",
+      title: "Исполнительный директор Холдинга LEGENDA",
       directorates: [
         { id: "0e9d7eaa-c503-11ee-bbff-d85ed308d2c7", name: "Дирекция по маркетингу" },
         { id: "ca4add27-c590-11ee-bbff-d85ed308d2c7", name: "Дирекция брендинга и коммуникаций" },
@@ -76,6 +76,8 @@ export const HOLDING_LEADERSHIP_CONFIG = {
         { id: "4ec3380f-49aa-11ea-81f8-000c294addcc", name: "Административно-правовая дирекция" },
         { id: "7e36c78d-aee7-11e9-81e5-000c294addcc", name: "Дирекция по персоналу" },
         { id: "6a7a8792-efe7-11e9-81eb-000c294addcc", name: "Дирекция по информационным технологиям" },
+        // CR-013_fix §6-7: LEGENDA Comfort — подразделение Клюева (ренейм «Дирекции по эксплуатации»).
+        { id: "9b30e683-df6d-11e9-81eb-000c294addcc", name: "LEGENDA Comfort" },
       ],
       directReports: [
         { email: "a.soydan@legenda-dom.ru" },
@@ -172,11 +174,30 @@ export function matchesConfiguredDepartment(department, configured) {
  * или null, если подразделение не сопоставлено ни с одним руководителем.
  */
 export function resolveExecutiveKey(department) {
+  return resolveDepartmentMatch(department)?.key || null;
+}
+
+/**
+ * Возвращает детальную информацию о сопоставлении подразделения:
+ * { key, matchType } где matchType: "guid" | "name" | null (fallback/unassigned).
+ * Используется и для mapping, и для debug-диагностики (CR-013_fix §20, §26).
+ */
+export function resolveDepartmentMatch(department) {
   if (!department) return null;
   const entries = Object.values(HOLDING_LEADERSHIP_CONFIG.executives);
+
   for (const execCfg of entries) {
-    if (execCfg.directorates.some((configured) => matchesConfiguredDepartment(department, configured))) {
-      return execCfg.key;
+    for (const configured of execCfg.directorates) {
+      if (configured.id && department.department_guid && configured.id === department.department_guid) {
+        return { key: execCfg.key, matchType: "guid" };
+      }
+    }
+  }
+  for (const execCfg of entries) {
+    for (const configured of execCfg.directorates) {
+      if (configured.name && department.department_name === configured.name) {
+        return { key: execCfg.key, matchType: "name" };
+      }
     }
   }
   return null;
@@ -358,13 +379,17 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
   });
 
   if (PROJECTION_DEBUG) {
-    // Диагностика department mapping (CR-013_fix §20).
+    // Диагностика department mapping (CR-013_fix §20, §26).
     console.table(
-      topDepartments.map((department) => ({
-        id: department.department_guid,
-        name: department.department_name,
-        executive: resolveExecutiveKey(department),
-      })),
+      topDepartments.map((department) => {
+        const match = resolveDepartmentMatch(department);
+        return {
+          department_guid: department.department_guid,
+          department_name: department.department_name,
+          executive: match?.key || null,
+          matchType: match?.matchType || "fallback",
+        };
+      }),
     );
   }
 

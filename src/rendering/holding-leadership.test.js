@@ -9,6 +9,10 @@ import {
 } from "./holding-leadership.js";
 import { computeUnifiedLayout, NODE_DEPARTMENT, NODE_ASSISTANT } from "./unified-layout.js";
 
+function byId(nodes, id) {
+  return nodes.find((node) => node.data && node.data.id === id);
+}
+
 const LUKYANOV_DIRECTORATES = [
   "Дирекция по инвестициям",
   "Дирекция по экономике",
@@ -212,9 +216,9 @@ describe("holding-leadership (CR-013)", () => {
     expect(lukyanov.__person.subLevel).toBe(1.3);
 
     expect(vinnik.department_manager_position).toBe(
-      "Заместитель генерального директора по развитию",
+      "Директор по развитию градостроительной подготовки проектов",
     );
-    expect(klyuev.department_manager_position).toBe("Исполнительный директор Холдинга");
+    expect(klyuev.department_manager_position).toBe("Исполнительный директор Холдинга LEGENDA");
   });
 
   it("распределяет дирекции по руководителям (CR-013 §3)", () => {
@@ -543,6 +547,155 @@ describe("holding-leadership · fix mapping (CR-013_fix)", () => {
     buildHoldingLeadershipTree(input);
 
     expect(JSON.stringify(input)).toBe(JSON.stringify(snapshot));
+  });
+});
+
+
+describe("holding-leadership · LEGENDA Comfort и ассистенты (CR-013_fix)", () => {
+  const LEGENDA_COMFORT_GUID = "9b30e683-df6d-11e9-81eb-000c294addcc";
+
+  it("LEGENDA Comfort попадает под Клюева (CR-013_fix Test 9, §6)", () => {
+    const input = makeHoldingRoot();
+    input.children.push({
+      department_guid: LEGENDA_COMFORT_GUID,
+      department_name: "LEGENDA Comfort",
+      staffCount: 10,
+      users: [],
+      children: [],
+    });
+
+    const root = buildHoldingLeadershipTree(input);
+    const klyuev = root.children.find((exec) => exec.executiveKey === "klyuev");
+
+    expect(klyuev.children.map((d) => d.department_name)).toContain("LEGENDA Comfort");
+    expect(
+      root.children.some((child) => !child.isHoldingExecutive && child.department_name === "LEGENDA Comfort"),
+    ).toBe(false);
+  });
+
+  it("внутренняя hierarchy LEGENDA Comfort не hardcode (CR-013_fix Test 10, §7)", () => {
+    const input = makeHoldingRoot();
+    const comfort = {
+      department_guid: LEGENDA_COMFORT_GUID,
+      department_name: "LEGENDA Comfort",
+      staffCount: 12,
+      users: [],
+      children: [
+        { department_guid: "comfort-child-1", department_name: "Служба эксплуатации", staffCount: 5, users: [], children: [] },
+        { department_guid: "comfort-child-2", department_name: "Служба управления", staffCount: 7, users: [], children: [] },
+      ],
+    };
+    input.children.push(comfort);
+
+    const root = buildHoldingLeadershipTree(input);
+    const klyuev = root.children.find((exec) => exec.executiveKey === "klyuev");
+    const comfortNode = klyuev.children.find((d) => d.department_name === "LEGENDA Comfort");
+
+    // Ветка Клюева содержит исходный узел LEGENDA Comfort целиком (референс),
+    // его внутренняя структура сохранена как в API.
+    expect(comfortNode).toBe(comfort);
+    expect(comfortNode.children.map((c) => c.department_name)).toEqual([
+      "Служба эксплуатации",
+      "Служба управления",
+    ]);
+  });
+
+  it("assistant привязан к своему manager, без перекрёстной привязки (CR-013_fix Test 12)", () => {
+    const root = {
+      department_guid: "root",
+      department_name: "ROOT",
+      department_manager: "Root Manager",
+      users: [],
+      children: [
+        {
+          department_guid: "manager-a",
+          department_name: "Manager A",
+          department_manager: "Manager A",
+          users: [
+            { id: "ast-a", full_name: "Assistant A", position: "Административный ассистент", rawPosition: "Административный ассистент", isVacancy: false },
+          ],
+          children: [{ department_guid: "dept-a", department_name: "Department A", users: [], children: [] }],
+        },
+        {
+          department_guid: "manager-b",
+          department_name: "Manager B",
+          department_manager: "Manager B",
+          users: [
+            { id: "ast-b", full_name: "Assistant B", position: "Персональный ассистент", rawPosition: "Персональный ассистент", isVacancy: false },
+          ],
+          children: [{ department_guid: "dept-b", department_name: "Department B", users: [], children: [] }],
+        },
+      ],
+    };
+
+    const { tree } = computeUnifiedLayout(root);
+
+    const managerA = tree.children.find((c) => c.data.id === "manager-a");
+    const managerB = tree.children.find((c) => c.data.id === "manager-b");
+
+    const assistantsOfA = managerA.children.filter((c) => c.type === NODE_ASSISTANT);
+    const assistantsOfB = managerB.children.filter((c) => c.type === NODE_ASSISTANT);
+
+    expect(assistantsOfA).toHaveLength(1);
+    expect(assistantsOfA[0].data.id).toBe("ast-a");
+    expect(assistantsOfB).toHaveLength(1);
+    expect(assistantsOfB[0].data.id).toBe("ast-b");
+  });
+
+  it("assistant не создаёт организационный уровень (CR-013_fix Test 13)", () => {
+    const make = (withAssistant) => {
+      const manager = {
+        department_guid: "manager",
+        department_name: "Manager",
+        department_manager: "Manager",
+        users: withAssistant
+          ? [{ id: "ast-1", full_name: "Assistant", position: "Административный ассистент", rawPosition: "Административный ассистент", isVacancy: false }]
+          : [],
+        children: [{ department_guid: "dept-a", department_name: "Department A", manager_sub_level: 3, users: [], children: [] }],
+      };
+      return {
+        department_guid: "root",
+        department_name: "ROOT",
+        manager_sub_level: 2,
+        users: [],
+        children: [manager],
+      };
+    };
+
+    const yWith = byId(computeUnifiedLayout(make(true)).nodes, "dept-a").y;
+    const yWithout = byId(computeUnifiedLayout(make(false)).nodes, "dept-a").y;
+    expect(yWith).toBe(yWithout);
+  });
+
+  it("ассистент внутри LEGENDA Comfort привязан к своему manager (CR-013_fix Test 14)", () => {
+    const root = {
+      department_guid: "root",
+      department_name: "ROOT",
+      users: [],
+      children: [
+        {
+          department_guid: "mishuev",
+          department_name: "Мищуев",
+          department_manager: "Мищуев",
+          users: [
+            { id: "nikolaeva", full_name: "Николаева", position: "Административный ассистент", rawPosition: "Административный ассистент", isVacancy: false },
+          ],
+          children: [
+            { department_guid: "comfort-inner", department_name: "Служба", users: [], children: [] },
+          ],
+        },
+      ],
+    };
+
+    const { tree } = computeUnifiedLayout(root);
+    const mishuev = tree.children.find((c) => c.data.id === "mishuev");
+
+    const assistant = mishuev.children.find((c) => c.type === NODE_ASSISTANT);
+    expect(assistant).toBeTruthy();
+    expect(assistant.data.id).toBe("nikolaeva");
+
+    // Parent-child структура внутренних подразделений не меняется.
+    expect(mishuev.children.some((c) => c.data.id === "comfort-inner")).toBe(true);
   });
 });
 

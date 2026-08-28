@@ -62,6 +62,20 @@ export function isAdministrativeAssistant(user) {
   return position.includes("административный ассистент");
 }
 
+/**
+ * Ассистент руководителя — персональный или административный (CR-013_fix §9).
+ * Используется в layout для привязки assistant к его непосредственному manager.
+ * Не заменяет isAdministrativeAssistant() (используется PDF role aggregation).
+ */
+export function isAssistantUser(user) {
+  if (!user || user.isVacancy) return false;
+  const position = String(user.rawPosition || user.position || "").toLowerCase();
+  return (
+    position.includes("административный ассистент") ||
+    position.includes("персональный ассистент")
+  );
+}
+
 export function findAdministrativeAssistant(users) {
   return (users || []).find((user) => isAdministrativeAssistant(user)) || null;
 }
@@ -86,16 +100,44 @@ export function buildLayoutTree(
   rootNode,
   { showVacancies = true, collapsedIds = null } = {},
 ) {
-  const assistantsToSkip = new Set();
-  // CR-013 §18: для корня Холдинга ассистент привязан к Селиванову явно
-  // (holding leadership projection), а не выбирается «первый найденный».
+  // Универсальная привязка ассистентов (CR-013_fix §9, §12):
+  // каждый assistant является специальным employee node своего непосредственного
+  // руководителя — department, в чьих sourceUsers/users он находится.
+  // Глобальное правило «первый ассистент в ветке → рядом с root» не используется.
+  // Для корня Холдинга (holding projection) ассистент задаётся конфигурацией.
   const isHoldingPresentation = Boolean(rootNode && rootNode.__holdingPresentation === true);
-  const rootAssistant = isHoldingPresentation
-    ? rootNode.__assistant || null
-    : rootNode
-      ? findAdministrativeAssistantInSubtree(rootNode)
-      : null;
+  const rootAssistant = isHoldingPresentation ? rootNode.__assistant || null : null;
+
+  const assistantsToSkip = new Set();
   if (rootAssistant?.id) assistantsToSkip.add(rootAssistant.id);
+
+  /**
+   * Собственные ассистенты подразделения: из sourceUsers (полный набор ДО
+   * фильтрации по count >= 1) с fallback на users — как в executive lookup.
+   * В ролевом PDF-режиме (CR-003-02) сотрудники агрегированы в roles,
+   * отдельные assistant-узлы не создаются.
+   */
+  function findOwnAssistants(node) {
+    if (Array.isArray(node.pdfRoles)) return [];
+    const source = Array.isArray(node.sourceUsers) ? node.sourceUsers : node.users || [];
+    return source
+      .filter((user) => !user.isVacancy)
+      .filter((user) => isAssistantUser(user))
+      .filter((user) => !assistantsToSkip.has(user.id));
+  }
+
+  function makeAssistantNode(assistant) {
+    return {
+      type: NODE_ASSISTANT,
+      data: {
+        ...assistant,
+        id: assistant.id,
+        isDepartment: false,
+        isVacancy: false,
+        isAssistant: true,
+      },
+    };
+  }
 
   function buildDepartment(node, isRoot) {
     const data = {
@@ -138,25 +180,25 @@ export function buildLayoutTree(
       data.pdfCardLayout = node.pdfCardLayout;
     }
 
+    const ownAssistants = findOwnAssistants(node);
+
     const users = (node.users || [])
       .filter((user) => showVacancies || !user.isVacancy)
-      .filter((user) => !isAdministrativeAssistant(user))
+      .filter((user) => !isAssistantUser(user))
       .filter((user) => !assistantsToSkip.has(user.id));
 
     const children = [];
 
+    // Ассистент корня (holding projection): задан конфигурацией (CR-013 §18).
     if (isRoot && rootAssistant?.id) {
-      children.push({
-        type: NODE_ASSISTANT,
-        data: {
-          ...rootAssistant,
-          id: rootAssistant.id,
-          isDepartment: false,
-          isVacancy: false,
-          isAssistant: true,
-        },
-      });
+      children.push(makeAssistantNode(rootAssistant));
     }
+
+    // Собственные ассистенты подразделения — рядом с карточкой руководителя
+    // (CR-013_fix §9-12): не создают организационный уровень.
+    ownAssistants.forEach((assistant) => {
+      children.push(makeAssistantNode(assistant));
+    });
 
     if (users.length) {
       children.push({
