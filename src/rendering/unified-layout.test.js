@@ -896,3 +896,143 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
   });
 });
 
+function rect(n) {
+  return { left: n.x, top: n.y, right: n.x + n.width, bottom: n.y + n.height };
+}
+
+function rectsOverlap(a, b) {
+  return !(
+    a.right <= b.left ||
+    b.right <= a.left ||
+    a.bottom <= b.top ||
+    b.bottom <= a.top
+  );
+}
+
+describe("unified-layout · assistant footprint (CR-017)", () => {
+  function makeRootWithAssistants() {
+    return dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        dept("A", "Department A", {
+          managerSubLevel: 2,
+          users: [user("ast-a", "Assistant A", { position: "Административный ассистент" })],
+        }),
+        dept("B", "Department B", { managerSubLevel: 2 }),
+      ],
+    });
+  }
+
+  it("assistant sidecar не перекрывает соседний sibling department (CR-017 §7-8, §10, §21-22)", () => {
+    const { nodes } = computeUnifiedLayout(makeRootWithAssistants());
+
+    const astA = byId(nodes, "ast-a");
+    const b = byId(nodes, "B");
+
+    expect(astA).toBeTruthy();
+    expect(rectsOverlap(rect(astA), rect(b))).toBe(false);
+    // Следующий sibling начинается после visual footprint ветви A (включая assistant).
+    expect(b.x).toBeGreaterThanOrEqual(astA.x + astA.width);
+  });
+
+  it("collapsed branch сохраняет assistant footprint (CR-017 §12, §23-24)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        dept("A", "Department A", {
+          managerSubLevel: 2,
+          users: [user("ast-a", "Assistant A", { position: "Административный ассистент" })],
+          children: [dept("A1", "A1", { managerSubLevel: 3 })],
+        }),
+        dept("B", "Department B", { managerSubLevel: 2 }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root, { collapsedIds: new Set(["A"]) });
+
+    const astA = byId(nodes, "ast-a");
+    const b = byId(nodes, "B");
+
+    expect(byId(nodes, "A1")).toBeUndefined();
+    expect(astA).toBeTruthy();
+    expect(rectsOverlap(rect(astA), rect(b))).toBe(false);
+    expect(b.x).toBeGreaterThanOrEqual(astA.x + astA.width);
+  });
+
+  it("несколько sibling managers с assistants не пересекаются (CR-017 §16, §27)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        dept("A", "Department A", {
+          managerSubLevel: 2,
+          users: [
+            user("ast-a1", "Assistant A1", { position: "Административный ассистент" }),
+            user("ast-a2", "Assistant A2", { position: "Персональный ассистент" }),
+          ],
+        }),
+        dept("B", "Department B", {
+          managerSubLevel: 2,
+          users: [user("ast-b", "Assistant B", { position: "Административный ассистент" })],
+        }),
+        dept("C", "Department C", { managerSubLevel: 2 }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    const astA1 = byId(nodes, "ast-a1");
+    const astA2 = byId(nodes, "ast-a2");
+    const astB = byId(nodes, "ast-b");
+    const b = byId(nodes, "B");
+    const c = byId(nodes, "C");
+
+    expect(rectsOverlap(rect(astA1), rect(b))).toBe(false);
+    expect(rectsOverlap(rect(astA2), rect(b))).toBe(false);
+    expect(rectsOverlap(rect(astA1), rect(astB))).toBe(false);
+    expect(rectsOverlap(rect(astA2), rect(astB))).toBe(false);
+    expect(rectsOverlap(rect(astB), rect(c))).toBe(false);
+  });
+
+  it("manager без assistant не получает лишнюю ширину ветки (CR-017 §25)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [dept("A", "A", { managerSubLevel: 2 }), dept("B", "B", { managerSubLevel: 2 })],
+    });
+    const { tree } = computeUnifiedLayout(root);
+
+    const a = tree.children.find((c) => c.data.id === "A");
+    const b = tree.children.find((c) => c.data.id === "B");
+    expect(a.subtreeWidth).toBe(a.width);
+    expect(b.subtreeWidth).toBe(b.width);
+  });
+
+  it("учитывается assistant шире manager (CR-017 §26)", () => {
+    const { nodes } = computeUnifiedLayout(makeRootWithAssistants(), {
+      departmentWidth: 250,
+      assistantSidecarWidth: 350,
+    });
+
+    const astA = byId(nodes, "ast-a");
+    const b = byId(nodes, "B");
+
+    expect(astA.width).toBe(350);
+    expect(rectsOverlap(rect(astA), rect(b))).toBe(false);
+    expect(b.x).toBeGreaterThanOrEqual(astA.x + astA.width);
+  });
+
+  it("assistant не меняет organizational bounds: row/effectiveLayoutLevel детей сохраняются (CR-017 §5, §15)", () => {
+    const withAst = makeRootWithAssistants();
+    const withoutAst = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [dept("A", "Department A", { managerSubLevel: 2 }), dept("B", "Department B", { managerSubLevel: 2 })],
+    });
+
+    const { nodes: nodesWith } = computeUnifiedLayout(withAst);
+    const { nodes: nodesWithout } = computeUnifiedLayout(withoutAst);
+
+    const aWith = byId(nodesWith, "A");
+    const aWithout = byId(nodesWithout, "A");
+
+    expect(aWith.row).toBe(aWithout.row);
+    expect(aWith.effectiveLayoutLevel).toBe(aWithout.effectiveLayoutLevel);
+  });
+});
+

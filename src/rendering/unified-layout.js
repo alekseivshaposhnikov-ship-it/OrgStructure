@@ -466,25 +466,58 @@ function computeSizes(node, opts) {
   (node.children || []).forEach((child) => computeSizes(child, opts));
 }
 
-function computeSubtreeWidths(node, colGap) {
+function computeSubtreeWidths(node, colGap, opts) {
   if (node.type !== NODE_DEPARTMENT || !node.children.length) {
     node.subtreeWidth = node.width;
+    applyAssistantFootprint(node, opts);
     return node.subtreeWidth;
   }
 
-  // Sidecar-ассистенты (CR-013_assistant §7, §10) не участвуют в ширине ветки.
+  // Sidecar-ассистенты (CR-013_assistant §7, §10) не участвуют в организационной
+  // ширине ветки (не считаются children-столбцом), но их visual footprint
+  // учитывается в subtreeWidth (CR-017 §7-8, §12).
   const children = node.children.filter((child) => child.type !== NODE_ASSISTANT);
   if (!children.length) {
     node.subtreeWidth = node.width;
+    applyAssistantFootprint(node, opts);
     return node.subtreeWidth;
   }
 
   const childrenWidth =
-    children.reduce((sum, child) => sum + computeSubtreeWidths(child, colGap), 0) +
+    children.reduce((sum, child) => sum + computeSubtreeWidths(child, colGap, opts), 0) +
     (children.length - 1) * colGap;
 
   node.subtreeWidth = Math.max(node.width, childrenWidth);
+  applyAssistantFootprint(node, opts);
   return node.subtreeWidth;
+}
+
+/**
+ * CR-017 §7-8, §12, §16: assistant sidecar является частью visual footprint
+ * manager branch. subtreeWidth расширяется так, чтобы правый край assistant-группы
+ * не выходил за правую границу subtree-блока — следующий sibling branch после
+ * этого гарантированно начинается после видимого assistant (перекрытия нет).
+ *
+ * Аналитически: assistant.x = node.x + node.width + assistantHorizontalGap,
+ * node.x = left + subtreeWidth/2 - node.width/2 (assignX). Условие
+ * assistantRight <= left + subtreeWidth:
+ *
+ *   subtreeWidth/2 + node.width/2 + gap + groupWidth <= subtreeWidth
+ *   → subtreeWidth >= node.width + 2*gap + 2*groupWidth
+ *
+ * Для manager без assistant функция ничего не меняет (CR-017 §25).
+ */
+function applyAssistantFootprint(node, opts) {
+  const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
+  if (!assistants.length) return;
+
+  const gap = opts.assistantHorizontalGap;
+  const groupWidth =
+    assistants.reduce((sum, ast) => sum + ast.width, 0) +
+    (assistants.length - 1) * gap;
+
+  const required = node.width + 2 * gap + 2 * groupWidth;
+  node.subtreeWidth = Math.max(node.subtreeWidth || node.width, required);
 }
 
 function assignX(node, left, colGap) {
@@ -675,7 +708,7 @@ export function computeUnifiedLayout(rootNode, options = {}) {
   computeRows(tree);
 
   computeSizes(tree, opts);
-  computeSubtreeWidths(tree, opts.colGap);
+  computeSubtreeWidths(tree, opts.colGap, opts);
   assignX(tree, opts.paddingX, opts.colGap);
 
   const { rowTops, rowIndexMap } = computeRowTops(tree, opts);

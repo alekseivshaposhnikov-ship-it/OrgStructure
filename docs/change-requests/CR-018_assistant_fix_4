@@ -1,0 +1,1000 @@
+# CR-018 — Компактное горизонтальное размещение ветвей с учётом assistant sidecar
+
+## 1. Цель изменения
+
+Исправить избыточные горизонтальные отступы между ветвями организационной структуры, появившиеся после реализации безопасного размещения персональных и административных ассистентов.
+
+Сейчас ассистенты корректно отображаются рядом со своими руководителями и не должны перекрываться соседними карточками, однако для предотвращения пересечений layout заранее резервирует слишком большую ширину каждой ветви.
+
+В результате при отображении структуры Холдинга возникает большое количество пустого пространства, а схема становится значительно шире, чем требуется фактическим содержимым.
+
+Необходимо перейти от предварительного симметричного резервирования пространства под assistant к расчёту по фактическим visual bounds.
+
+---
+
+# 2. Текущая проблема
+
+В `unified-layout.js` ассистенты реализованы как `NODE_ASSISTANT` и являются sidecar-элементами руководителя.
+
+Это правильная модель:
+
+- assistant не является отдельным организационным уровнем;
+- assistant не является обычным organizational child;
+- assistant располагается справа от карточки своего manager;
+- assistant остаётся рядом с manager при collapse;
+- assistant не должен менять реальную `parent-child` иерархию.
+
+Однако сейчас функция:
+
+`applyAssistantFootprint()`
+
+увеличивает `subtreeWidth` manager для резервирования места под assistant.
+
+Используется формула вида:
+
+    required =
+        node.width
+        + 2 * assistantHorizontalGap
+        + 2 * assistantGroupWidth
+
+То есть пространство, которое фактически требуется только справа от manager, резервируется симметрично относительно центра его `subtree`.
+
+Например:
+
+    departmentWidth = 350
+    assistantHorizontalGap = 16
+    assistantSidecarWidth = 240
+
+Для одного assistant получается:
+
+    required =
+        350 + 2 * 16 + 2 * 240
+        = 862 px
+
+Таким образом, обычная карточка шириной 350 px начинает занимать в расчёте layout минимум 862 px.
+
+При наличии нескольких sibling branches эффект суммируется.
+
+В результате структура вида:
+
+    Клюев + assistant
+    Невзорова + assistant
+    Садкова + assistant
+    LEGENDA Comfort + assistant
+
+получает существенно большую ширину, чем реально требуется для размещения карточек.
+
+---
+
+# 3. Причина проблемы
+
+Необходимо разделить два разных понятия:
+
+    organizational subtree width
+
+и:
+
+    visual footprint / visual bounds
+
+`subtreeWidth` должен описывать ширину организационной ветви.
+
+Assistant является визуальным sidecar manager и не должен искусственно увеличивать organizational `subtreeWidth` симметрично относительно manager.
+
+Сейчас эти два понятия смешаны:
+
+1. assistant исключается из обычного расчёта organizational children;
+2. затем `applyAssistantFootprint()` снова расширяет `subtreeWidth`;
+3. `assignX()` центрирует manager относительно увеличенного `subtreeWidth`;
+4. из-за этого справа и слева от manager появляется лишний резерв;
+5. резерв каждой sibling branch суммируется на верхних уровнях.
+
+На большой структуре это приводит к очень большому количеству пустого пространства.
+
+---
+
+# 4. Целевая модель
+
+Необходимо разделить расчёт layout на два уровня.
+
+## 4.1. Organizational layout
+
+Сначала рассчитывается обычная организационная структура:
+
+    manager
+       |
+    children
+
+При расчёте:
+
+    subtreeWidth
+
+учитываются только organizational nodes:
+
+- `NODE_DEPARTMENT`;
+- `NODE_EMPLOYEES`, если они являются частью существующей геометрии ветви.
+
+`NODE_ASSISTANT` не должен симметрично увеличивать `subtreeWidth` manager.
+
+---
+
+## 4.2. Visual footprint
+
+После расчёта organizational layout размещаются assistant sidecars.
+
+После этого для каждой ветви определяется её фактический visual bounding box:
+
+    visualMinX
+    visualMaxX
+
+который учитывает:
+
+- department cards;
+- employee columns;
+- assistant sidecars;
+- остальные реально отображаемые элементы ветви.
+
+Именно visual bounds должны использоваться для предотвращения пересечений соседних ветвей.
+
+---
+
+# 5. Основное изменение `computeSubtreeWidths`
+
+Текущую механику:
+
+    computeSubtreeWidths(...)
+    applyAssistantFootprint(...)
+
+необходимо изменить.
+
+`computeSubtreeWidths()` должен рассчитывать ширину организационной ветви без симметричного резервирования пространства под assistant.
+
+То есть вызов:
+
+    applyAssistantFootprint(node, opts)
+
+не должен увеличивать `subtreeWidth` по текущей формуле:
+
+    node.width + 2 * gap + 2 * groupWidth
+
+Допускается удалить `applyAssistantFootprint()` из расчёта organizational `subtreeWidth` либо изменить её назначение таким образом, чтобы она рассчитывала отдельные visual bounds.
+
+Не заменять текущую формулу простым уменьшением коэффициента `2`.
+
+Например, решение вида:
+
+    node.width + gap + groupWidth
+
+само по себе не считается достаточным исправлением.
+
+Необходимо именно разделить:
+
+    subtreeWidth
+
+и:
+
+    visual footprint
+
+---
+
+# 6. Размещение assistant
+
+Существующий принцип позиционирования assistant сохранить.
+
+Assistant должен оставаться sidecar manager:
+
+    assistant.x =
+        manager.x
+        + manager.width
+        + assistantHorizontalGap
+
+    assistant.y =
+        manager.y
+        + assistantVerticalOffset
+
+Для нескольких assistant:
+
+    Manager ─ Assistant 1 ─ Assistant 2
+
+с использованием существующего `assistantHorizontalGap`.
+
+Не менять смысл текущей привязки assistant к manager.
+
+---
+
+# 7. Collision-aware packing sibling branches
+
+После первоначального размещения organizational tree и assistant sidecars необходимо выполнить дополнительный проход по sibling branches.
+
+Задача прохода — устранить реальные визуальные пересечения между соседними ветвями.
+
+Алгоритм:
+
+1. Рассчитать organizational layout.
+2. Выполнить `assignX()`.
+3. Выполнить `assignY()`.
+4. Выполнить `placeAssistantSidecars()`.
+5. Рассчитать visual bounds sibling branches.
+6. Проверить соседние branches на горизонтальные пересечения.
+7. Если пересечения нет — ничего не менять.
+8. Если пересечение есть — сдвинуть правую ветвь вправо ровно на величину, необходимую для устранения collision.
+9. Между visual bounds соседних branches должен сохраняться минимальный `colGap`.
+10. Сдвиг должен применяться ко всей ветви целиком.
+
+Пример:
+
+    overlap =
+        leftBranch.visualMaxX
+        + colGap
+        - rightBranch.visualMinX
+
+Если:
+
+    overlap > 0
+
+необходимо сдвинуть `rightBranch`:
+
+    dx = overlap
+
+вправо.
+
+Если:
+
+    overlap <= 0
+
+никакого дополнительного сдвига делать не нужно.
+
+---
+
+# 8. Сдвиг должен применяться ко всей ветви
+
+При разрешении collision нельзя перемещать только карточку manager.
+
+Необходимо перемещать всю соответствующую branch:
+
+- department;
+- assistant;
+- employee columns;
+- дочерние departments;
+- дочерние assistants;
+- все остальные layout nodes этой organizational branch.
+
+Необходимо реализовать helper уровня:
+
+    shiftBranch(node, dx)
+
+или эквивалент.
+
+Он должен рекурсивно изменять:
+
+    node.x += dx
+
+для всей ветви.
+
+Это необходимо, чтобы не разрушить внутреннюю геометрию branch.
+
+---
+
+# 9. Visual bounds ветви
+
+Добавить отдельный расчёт visual bounds.
+
+Например:
+
+    computeVisualBounds(branch)
+
+Результат:
+
+    {
+        minX,
+        maxX,
+        width
+    }
+
+Bounds должны рассчитываться по фактически отображаемым элементам ветви.
+
+Необходимо учитывать:
+
+- `NODE_DEPARTMENT`;
+- `NODE_ASSISTANT`;
+- `NODE_EMPLOYEES`;
+- остальные реальные visible nodes данной branch.
+
+Collapsed children, которых нет в layout tree, учитывать не нужно.
+
+---
+
+# 10. Assistant должен учитываться только с той стороны, где он реально расположен
+
+При текущем расположении:
+
+    Manager ─ Assistant
+
+visual footprint должен выглядеть примерно так:
+
+    [Manager][gap][Assistant]
+
+а не:
+
+    [assistant reserve][Manager][assistant reserve]
+
+То есть assistant расширяет фактическую визуальную границу branch вправо, но не должен автоматически создавать аналогичный пустой резерв слева.
+
+---
+
+# 11. Требуемый результат
+
+Сейчас условно получается:
+
+    Клюев          [большой резерв]          Невзорова          [большой резерв]          Садкова
+       └ assistant                              └ assistant                               └ assistant
+
+После изменения должно получиться:
+
+    Клюев ─ assistant    Невзорова ─ assistant    Садкова ─ assistant
+       |                      |                       |
+     ветви                  ветви                   ветви
+
+При этом между visual bounds должен оставаться достаточный технологический отступ:
+
+    colGap
+
+---
+
+# 12. Запрет перекрытия assistant соседними карточками
+
+CR-018 не должен возвращать проблему, исправленную предыдущими CR.
+
+Недопустима ситуация:
+
+    Manager A ─ [Assistant A]
+                    █████████
+                    Department B
+
+То есть assistant:
+
+- не должен находиться за соседней department card;
+- не должен перекрываться соседней department card;
+- не должен перекрываться employee column;
+- не должен перекрываться другим assistant;
+- не должен становиться невидимым при collapse соседней ветви.
+
+Если места недостаточно, соседняя branch должна быть сдвинута.
+
+---
+
+# 13. Минимизация пустого пространства
+
+После устранения collision layout должен стремиться к минимальной возможной ширине.
+
+Не резервировать пространство:
+
+- "на всякий случай";
+- симметрично относительно manager;
+- исходя из максимального потенциального размера assistant;
+- для скрытых collapsed children.
+
+Дополнительное пространство добавляется только при наличии фактического visual collision.
+
+Принцип:
+
+    no collision → no additional shift
+
+---
+
+# 14. Не менять вертикальную геометрию
+
+CR-018 касается прежде всего горизонтального packing.
+
+Не менять существующие правила:
+
+- `effectiveLayoutLevel`;
+- `normalizedManagementLevel`;
+- `row`;
+- sibling level fallback;
+- `rowTops`;
+- `rowHeights`;
+- `assistantVerticalOffset`;
+- вертикальное положение employee columns.
+
+CR не должен менять организационные уровни.
+
+---
+
+# 15. Не менять реальную иерархию
+
+Collision resolution является исключительно layout-операцией.
+
+Запрещено менять:
+
+    parentId
+    children
+    managerSubLevel
+    actualManagerSubLevel
+    normalizedManagementLevel
+    effectiveLayoutLevel
+    row
+
+Сдвиг ветви меняет только визуальные координаты.
+
+---
+
+# 16. Collapse / expand
+
+Новая логика должна корректно работать со свернутыми ветвями.
+
+Если department collapsed:
+
+- скрытые organizational children не должны резервировать место;
+- assistant manager остаётся видимым согласно существующим правилам;
+- visual bounds должны учитывать manager + visible assistant;
+- sibling branches должны располагаться компактно относительно фактически видимых элементов.
+
+Пример:
+
+    [Дирекция продаж] ─ [Assistant]
+             +
+
+не должна резервировать ширину скрытого дерева дирекции.
+
+---
+
+# 17. Expand
+
+После раскрытия department:
+
+1. layout пересчитывается;
+2. появляются organizational children;
+3. рассчитываются новые visual bounds;
+4. при необходимости соседние branches сдвигаются;
+5. overlap отсутствует.
+
+При этом сохранить существующую механику сохранения zoom / viewport / focus, реализованную отдельным CR.
+
+CR-018 не должен сбрасывать zoom.
+
+---
+
+# 18. Connector lines
+
+После collision-aware сдвига connector lines должны использовать финальные координаты nodes.
+
+Недопустимо:
+
+- рассчитывать connector до окончательного packing;
+- сохранять старые координаты connector после `shiftBranch()`;
+- визуально отсоединять branch от parent.
+
+Порядок должен гарантировать:
+
+    final node coordinates
+        ↓
+    connector geometry
+        ↓
+    render
+
+---
+
+# 19. Toggle controls
+
+Collapse / expand controls также должны использовать финальные координаты nodes после packing.
+
+Сохранить существующее правило:
+
+    toggleX = center organizational card
+
+Assistant не должен изменять `toggleX`.
+
+Если branch была сдвинута:
+
+    toggleX
+
+должен автоматически сдвинуться вместе с manager.
+
+---
+
+# 20. Финальные bounds всей схемы
+
+После collision-aware packing необходимо повторно определить реальные границы layout:
+
+    minX
+    maxX
+    minY
+    maxY
+
+по финальным координатам всех visible nodes.
+
+На их основании рассчитывать:
+
+    width
+    height
+
+Нельзя использовать ширину, рассчитанную до финального packing.
+
+---
+
+# 21. Нормализация координат
+
+После packing допускается ситуация, когда visual bounds выходят левее исходного `paddingX`.
+
+Если:
+
+    minX < paddingX
+
+необходимо при необходимости выполнить общий сдвиг layout вправо.
+
+При этом сдвигаются все nodes одинаково.
+
+Не создавать для этого дополнительный симметричный резерв внутри каждой branch.
+
+---
+
+# 22. Root
+
+Root должен сохранять визуально корректное положение относительно всей структуры.
+
+После compact packing root не должен искусственно смещаться из-за assistant.
+
+Для структуры:
+
+              HOLDING ─ Assistant
+                  |
+        ---------------------
+        |         |         |
+        A         B         C
+
+root должен восприниматься как центр organizational tree.
+
+Assistant является sidecar и не должен становиться причиной центрирования всей organizational hierarchy относительно пары:
+
+    Holding + Assistant
+
+---
+
+# 23. Несколько assistants
+
+Логика должна поддерживать несколько assistant одного manager.
+
+Например:
+
+    Manager ─ Assistant 1 ─ Assistant 2
+
+Visual bounds должны учитывать всю группу:
+
+    assistantGroupWidth =
+        sum(assistant.width)
+        + gaps
+
+Но дополнительная ширина должна учитываться только как реальный правый visual footprint.
+
+Не создавать симметричный резерв слева.
+
+---
+
+# 24. Employee columns
+
+Employee column также должна участвовать в visual collision detection.
+
+Если employee column одной branch пересекается с department / assistant соседней branch, packing должен устранить collision.
+
+При этом не менять существующую логику расположения сотрудников внутри своей ветви.
+
+---
+
+# 25. Производительность
+
+Не использовать перебор всех nodes со всеми nodes, если этого можно избежать.
+
+Предпочтительно выполнять collision detection:
+
+- между непосредственными sibling branches;
+- по рассчитанным bounding boxes;
+- последовательно слева направо.
+
+Ожидаемая логика:
+
+    O(n)
+
+или близкая к ней для одной sibling-группы.
+
+Не требуется физический collision engine.
+
+---
+
+# 26. Рекомендуемая архитектура
+
+Предпочтительный pipeline `computeUnifiedLayout()`:
+
+    buildLayoutTree()
+
+    assignActualLevels()
+    applySiblingFallback()
+    computeRows()
+
+    computeSizes()
+
+    computeSubtreeWidths()
+        // organizational width only
+
+    assignX()
+
+    computeRowTops()
+    assignY()
+
+    placeAssistantSidecars()
+
+    compactSiblingBranches()
+        // visual bounds
+        // collision detection
+        // shiftBranch()
+
+    attachTogglePositions()
+
+    attachLayoutMeta()
+
+    collect()
+
+    computeFinalBounds()
+
+Названия helper-функций могут отличаться.
+
+Главное — сохранить разделение:
+
+    organizational layout
+          ↓
+    sidecar placement
+          ↓
+    visual collision resolution
+          ↓
+    final bounds
+
+---
+
+# 27. Не переписывать Unified Layout целиком
+
+Изменения должны быть минимально инвазивными.
+
+Необходимо использовать существующие:
+
+    buildLayoutTree
+    computeRows
+    computeSizes
+    computeSubtreeWidths
+    assignX
+    computeRowTops
+    assignY
+    placeAssistantSidecars
+    attachTogglePositions
+    collect
+
+и дополнить pipeline необходимым visual packing.
+
+Не переписывать весь layout engine без необходимости.
+
+---
+
+# 28. Regression: assistant placement
+
+Добавить тест:
+
+    manager.width = 350
+    assistant.width = 240
+    gap = 16
+
+Проверить:
+
+    assistant.x === manager.x + manager.width + 16
+
+и:
+
+    assistant.y === manager.y + assistantVerticalOffset
+
+---
+
+# 29. Regression: assistant не удваивает subtreeWidth
+
+Добавить тест, подтверждающий, что наличие одного assistant не приводит автоматически к:
+
+    subtreeWidth =
+        manager.width
+        + 2 * gap
+        + 2 * assistant.width
+
+То есть для leaf manager assistant больше не должен создавать симметричный резерв.
+
+---
+
+# 30. Regression: siblings без collision
+
+Структура:
+
+    Root
+    ├── A + assistant
+    ├── B
+    └── C
+
+Если visual bounds:
+
+    A + assistant
+
+не пересекаются с B, дополнительный shift B не выполняется.
+
+Проверить принцип:
+
+    no collision → no additional shift
+
+---
+
+# 31. Regression: siblings с collision
+
+Структура:
+
+    Root
+    ├── A + assistant
+    └── B
+
+Если после initial layout assistant A пересекается с visual bounds B:
+
+B должен быть сдвинут вправо.
+
+После packing:
+
+    A.visualMaxX + colGap <= B.visualMinX
+
+---
+
+# 32. Regression: сдвигается вся branch
+
+Если B имеет descendants:
+
+    B
+    ├── B1
+    └── B2
+
+и B требуется сдвинуть на:
+
+    dx
+
+проверить:
+
+    B.x  += dx
+    B1.x += dx
+    B2.x += dx
+
+Внутренние относительные координаты branch должны сохраниться.
+
+---
+
+# 33. Regression: несколько assistants
+
+Структура:
+
+    A
+    ├── Assistant 1
+    └── Assistant 2
+
+Проверить:
+
+- assistants располагаются последовательно справа;
+- между ними сохраняется `assistantHorizontalGap`;
+- visualMaxX учитывает правый край второго assistant;
+- соседняя branch не пересекает группу.
+
+---
+
+# 34. Regression: collapsed branch
+
+Структура:
+
+    A + assistant
+    └── большое скрытое subtree
+
+После collapse:
+
+- subtree скрыто;
+- assistant остаётся;
+- ширина layout определяется только фактически видимыми элементами;
+- скрытое subtree не резервирует пространство.
+
+---
+
+# 35. Regression: expanded branch
+
+После expand:
+
+- descendants снова участвуют в organizational layout;
+- visual bounds пересчитываются;
+- collisions устраняются;
+- connector lines соответствуют новым координатам.
+
+---
+
+# 36. Regression: assistant не меняет organizational hierarchy
+
+До и после compact packing проверить неизменность:
+
+    parentId
+    children
+    row
+    effectiveLayoutLevel
+
+Наличие assistant не должно менять организационную семантику.
+
+---
+
+# 37. Regression: connector geometry
+
+После сдвига branch проверить, что connector строится по финальным координатам.
+
+Для department:
+
+    connector child X
+
+должен соответствовать:
+
+    child.x + child.width / 2
+
+после packing.
+
+---
+
+# 38. Regression: toggle geometry
+
+После сдвига branch:
+
+    toggleX
+
+должен оставаться привязанным к центру соответствующей department card.
+
+Assistant не должен менять main stem.
+
+---
+
+# 39. Regression: структура Холдинга
+
+Добавить fixture верхнего уровня Холдинга с несколькими руководителями / дирекциями, у которых есть assistants.
+
+Проверить одновременно:
+
+1. assistants видимы;
+2. assistants не перекрываются department cards;
+3. department cards не перекрываются assistants;
+4. sibling branches не пересекаются;
+5. между visual bounds сохраняется минимум `colGap`;
+6. отсутствует симметричное резервирование ширины под assistants;
+7. итоговая ширина layout существенно меньше текущего варианта с `applyAssistantFootprint`;
+8. реальная organizational hierarchy не изменена.
+
+---
+
+# 40. Тест на избыточную ширину
+
+Добавить отдельный regression test именно на проблему CR-018.
+
+Для нескольких sibling managers:
+
+    Root
+    ├── A + assistant
+    ├── B + assistant
+    ├── C + assistant
+    └── D + assistant
+
+проверить, что итоговая ширина не рассчитывается как сумма:
+
+    manager.width
+    + 2 * assistantHorizontalGap
+    + 2 * assistantGroupWidth
+
+для каждой branch.
+
+Допускается проверять конкретный ожидаемый диапазон `layout.width` либо сравнивать с theoretical compact width.
+
+Тест должен падать при возврате старой реализации `applyAssistantFootprint()`.
+
+---
+
+# 41. Functionality
+
+Обновить `functionality`.
+
+Зафиксировать новое правило:
+
+> Персональные и административные ассистенты являются visual sidecar непосредственного руководителя и не формируют отдельный organizational level. Наличие assistant не должно симметрично увеличивать organizational subtreeWidth. После размещения sidecar layout учитывает его фактические visual bounds и раздвигает соседние sibling branches только при реальном пересечении.
+
+Дополнительно зафиксировать:
+
+> Горизонтальный layout должен стремиться к минимальной ширине при условии отсутствия пересечений между видимыми карточками.
+
+И:
+
+> Collapsed children не резервируют место в layout; учитываются только фактически видимые элементы, включая assistant sidecar.
+
+---
+
+# 42. Acceptance Criteria
+
+CR считается выполненным, если одновременно выполняются следующие условия:
+
+1. Структура Холдинга стала заметно компактнее по горизонтали.
+2. Убраны большие искусственные промежутки, вызванные assistant sidecars.
+3. Assistant остаётся справа от непосредственного manager.
+4. Assistant не создаёт отдельный organizational level.
+5. Assistant не перекрывается соседними department cards.
+6. Department cards не перекрывают assistant.
+7. Несколько assistants одного manager отображаются корректно.
+8. Между соседними visual branches сохраняется минимум `colGap`.
+9. При отсутствии collision дополнительный отступ не создаётся.
+10. При наличии collision сдвигается только необходимая sibling branch и следующие за ней branches.
+11. При сдвиге branch её descendants перемещаются вместе с ней.
+12. Parent-child hierarchy не изменяется.
+13. `effectiveLayoutLevel` не изменяется.
+14. `row` не изменяется.
+15. Collapse не возвращает большие пустые области.
+16. Expand корректно пересчитывает layout.
+17. Assistant остаётся видимым при collapse manager согласно действующим правилам.
+18. Connector lines соответствуют финальным координатам.
+19. Toggle controls соответствуют финальным координатам.
+20. Zoom / viewport не сбрасываются из-за данного изменения.
+21. Финальные `width` / `height` рассчитываются по реальным координатам после packing.
+22. Все существующие regression tests проходят.
+23. Добавлены новые тесты CR-018.
+24. `functionality` обновлён.
+
+---
+
+# 43. Ограничения
+
+Не менять в рамках CR-018:
+
+- API;
+- исходные данные сотрудников;
+- правила формирования Holding Leadership Projection;
+- правила определения top-3;
+- правила отображения ФИО;
+- фильтрацию сотрудников в отпуске по уходу за ребёнком;
+- `managerSubLevel`;
+- sibling fallback;
+- `effectiveLayoutLevel`;
+- правила определения `row`;
+- дизайн карточек;
+- размеры карточек;
+- логику PDF;
+- существующую семантику collapse / expand;
+- правила привязки assistant к manager.
+
+CR-018 является исправлением геометрии и horizontal packing существующего Unified Layout.
+
+---
+
+# 44. Итоговый принцип
+
+После реализации layout должен работать по принципу:
+
+    ORGANIZATIONAL TREE
+            ↓
+    organizational subtreeWidth
+            ↓
+    initial X/Y coordinates
+            ↓
+    assistant sidecar placement
+            ↓
+    actual visual bounds
+            ↓
+    collision-aware compact packing
+            ↓
+    final node coordinates
+            ↓
+    connector / toggle geometry
+            ↓
+    final layout bounds
+            ↓
+    render
+
+Ключевое правило:
+
+    Assistant занимает только то место,
+    которое реально занимает визуально.
+
+    Нет collision → нет дополнительного пространства.
+
+    Есть collision → соседняя ветвь сдвигается
+    ровно настолько, насколько необходимо.
