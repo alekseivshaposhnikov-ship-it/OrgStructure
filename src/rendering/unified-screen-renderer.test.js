@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { buildHoldingLeadershipTree } from "./holding-leadership.js";
 import { buildConnectorPaths, assistantConnectorPath } from "./unified-screen-renderer.js";
-import { NODE_ASSISTANT, NODE_DEPARTMENT } from "./unified-layout.js";
+import { computeUnifiedLayout, NODE_ASSISTANT, NODE_DEPARTMENT } from "./unified-layout.js";
 
 describe("unified-screen-renderer (CR-011)", () => {
   let renderUnifiedScreen;
@@ -504,8 +504,9 @@ describe("unified-screen-renderer (CR-011)", () => {
   it("свернутые дирекции показывают standard toggle с состоянием collapsed (CR-012 §3)", () => {
     renderUnifiedScreen([makeHoldingRoot()], "#orgChart", { collapseTopLevel: true });
 
+    // CR-015 §19: toggle — отдельный слой поверх карточек (g.unified-orgchart__toggles).
     const toggleText = document.querySelector(
-      'g.unified-node[data-node-id="dirA"] .unified-node__toggle text',
+      'g.unified-orgchart__toggles g.unified-node__toggle[data-node-id="dirA"] text',
     );
     expect(toggleText).toBeTruthy();
     expect(toggleText.textContent).toBe("+");
@@ -589,6 +590,77 @@ describe("unified-screen-renderer (CR-011)", () => {
     expect(assistantCard).toBeTruthy();
     expect(assistantCard.textContent).toContain("Волкова");
   });
+
+  it("Holding real-case: assistant рядом с executives, Винник без assistant (CR-015 §56)", () => {
+    const fixture = makeLeadershipHolding();
+    const admin = fixture.children.find((child) => child.department_name === "Администрация");
+    // Дополняем фикстуру недостающими ассистентами из leadership config,
+    // чтобы проверить все пары manager → assistant реального Холдинга.
+    admin.users.push(
+      {
+        id: "davidova",
+        full_name: "Давыдова Наталья Владимировна",
+        name: "Давыдова Наталья Владимировна",
+        email: "n.davidova@legenda-dom.ru",
+        position: "Персональный ассистент",
+        rawPosition: "Персональный ассистент",
+        subLevel: 6,
+        typeEmployment: "Основное место работы",
+        isVacancy: false,
+      },
+      {
+        id: "lihacheva",
+        full_name: "Лихачева Екатерина Олеговна",
+        name: "Лихачева Екатерина Олеговна",
+        email: "e.lihacheva@legenda-dom.ru",
+        position: "Персональный ассистент",
+        rawPosition: "Персональный ассистент",
+        subLevel: 6,
+        typeEmployment: "Основное место работы",
+        isVacancy: false,
+      },
+    );
+
+    const root = buildHoldingLeadershipTree(fixture);
+    const { nodes } = computeUnifiedLayout(root, { collapsedIds: new Set(root.__initialCollapsedIds) });
+
+    const execByEmail = (email) =>
+      nodes.find(
+        (n) => n.type === NODE_DEPARTMENT && n.data && n.data.isHoldingExecutive && n.data.email === email,
+      );
+
+    function assistantOf(manager) {
+      return nodes.find((n) => {
+        if (n.type !== NODE_ASSISTANT) return false;
+        return (manager.children || []).some((c) => c.type === NODE_ASSISTANT && c.data.id === n.data.id);
+      });
+    }
+
+    const lukyanov = execByEmail("laa@legenda-dom.ru");
+    const vinnik = execByEmail("l.vinnik@legenda-dom.ru");
+    const klyuev = execByEmail("avk@legenda-dom.ru");
+    expect(lukyanov).toBeTruthy();
+    expect(vinnik).toBeTruthy();
+    expect(klyuev).toBeTruthy();
+
+    // Лукьянов + Волкова; Клюев + Лихачева.
+    const volkova = assistantOf(lukyanov);
+    const lihacheva = assistantOf(klyuev);
+    expect(volkova).toBeTruthy();
+    expect(lihacheva).toBeTruthy();
+    expect(volkova.data.email).toBe("a.volkova@legenda-dom.ru");
+    expect(lihacheva.data.email).toBe("e.lihacheva@legenda-dom.ru");
+
+    // Винник — без assistant.
+    expect(assistantOf(vinnik)).toBeFalsy();
+
+    // Каждый assistant — локальный sidecar справа от своего manager на его уровне.
+    [lukyanov, klyuev].forEach((manager) => {
+      const ast = assistantOf(manager);
+      expect(ast.x).toBeGreaterThan(manager.x + manager.width);
+      expect(ast.y).toBeLessThan(manager.y + manager.height);
+    });
+  });
 });
 
 describe("unified-screen-renderer · connector geometry (CR-014)", () => {
@@ -645,12 +717,12 @@ describe("unified-screen-renderer · connector geometry (CR-014)", () => {
     expect(junctionY).toBeLessThan(childrenTop);
   });
 
-  it("assistant connector отделён от organizational connector (CR-014 Test 75)", () => {
+  it("assistant connector отделён от organizational connector (CR-014 Test 75, CR-015 §8-9)", () => {
     const manager = makeLayoutNode({ x: 100, y: 100 });
     const assistant = makeLayoutNode({
       type: NODE_ASSISTANT,
       x: manager.x + manager.width + 16,
-      y: manager.y + manager.height + 12,
+      y: manager.y + 28,
       width: 240,
       height: 44,
     });
@@ -661,11 +733,11 @@ describe("unified-screen-renderer · connector geometry (CR-014)", () => {
       { parent: manager, child: childA },
     ]);
 
-    // Отдельная assistant-связь от нижней границы manager справа.
+    // Отдельная assistant-связь: правый центр manager → левый центр assistant.
     const expectedAssistant = assistantConnectorPath(manager, assistant);
     expect(paths).toContain(expectedAssistant);
-    expect(expectedAssistant.startsWith(`M ${manager.x + manager.width - 16} ${manager.y + manager.height}`)).toBe(true);
-    expect(expectedAssistant.endsWith(`L ${assistant.x + assistant.width / 2} ${assistant.y}`)).toBe(true);
+    expect(expectedAssistant.startsWith(`M ${manager.x + manager.width} ${manager.y + manager.height / 2}`)).toBe(true);
+    expect(expectedAssistant.endsWith(`L ${assistant.x} ${assistant.y + assistant.height / 2}`)).toBe(true);
 
     // Organizational children имеют main stem от центра manager.
     const stemX = manager.x + manager.width / 2;
@@ -674,7 +746,41 @@ describe("unified-screen-renderer · connector geometry (CR-014)", () => {
     expect(paths.some((p) => p === `M ${stemX} ${parentBottom} L ${stemX} ${junctionY}`)).toBe(true);
   });
 
-  it("toggle controls имеют стабильный baseline для siblings (CR-014 Test 77)", async () => {
+  it("junctionY находится ниже assistant и в свободной зоне (CR-015 §15-16, §46-48)", () => {
+    const manager = makeLayoutNode({ x: 100, y: 100 });
+    const assistant = makeLayoutNode({
+      type: NODE_ASSISTANT,
+      x: manager.x + manager.width + 16,
+      y: manager.y + 28,
+      width: 240,
+      height: 44,
+    });
+    const childA = makeLayoutNode({ x: 40, y: 400, width: 200 });
+
+    const paths = buildConnectorPaths([
+      { parent: manager, child: assistant },
+      { parent: manager, child: childA },
+    ]);
+
+    const stemX = manager.x + manager.width / 2;
+    const stem = paths.find((p) => p.startsWith(`M ${stemX} ${manager.y + manager.height} L`));
+    expect(stem).toBeTruthy();
+
+    const junctionY = Number(stem.split(" L ")[1].split(" ")[1]);
+    const visualBottom = Math.max(
+      manager.y + manager.height,
+      assistant.y + assistant.height,
+    );
+    const childrenTop = 400;
+
+    // Свободная зона: visualBottom < junctionY < childrenTop.
+    expect(junctionY).toBeGreaterThan(visualBottom);
+    expect(junctionY).toBeLessThan(childrenTop);
+    // Assistant целиком выше junction.
+    expect(assistant.y + assistant.height).toBeLessThan(junctionY);
+  });
+
+  it("toggle controls имеют стабильный baseline для siblings (CR-014 Test 77, CR-015 §24)", async () => {
     const mod = await import("./unified-screen-renderer.js");
     const renderFn = mod.renderUnifiedScreen;
     const root = {
@@ -701,24 +807,184 @@ describe("unified-screen-renderer · connector geometry (CR-014)", () => {
     };
     renderFn([root], "#orgChart", {});
 
-    // Toggle-кнопки у A и B (row 1) — общий baseline по Y.
-    const toggles = document.querySelectorAll("g.unified-node__toggle");
+    // CR-015 §19: toggle — отдельный слой g.unified-orgchart__toggles с абсолютными
+    // координатами (translate(x, y)), baseline общий для siblings одного row.
+    const toggles = document.querySelectorAll("g.unified-orgchart__toggles g.unified-node__toggle");
     const ys = Array.from(toggles)
       .filter((t) => {
-        const nodeId = t.parentElement.getAttribute("data-node-id");
+        const nodeId = t.getAttribute("data-node-id");
         return nodeId === "a" || nodeId === "b";
       })
       .map((t) => {
-        const group = t.parentElement;
-        const nodeTranslate = group.getAttribute("transform").match(/translate\(([-\d.e]+),([-\d.e]+)\)/);
         const toggleTranslate = t.getAttribute("transform").match(/translate\(([-\d.e]+),([-\d.e]+)\)/);
-        return parseFloat(nodeTranslate[2]) + parseFloat(toggleTranslate[2]);
+        return parseFloat(toggleTranslate[2]);
       });
 
     expect(ys.length).toBeGreaterThanOrEqual(2);
     ys.forEach((y) => {
       expect(Math.abs(y - ys[0])).toBeLessThanOrEqual(1e-6);
     });
+  });
+
+  it("toggle принадлежит main stem: x = node.x + node.width/2, assistant не влияет (CR-015 §29, §52)", async () => {
+    const mod = await import("./unified-screen-renderer.js");
+    const renderFn = mod.renderUnifiedScreen;
+    const root = {
+      department_guid: "root",
+      department_name: "ROOT",
+      department_manager: "Manager",
+      users: [
+        {
+          id: "ast-1",
+          full_name: "Anna",
+          name: "Anna",
+          position: "Административный ассистент",
+          rawPosition: "Административный ассистент",
+          isVacancy: false,
+        },
+      ],
+      children: [
+        { department_guid: "a", department_name: "A", staffCount: 1, users: [], children: [] },
+        { department_guid: "b", department_name: "B", staffCount: 1, users: [], children: [] },
+      ],
+    };
+    renderFn([root], "#orgChart", {});
+
+    const toggle = document.querySelector('g.unified-orgchart__toggles g.unified-node__toggle[data-node-id="root"]');
+    expect(toggle).toBeTruthy();
+    const node = document.querySelector('g.unified-node[data-node-id="root"]');
+    const nodeT = node.getAttribute("transform").match(/translate\(([-\d.e]+),([-\d.e]+)\)/);
+    const toggleT = toggle.getAttribute("transform").match(/translate\(([-\d.e]+),([-\d.e]+)\)/);
+    const fo = node.querySelector("foreignObject");
+    const width = parseFloat(fo.getAttribute("width"));
+
+    // Toggle X — строго центр нижней границы manager (main stem), не смещён
+    // в сторону assistant.
+    expect(parseFloat(toggleT[1])).toBeCloseTo(parseFloat(nodeT[1]) + width / 2, 5);
+    // Toggle рисуется ПОСЛЕ карточек (отдельный слой, drawing order §19):
+    // edges → nodes → toggles в порядке DOM.
+    const edgesLayer = document.querySelector("g.unified-orgchart__edges");
+    const nodesLayer = document.querySelector("g.unified-orgchart__nodes");
+    const togglesLayer = document.querySelector("g.unified-orgchart__toggles");
+    expect(edgesLayer.compareDocumentPosition(togglesLayer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(nodesLayer.compareDocumentPosition(togglesLayer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("connector paths не проходят через interior карточек (CR-015 §17, §49)", () => {
+    const manager = makeLayoutNode({ x: 100, y: 100 });
+    const assistant = makeLayoutNode({
+      type: NODE_ASSISTANT,
+      x: manager.x + manager.width + 16,
+      y: manager.y + 28,
+      width: 240,
+      height: 44,
+    });
+    const children = [
+      makeLayoutNode({ x: 40, y: 400, width: 200 }),
+      makeLayoutNode({ x: 290, y: 400, width: 200 }),
+      makeLayoutNode({ x: 540, y: 400, width: 200 }),
+    ];
+
+    const paths = buildConnectorPaths([
+      { parent: manager, child: assistant },
+      ...children.map((child) => ({ parent: manager, child })),
+    ]);
+
+    const rects = [manager, assistant, ...children].map((node) => ({
+      left: node.x,
+      top: node.y,
+      right: node.x + node.width,
+      bottom: node.y + node.height,
+    }));
+
+    function segmentCrossesInterior(x1, y1, x2, y2, rect) {
+      const left = Math.min(x1, x2);
+      const right = Math.max(x1, x2);
+      const top = Math.min(y1, y2);
+      const bottom = Math.max(y1, y2);
+      if (Math.abs(x1 - x2) < 1e-9) {
+        const x = x1;
+        if (x <= rect.left + 1e-9 || x >= rect.right - 1e-9) return false;
+        return top < rect.bottom - 1e-9 && bottom > rect.top + 1e-9;
+      }
+      if (Math.abs(y1 - y2) < 1e-9) {
+        const y = y1;
+        if (y <= rect.top + 1e-9 || y >= rect.bottom - 1e-9) return false;
+        return left < rect.right - 1e-9 && right > rect.left + 1e-9;
+      }
+      return false;
+    }
+
+    function pathSegments(d) {
+      const parts = d.split(" ").filter(Boolean);
+      const segments = [];
+      let px = null;
+      let py = null;
+      for (let i = 0; i < parts.length; i += 1) {
+        if (parts[i] === "M" || parts[i] === "L") continue;
+        const x = Number(parts[i]);
+        const y = Number(parts[i + 1]);
+        i += 1;
+        if (px !== null) segments.push([px, py, x, y]);
+        px = x;
+        py = y;
+      }
+      return segments;
+    }
+
+    paths.forEach((path) => {
+      pathSegments(path).forEach(([x1, y1, x2, y2]) => {
+        rects.forEach((rect) => {
+          expect(
+            segmentCrossesInterior(x1, y1, x2, y2, rect),
+            `segment (${x1},${y1})→(${x2},${y2}) crosses card interior`,
+          ).toBe(false);
+        });
+      });
+    });
+  });
+
+  it("collapse branch: children скрыты, assistant остаётся рядом с manager, toggle '+' (CR-015 §53)", async () => {
+    const mod = await import("./unified-screen-renderer.js");
+    const renderFn = mod.renderUnifiedScreen;
+    const root = {
+      department_guid: "root",
+      department_name: "ROOT",
+      department_manager: "Manager",
+      users: [
+        {
+          id: "ast-1",
+          full_name: "Anna",
+          name: "Anna",
+          position: "Административный ассистент",
+          rawPosition: "Административный ассистент",
+          isVacancy: false,
+        },
+      ],
+      children: [
+        {
+          department_guid: "dept",
+          department_name: "Dept",
+          staffCount: 1,
+          users: [],
+          children: [{ department_guid: "sub", department_name: "Sub", staffCount: 1, users: [], children: [] }],
+        },
+      ],
+    };
+    const chart = renderFn([root], "#orgChart", {});
+    chart.toggleCollapse("root");
+
+    // Организационные дети скрыты.
+    expect(document.querySelector('g.unified-node[data-node-id="dept"]')).toBeFalsy();
+    expect(document.querySelector('g.unified-node[data-node-id="sub"]')).toBeFalsy();
+    // Assistant остаётся видимым.
+    expect(document.querySelector('g.unified-node[data-node-id="ast-1"]')).toBeTruthy();
+    // Toggle показывает '+'.
+    const toggleText = document.querySelector(
+      'g.unified-orgchart__toggles g.unified-node__toggle[data-node-id="root"] text',
+    );
+    expect(toggleText).toBeTruthy();
+    expect(toggleText.textContent).toBe("+");
   });
 });
 

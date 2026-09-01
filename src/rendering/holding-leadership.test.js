@@ -685,16 +685,16 @@ describe("holding-leadership · LEGENDA Comfort и ассистенты (CR-013_
       };
     };
 
-    // CR-013_assistant_fix2: assistant не создаёт новый row/level (row не меняется),
-    // но резервирует вертикальную assistant-zone — Y дочернего department может
-    // сместиться вниз.
+    // CR-015: assistant — sidecar на уровне manager. Он не создаёт новый
+    // row/level и НЕ резервирует вертикальную зону под manager, поэтому
+    // Y дочернего department не зависит от наличия assistant.
     const rowWith = byId(computeUnifiedLayout(make(true)).nodes, "dept-a").row;
     const rowWithout = byId(computeUnifiedLayout(make(false)).nodes, "dept-a").row;
     expect(rowWith).toBe(rowWithout);
 
     const yWith = byId(computeUnifiedLayout(make(true)).nodes, "dept-a").y;
     const yWithout = byId(computeUnifiedLayout(make(false)).nodes, "dept-a").y;
-    expect(yWith).toBeGreaterThan(yWithout);
+    expect(yWith).toBe(yWithout);
   });
 
   it("ассистент внутри LEGENDA Comfort привязан к своему manager (CR-013_fix Test 14)", () => {

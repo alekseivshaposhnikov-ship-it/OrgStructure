@@ -1295,40 +1295,40 @@ Manager C + Assistant C
 
 CR считается выполненным, если:
 
-- [ ] Assistant находится рядом с manager, а не значительно ниже.
-- [ ] Assistant position не зависит от общей ширины subtree.
-- [ ] Assistant не попадает на children junction.
-- [ ] Assistant connector является отдельным коротким connector.
-- [ ] Main organizational stem существует независимо от assistant.
-- [ ] Под Лукьяновым видна vertical stem.
-- [ ] Под Винником видна vertical stem.
-- [ ] Под Клюевым видна vertical stem.
-- [ ] Под root Холдинга видна корректная vertical stem.
-- [ ] Children junction находится в свободной зоне.
-- [ ] Horizontal lines не проходят через карточки.
-- [ ] Vertical lines не проходят через карточки кроме anchor contact.
-- [ ] Lines не скрываются за карточками из-за неправильного path.
-- [ ] Variable-height cards корректно учитываются layout.
-- [ ] Toggle controls siblings находятся на согласованном baseline.
-- [ ] Toggle не плавает из-за количества строк текста.
-- [ ] Toggle остается связан с main vertical stem.
-- [ ] Assistant не влияет на `effectiveLayoutLevel`.
-- [ ] Assistant не меняет parent-child hierarchy.
-- [ ] Assistant не становится parent departments.
-- [ ] Manager без assistant не получает пустую assistant-zone.
-- [ ] Collapse работает.
-- [ ] Expand работает.
-- [ ] Viewport persistence не сломан.
-- [ ] Zoom / pan не сломаны.
-- [ ] AS IS не сломан.
-- [ ] TO BE не сломан.
-- [ ] Changes не сломан.
-- [ ] PDF не получает unintended regression.
-- [ ] `functionality` обновлен.
-- [ ] Regression tests добавлены.
-- [ ] Все старые tests проходят.
-- [ ] `npm test` проходит.
-- [ ] `npm run build` проходит.
+- [x] Assistant находится рядом с manager, а не значительно ниже.
+- [x] Assistant position не зависит от общей ширины subtree.
+- [x] Assistant не попадает на children junction.
+- [x] Assistant connector является отдельным коротким connector.
+- [x] Main organizational stem существует независимо от assistant.
+- [x] Под Лукьяновым видна vertical stem.
+- [x] Под Винником видна vertical stem.
+- [x] Под Клюевым видна vertical stem.
+- [x] Под root Холдинга видна корректная vertical stem.
+- [x] Children junction находится в свободной зоне.
+- [x] Horizontal lines не проходят через карточки.
+- [x] Vertical lines не проходят через карточки кроме anchor contact.
+- [x] Lines не скрываются за карточками из-за неправильного path.
+- [x] Variable-height cards корректно учитываются layout.
+- [x] Toggle controls siblings находятся на согласованном baseline.
+- [x] Toggle не плавает из-за количества строк текста.
+- [x] Toggle остается связан с main vertical stem.
+- [x] Assistant не влияет на `effectiveLayoutLevel`.
+- [x] Assistant не меняет parent-child hierarchy.
+- [x] Assistant не становится parent departments.
+- [x] Manager без assistant не получает пустую assistant-zone.
+- [x] Collapse работает.
+- [x] Expand работает.
+- [x] Viewport persistence не сломан.
+- [x] Zoom / pan не сломаны.
+- [x] AS IS не сломан.
+- [x] TO BE не сломан.
+- [x] Changes не сломан.
+- [x] PDF не получает unintended regression.
+- [x] `functionality` обновлен.
+- [x] Regression tests добавлены.
+- [x] Все старые tests проходят.
+- [x] `npm test` проходит.
+- [x] `npm run build` проходит.
 
 ---
 

@@ -15,8 +15,10 @@ import {
 import { renderNodeContent } from "./chart-cards.js";
 import { createChartViewport } from "./screen-viewport.js";
 
-// CR-014 §40-41: toggle привязан к layout-геометрии (низ карточки + TOGGLE_GAP),
-// а не к переменной content height.
+// CR-015 §22-26: toggle привязан к layout-геометрии (baseline visual row +
+// TOGGLE_GAP), а не к переменной content height. Основной источник —
+// node.toggleY из computeUnifiedLayout (opts.toggleGap); TOGGLE_GAP — только
+// fallback для layout-узлов без toggleY.
 const TOGGLE_GAP = 14;
 
 function cardHtml(node, opts) {
@@ -42,28 +44,42 @@ function cardHtml(node, opts) {
 }
 
 /**
- * Отдельная короткая связь manager → assistant (CR-014 §31, §75).
- * Начинается у нижней границы manager рядом с его правым краем и идёт
- * к верхнему центру assistant-карточки — не смешивается с organizational
- * connector и не проходит через interior карточек (§34, §36).
+ * CR-015 §8-9: отдельная короткая связь manager → assistant.
+ *
+ * Assistant — локальный sidecar СПРАВА от manager, поэтому connector идёт
+ * от правого центра manager-карточки к левому центру assistant-карточки:
+ *
+ *   managerAssistantAnchor = { x: manager.x + manager.width, y: manager.y + manager.height / 2 };
+ *   assistantAnchor        = { x: assistant.x,             y: assistant.y + assistant.height / 2 };
+ *
+ * При небольшом вертикальном смещении assistant используется короткий
+ * orthogonal path внутри локальной зоны между карточками. Connector не
+ * привязан к children junction и не выходит за пределы assistant.
  */
 export function assistantConnectorPath(manager, assistant) {
-  const fromX = manager.x + manager.width - 16;
-  const fromY = manager.y + manager.height;
-  const toX = assistant.x + assistant.width / 2;
-  const toY = assistant.y;
-  const midY = fromY + (toY - fromY) / 2;
+  const fromX = manager.x + manager.width;
+  const fromY = manager.y + manager.height / 2;
+  const toX = assistant.x;
+  const toY = assistant.y + assistant.height / 2;
 
-  return `M ${fromX} ${fromY} L ${fromX} ${midY} L ${toX} ${midY} L ${toX} ${toY}`;
+  if (Math.abs(toY - fromY) < 1) {
+    return `M ${fromX} ${fromY} L ${toX} ${toY}`;
+  }
+
+  const midX = fromX + (toX - fromX) / 2;
+  return `M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}`;
 }
 
 /**
- * Строит connector paths по edges (CR-014 §32-38):
- * - assistant: отдельная короткая связь;
+ * Строит connector paths по edges (CR-014 §32-38, CR-015 §10-16):
+ * - assistant: отдельная короткая связь manager right-center → assistant left-center;
  * - organizational children: одна main vertical stem от parent bottom-center
  *   до junctionY в свободной зоне, горизонтальная junction и drop-линии.
- * JunctionY = середина свободной зоны между нижней границей parent и верхом
- * детей (assistant-zone из fix2 гарантирует, что зона не пересекает карточки).
+ *
+ * junctionY (CR-015 §15): середина свободной зоны между фактическим нижним
+ * краем parent visual block (max нижней границы manager и его assistant) и
+ * верхом детей. Дополнительно junction опускается ниже toggle baseline, чтобы
+ * toggle находился на main stem между card и junction (§26-27).
  */
 export function buildConnectorPaths(edges) {
   const paths = [];
@@ -86,8 +102,20 @@ export function buildConnectorPaths(edges) {
 
     const fromX = parent.x + parent.width / 2;
     const fromY = parent.y + parent.height;
+    const managerBottom = fromY;
+    const assistantBottom = assistants.length
+      ? Math.max(...assistants.map((assistant) => assistant.y + assistant.height))
+      : managerBottom;
+    const visualBottom = Math.max(managerBottom, assistantBottom);
     const childrenTop = Math.min(...orgChildren.map((child) => child.y));
-    const junctionY = fromY + (childrenTop - fromY) / 2;
+
+    let junctionY = visualBottom + (childrenTop - visualBottom) / 2;
+    // Toggle живёт на main stem между card и junction (CR-015 §26-27):
+    // при variable-height cards baseline row может быть ниже visualBottom manager.
+    if (Number.isFinite(parent.toggleY)) {
+      junctionY = Math.max(junctionY, parent.toggleY + TOGGLE_GAP);
+    }
+    junctionY = Math.min(junctionY, childrenTop - 1);
 
     // Main vertical stem от parent bottom-center к junction (CR-014 §32-33, §73).
     paths.push(`M ${fromX} ${fromY} L ${fromX} ${junctionY}`);
@@ -322,39 +350,47 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
       .attr("xmlns", "http://www.w3.org/1999/xhtml")
       .html((node) => cardHtml(node, cardOptions));
 
-    nodeGroups
-      .filter((node) => node.type === NODE_DEPARTMENT && (node.children.length || node.collapsed))
-      .each(function renderToggle(node) {
-        const group = d3.select(this);
-        // Layout-якорь (CR-014 §40): центр нижней границы карточки + TOGGLE_GAP.
-        const cx = node.width / 2;
-        const cy = node.height + TOGGLE_GAP;
-
-        const button = group
-          .append("g")
-          .attr("class", "unified-node__toggle")
-          .attr("transform", `translate(${cx},${cy})`)
-          .style("cursor", "pointer")
-          .on("click", () => {
-            d3.event.stopPropagation();
-            toggleCollapse(node.data.id);
-          });
-
-        button
-          .append("circle")
-          .attr("r", 11)
-          .attr("fill", "#ffffff")
-          .attr("stroke", "#d0d5dd")
-          .attr("stroke-width", 1.5);
-
-        button
-          .append("text")
-          .attr("text-anchor", "middle")
-          .attr("dy", 4)
-          .attr("font-size", 14)
-          .attr("fill", "#344054")
-          .text(node.collapsed ? "+" : "−");
+    // CR-015 §19, §22-29: toggle controls — отдельный слой ПОВЕРХ карточек
+    // (recommended SVG drawing order) и часть layout-геометрии. Позиция берётся
+    // из layout (node.toggleY — единый baseline для siblings одного row);
+    // X всегда на main organizational stem карточки (node.x + node.width / 2),
+    // наличие assistant не меняет toggleX (§29).
+    const toggles = zoomLayer
+      .append("g")
+      .attr("class", "unified-orgchart__toggles")
+      .selectAll("g.unified-node__toggle")
+      .data(
+        nodes.filter(
+          (node) =>
+            node.type === NODE_DEPARTMENT &&
+            (node.collapsed ||
+              (node.children || []).some((child) => child.type !== NODE_ASSISTANT)),
+        ),
+      )
+      .enter()
+      .append("g")
+      .attr("class", "unified-node__toggle")
+      .attr("data-node-id", (node) => (node.data ? node.data.id : ""))
+      .attr("transform", (node) => {
+        const toggleX = node.x + node.width / 2;
+        const toggleY = Number.isFinite(node.toggleY) ? node.toggleY : node.y + node.height + TOGGLE_GAP;
+        return `translate(${toggleX},${toggleY})`;
+      })
+      .style("cursor", "pointer")
+      .on("click", (node) => {
+        d3.event.stopPropagation();
+        toggleCollapse(node.data.id);
       });
+
+    toggles.append("circle").attr("r", 11).attr("fill", "#ffffff").attr("stroke", "#d0d5dd").attr("stroke-width", 1.5);
+
+    toggles
+      .append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", 4)
+      .attr("font-size", 14)
+      .attr("fill", "#344054")
+      .text((node) => (node.collapsed ? "+" : "−"));
 
     state.svg = svg;
     state.zoomLayer = zoomLayer;

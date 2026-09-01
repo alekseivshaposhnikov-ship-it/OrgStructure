@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.30.0 (2026-09-01)
+ - CR-015: assistant — локальный visual sidecar СПРАВА от manager на уровне его карточки (`assistant.y = manager.y + assistantVerticalOffset`, `assistant.x = manager.x + manager.width + assistantHorizontalGap`). Позиция не зависит от ширины subtree/row; верх assistant не опускается ниже карточки руководителя — ассистент больше не выглядит отдельным organizational level.
+ - Убрана вертикальная assistant-zone из CR-013_assistant_fix2: assistant не резервирует отдельную зону под manager, Y следующего organizational row не смещается из-за наличия ассистента.
+ - Assistant connector — отдельная короткая связь от правого центра manager-карточки к левому центру assistant-карточки (не привязана к children junction). Main organizational stem (bottom-center parent → junction) существует независимо от assistant.
+ - JunctionY строится по фактическим bounding boxes: середина свободной зоны между visualBottom (max нижней границы manager и его assistant) и верхом детей; junction дополнительно опускается ниже toggle baseline, чтобы toggle находился на main stem между card и junction.
+ - Toggle collapse/expand — отдельный SVG-слой поверх карточек; позиция из layout (`node.toggleY = rowVisualBottom + toggleGap`): единый baseline для siblings одного row при variable-height cards, X всегда на main stem (`node.x + node.width / 2`).
+ - При collapse руководителя sidecar-ассистент остаётся видимым рядом с manager (скрываются только organizational children).
+ - PDF (Compact A4) наследует единый layout: assistant-connector приведён к той же геометрии right-center → left-center.
+
 ## 2.29.0 (2026-08-27)
  - CR-014: стабилизирована геометрия connector lines. Для любого node с organizational children строится читаемая main vertical stem от нижнего центра карточки до children junction (junction в свободной зоне между parent и детьми); линии не проходят через interior карточек.
  - Connector assistant отделён от organizational children connector: короткая отдельная связь от нижней границы manager рядом с правым краем к верхнему центру assistant-карточки. Связи строятся на явных anchor points и рисуются до карточек.

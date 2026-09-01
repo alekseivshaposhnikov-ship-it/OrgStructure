@@ -1,0 +1,1447 @@
+# CR-016 — Исключение сотрудников в отпуске по уходу за ребенком и сокращение ФИО в оргструктуре
+
+## 1. Цель
+
+Внести два изменения в правила подготовки данных и отображения организационной структуры:
+
+1. полностью исключить из организационной структуры и расчетной численности всех сотрудников со статусом:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+2. изменить формат отображения ФИО в карточках организационной структуры:
+   - для top-3 сохранить полное ФИО;
+   - для всех остальных сотрудников отображать только `Фамилия Имя`, без отчества.
+
+Под `top-3` в рамках данного CR понимаются:
+
+```text
+Селиванов Василий Геннадиевич
+Лукьянов Алексей Александрович
+Клюев Алексей Васильевич
+```
+
+Важно: исходное полное ФИО сотрудника не должно изменяться в модели данных. Сокращение относится только к presentation layer.
+
+---
+
+# 2. Исключение сотрудников со статусом «Отпуск по уходу за ребенком»
+
+Если employee record имеет:
+
+```text
+state = "Отпуск по уходу за ребенком"
+```
+
+такой сотрудник не должен считаться участником текущей отображаемой организационной структуры.
+
+Он должен быть исключен до:
+
+```text
+расчета staffCount
+расчета totalWithVacancies
+формирования users
+формирования leadership source
+manager resolution
+assistant resolution
+direct report resolution
+Holding Leadership Projection
+Unified Layout
+PDF preparation
+role aggregation
+```
+
+Нельзя решать задачу только через скрытие карточки в renderer или CSS.
+
+---
+
+# 3. Единое правило исключения
+
+Не размножать строковую проверку по разным модулям.
+
+Создать единый helper, например:
+
+```js
+const EXCLUDED_EMPLOYEE_STATES = new Set([
+  "Отпуск по уходу за ребенком",
+]);
+
+export function isEmployeeExcludedByState(employee) {
+  const state = String(employee?.state || "").trim();
+
+  return EXCLUDED_EMPLOYEE_STATES.has(state);
+}
+```
+
+Название helper адаптировать под архитектуру проекта.
+
+Основной принцип:
+
+> бизнес-правило исключения employee state должно существовать в одном месте.
+
+---
+
+# 4. Сравнение статуса
+
+Перед сравнением достаточно нормализовать:
+
+```js
+String(value || "").trim()
+```
+
+Не использовать fuzzy matching и не искать значение через:
+
+```js
+includes(...)
+```
+
+если для этого нет отдельного требования.
+
+Основное значение должно совпадать с:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+---
+
+# 5. Порядок фильтрации сотрудников
+
+Если сейчас `transformNode()` работает примерно так:
+
+```js
+const allEmployees = apiNode.employees || [];
+
+const validEmployees = allEmployees.filter(
+  (emp) => parseCount(emp.count) >= 1
+);
+```
+
+необходимо добавить отдельный предварительный слой:
+
+```js
+const allEmployees = apiNode.employees || [];
+
+const structuralEmployees = allEmployees.filter(
+  (emp) => !isEmployeeExcludedByState(emp)
+);
+
+const validEmployees = structuralEmployees.filter(
+  (emp) => parseCount(emp.count) >= 1
+);
+```
+
+То есть сначала применяется status filtering, затем существующие правила визуальной / штатной фильтрации.
+
+---
+
+# 6. `sourceUsers`
+
+Текущий `sourceUsers` используется для:
+
+```text
+executive lookup
+direct report lookup
+assistant lookup
+top-management deduplication
+Holding Leadership Projection
+```
+
+Сотрудник со статусом:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+не должен находиться в structural `sourceUsers`.
+
+Предпочтительный вариант:
+
+```js
+const structuralEmployees = allEmployees.filter(
+  (emp) => !isEmployeeExcludedByState(emp)
+);
+
+const sourceUsers = structuralEmployees.map((emp) => ({
+  ...
+}));
+```
+
+Если проекту нужен полный raw API source для диагностики, хранить его отдельно, но не использовать для organizational projection.
+
+---
+
+# 7. `users`
+
+Обычный `users` должен также строиться только из `structuralEmployees`.
+
+Например:
+
+```js
+const validEmployees = structuralEmployees.filter(
+  (emp) => parseCount(emp.count) >= 1
+);
+```
+
+То есть employee в отпуске по уходу за ребенком не должен присутствовать:
+
+```text
+ни в sourceUsers
+ни в users
+```
+
+используемых оргструктурой.
+
+---
+
+# 8. `staffCount`
+
+Сотрудник со статусом:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+не учитывается в:
+
+```js
+staffCount
+```
+
+Пример:
+
+```text
+API:
+10 сотрудников
+
+из них:
+1 сотрудник — Отпуск по уходу за ребенком
+```
+
+Ожидается:
+
+```text
+staffCount = 9
+```
+
+---
+
+# 9. Агрегированная численность родительских подразделений
+
+Правило должно корректно работать рекурсивно.
+
+Если excluded employee находится в дочернем отделе, он не должен попадать и в агрегированную численность:
+
+```text
+отдела
+управления
+дирекции
+Холдинга
+```
+
+То есть родительские `staffCount` автоматически должны считать уже очищенные child counts.
+
+---
+
+# 10. `totalWithVacancies`
+
+`totalWithVacancies` должен использовать новую очищенную численность.
+
+Пример:
+
+```text
+10 API employees
+1 employee excluded by state
+2 vacancies
+```
+
+Ожидается:
+
+```text
+staffCount = 9
+vacancyCount = 2
+totalWithVacancies = 11
+```
+
+---
+
+# 11. `vacancyCount`
+
+Логика вакансий этим CR не меняется.
+
+Employee state не влияет на:
+
+```js
+vacancyCount
+```
+
+---
+
+# 12. Руководитель подразделения
+
+Если employee, указанный как manager department, имеет:
+
+```text
+state = "Отпуск по уходу за ребенком"
+```
+
+он не должен отображаться как активный manager.
+
+В этом случае:
+
+- department продолжает существовать;
+- employee не показывается в manager area;
+- не назначать автоматически другого человека manager, если такого бизнес-правила нет.
+
+Использовать существующий fallback:
+
+```text
+Нет руководителя
+```
+
+или текущий эквивалент приложения.
+
+---
+
+# 13. Holding Leadership Projection
+
+Status filtering имеет приоритет и над Holding Leadership Configuration.
+
+Если человек указан в leadership config, но его актуальная source record имеет:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+он не должен принудительно возвращаться в оргструктуру только из-за config.
+
+В таком случае:
+
+```text
+executive / direct report / assistant node не создается
+```
+
+и желательно вывести диагностический warning:
+
+```text
+Configured leadership employee excluded by employee state
+```
+
+Приложение не должно падать.
+
+---
+
+# 14. Direct reports
+
+Direct reports также должны проходить status filtering.
+
+Если configured direct report имеет:
+
+```text
+state = "Отпуск по уходу за ребенком"
+```
+
+он:
+
+- не отображается;
+- не занимает layout space;
+- не создает connector;
+- не влияет на численность.
+
+---
+
+# 15. Assistants
+
+То же правило применяется к:
+
+```text
+Персональный ассистент
+Административный ассистент
+```
+
+Если assistant имеет excluded state:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+он:
+
+- не отображается;
+- не получает sidecar node;
+- не получает assistant connector;
+- не создает assistant visual space;
+- не влияет на layout manager.
+
+---
+
+# 16. Employee columns
+
+Excluded employee не должен попадать в:
+
+```text
+СОТРУДНИКИ ПОДРАЗДЕЛЕНИЯ
+```
+
+и другие employee columns.
+
+---
+
+# 17. PDF
+
+PDF export должен использовать те же очищенные данные.
+
+Сотрудники со статусом:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+не должны появляться:
+
+```text
+в обычном подробном PDF
+в compact PDF
+в role aggregation
+в численности карточек PDF
+```
+
+Не создавать отдельную независимую filtering logic в PDF, если PDF уже получает подготовленное дерево.
+
+---
+
+# 18. Compact PDF / role aggregation
+
+Excluded employee не участвует в количестве должностей.
+
+Пример:
+
+```text
+4 активных специалиста
+1 специалист — Отпуск по уходу за ребенком
+```
+
+Ожидается:
+
+```text
+Специалист ×4
+```
+
+а не:
+
+```text
+Специалист ×5
+```
+
+---
+
+# 19. Второе изменение — отображение ФИО
+
+Для карточек организационной структуры изменить presentation format employee names.
+
+Общее правило:
+
+```text
+Фамилия Имя Отчество
+```
+
+→
+
+```text
+Фамилия Имя
+```
+
+для всех сотрудников, кроме top-3.
+
+---
+
+# 20. Top-3
+
+Под `top-3` понимаются только:
+
+```text
+Селиванов Василий Геннадиевич
+Лукьянов Алексей Александрович
+Клюев Алексей Васильевич
+```
+
+Для них на организационной диаграмме сохраняется полное ФИО:
+
+```text
+Фамилия Имя Отчество
+```
+
+---
+
+# 21. Примеры top-3
+
+Должно остаться:
+
+```text
+Селиванов Василий Геннадиевич
+```
+
+```text
+Лукьянов Алексей Александрович
+```
+
+```text
+Клюев Алексей Васильевич
+```
+
+---
+
+# 22. Все остальные сотрудники
+
+Для всех остальных использовать:
+
+```text
+Фамилия Имя
+```
+
+Например:
+
+```text
+Винник Лев Арнольдович
+```
+
+→
+
+```text
+Винник Лев
+```
+
+```text
+Мишуев Александр Адольфович
+```
+
+→
+
+```text
+Мишуев Александр
+```
+
+```text
+Лихачева Екатерина Олеговна
+```
+
+→
+
+```text
+Лихачева Екатерина
+```
+
+```text
+Глазунов Всеволод Игоревич
+```
+
+→
+
+```text
+Глазунов Всеволод
+```
+
+---
+
+# 23. Винник не относится к top-3
+
+Это необходимо отдельно зафиксировать.
+
+Для:
+
+```text
+Винник Лев Арнольдович
+```
+
+на организационной диаграмме отображать:
+
+```text
+Винник Лев
+```
+
+Несмотря на то, что он является executive presentation node верхнего уровня.
+
+То есть правило `top-3` не равно:
+
+```text
+все executive nodes
+```
+
+---
+
+# 24. Не определять top-3 внутри renderer по ФИО
+
+Не делать:
+
+```js
+if (
+  fullName === "Селиванов Василий Геннадиевич" ||
+  fullName === "Лукьянов Алексей Александрович" ||
+  fullName === "Клюев Алексей Васильевич"
+) {
+  ...
+}
+```
+
+непосредственно внутри card renderer.
+
+Предпочтительно использовать семантический presentation flag, например:
+
+```js
+keepFullName: true
+```
+
+который задается на этапе подготовки presentation model.
+
+Например:
+
+```js
+{
+  ...
+  keepFullName: true
+}
+```
+
+для:
+
+```text
+Селиванов
+Лукьянов
+Клюев
+```
+
+и:
+
+```js
+keepFullName: false
+```
+
+для остальных.
+
+---
+
+# 25. Leadership config может задавать признак полного имени
+
+Допустимо зафиксировать business rule в leadership configuration:
+
+```js
+selivanov: {
+  ...
+  keepFullName: true
+}
+
+lukyanov: {
+  ...
+  keepFullName: true
+}
+
+klyuev: {
+  ...
+  keepFullName: true
+}
+
+vinnik: {
+  ...
+  keepFullName: false
+}
+```
+
+Renderer при этом работает только по `keepFullName`, а не знает конкретные ФИО.
+
+---
+
+# 26. Не изменять исходное `full_name`
+
+Это обязательное правило.
+
+НЕПРАВИЛЬНО:
+
+```js
+employee.full_name = removePatronymic(employee.full_name);
+```
+
+ПРАВИЛЬНО:
+
+```text
+full_name = полное исходное ФИО
+displayName = presentation ФИО
+```
+
+или использовать formatter только в момент отображения.
+
+Полное имя необходимо сохранить для:
+
+```text
+search
+deduplication
+employee identity
+detail modal
+integration logic
+leadership lookup fallback
+```
+
+---
+
+# 27. Общий formatter ФИО
+
+Создать один presentation helper, например:
+
+```js
+export function formatEmployeeDisplayName(
+  employee,
+  { keepFullName = false } = {}
+) {
+  const fullName = String(
+    employee?.full_name ||
+    employee?.fullName ||
+    employee?.name ||
+    ""
+  ).trim();
+
+  if (!fullName || keepFullName) {
+    return fullName;
+  }
+
+  const parts = fullName
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length <= 2) {
+    return fullName;
+  }
+
+  return `${parts[0]} ${parts[1]}`;
+}
+```
+
+Конкретную реализацию адаптировать к текущей architecture.
+
+Не создавать независимые:
+
+```text
+formatAssistantName
+formatManagerName
+formatEmployeeName
+formatPdfName
+```
+
+с одинаковой логикой.
+
+---
+
+# 28. ФИО из двух слов
+
+Если employee уже имеет:
+
+```text
+Сойдан Айкут
+```
+
+результат остается:
+
+```text
+Сойдан Айкут
+```
+
+Не удалять второй компонент.
+
+---
+
+# 29. Односоставное имя
+
+Если по каким-либо данным приходит:
+
+```text
+Иванов
+```
+
+оставлять исходное значение.
+
+Не формировать:
+
+```text
+Иванов undefined
+```
+
+или пустую вторую часть.
+
+---
+
+# 30. Department managers
+
+Для обычных department managers отчество скрывается.
+
+Например:
+
+```text
+Глазунов Всеволод Игоревич
+```
+
+→
+
+```text
+Глазунов Всеволод
+```
+
+То же правило применяется к:
+
+```text
+директорам дирекций
+руководителям отделов
+руководителям служб
+руководителям групп
+обычным department managers
+```
+
+кроме Селиванова, Лукьянова и Клюева.
+
+---
+
+# 31. LEGENDA Comfort
+
+Для manager:
+
+```text
+Мишуев Александр Адольфович
+```
+
+на карточке `LEGENDA Comfort` отображать:
+
+```text
+Мишуев Александр
+```
+
+---
+
+# 32. Assistants
+
+Для assistant cards использовать сокращенное имя.
+
+Например:
+
+```text
+Лихачева Екатерина Олеговна
+```
+
+→
+
+```text
+Лихачева Екатерина
+```
+
+```text
+Давыдова Наталья Владимировна
+```
+
+→
+
+```text
+Давыдова Наталья
+```
+
+```text
+Волкова Алина Викторовна
+```
+
+→
+
+```text
+Волкова Алина
+```
+
+---
+
+# 33. Direct reports
+
+Для direct reports также использовать:
+
+```text
+Фамилия Имя
+```
+
+Например:
+
+```text
+Кириллов Олег Сергеевич
+```
+
+→
+
+```text
+Кириллов Олег
+```
+
+---
+
+# 34. Employee cards
+
+Все обычные employee cards отображают:
+
+```text
+Фамилия Имя
+```
+
+---
+
+# 35. Detail modal
+
+В detail modal полное ФИО сохранить.
+
+Например на diagram card:
+
+```text
+Елизарова Лаура
+```
+
+после открытия detail modal:
+
+```text
+Елизарова Лаура Вячеславовна
+```
+
+То есть сокращение имени относится именно к compact organizational presentation.
+
+---
+
+# 36. Search
+
+Search должен продолжать использовать полное `full_name`.
+
+Например запрос:
+
+```text
+Вячеславовна
+```
+
+должен продолжать находить:
+
+```text
+Елизарова Лаура
+```
+
+если search engine сейчас индексирует `full_name`.
+
+Не строить search index только на сокращенном display name.
+
+---
+
+# 37. PDF — отображение ФИО
+
+В обычном подробном PDF использовать те же presentation rules:
+
+```text
+Селиванов → полное ФИО
+Лукьянов → полное ФИО
+Клюев → полное ФИО
+все остальные → Фамилия Имя
+```
+
+Если включен отдельный режим:
+
+```text
+PDF без фамилий / compact roles
+```
+
+его существующая логика имеет приоритет.
+
+---
+
+# 38. Test — employee excluded from structural data
+
+Fixture:
+
+```js
+{
+  full_name: "Елизарова Лаура Вячеславовна",
+  state: "Отпуск по уходу за ребенком",
+  count: 1
+}
+```
+
+Проверить, что employee отсутствует в structural:
+
+```js
+sourceUsers
+```
+
+и:
+
+```js
+users
+```
+
+---
+
+# 39. Test — staffCount
+
+Fixture:
+
+```text
+5 active employees
+2 employees:
+state = "Отпуск по уходу за ребенком"
+```
+
+Ожидается:
+
+```js
+staffCount === 5;
+```
+
+---
+
+# 40. Test — totalWithVacancies
+
+Fixture:
+
+```text
+5 active employees
+2 excluded employees
+3 vacancies
+```
+
+Ожидается:
+
+```js
+staffCount === 5;
+vacancyCount === 3;
+totalWithVacancies === 8;
+```
+
+---
+
+# 41. Test — parent aggregated count
+
+Excluded employee в дочернем department не должен попадать в aggregated count parent.
+
+---
+
+# 42. Test — excluded manager
+
+Если manager имеет:
+
+```text
+state = "Отпуск по уходу за ребенком"
+```
+
+он не отображается manager.
+
+Department остается.
+
+Используется существующий fallback department without manager.
+
+---
+
+# 43. Test — excluded assistant
+
+Если assistant имеет excluded state:
+
+```text
+assistant node отсутствует
+assistant connector отсутствует
+assistant layout space отсутствует
+```
+
+---
+
+# 44. Test — excluded direct report
+
+Configured direct report с excluded state не создает presentation node.
+
+---
+
+# 45. Test — excluded leadership employee
+
+Если leadership config указывает employee с excluded state:
+
+- employee не возвращается искусственно;
+- node не создается;
+- появляется diagnostic warning;
+- приложение не падает.
+
+---
+
+# 46. Test — compact PDF aggregation
+
+Excluded employees не участвуют в role count.
+
+---
+
+# 47. Test — обычное ФИО
+
+Вход:
+
+```text
+Елизарова Лаура Вячеславовна
+```
+
+Ожидаемый card display:
+
+```text
+Елизарова Лаура
+```
+
+---
+
+# 48. Test — Top-3
+
+Проверить полное отображение:
+
+```text
+Селиванов Василий Геннадиевич
+Лукьянов Алексей Александрович
+Клюев Алексей Васильевич
+```
+
+---
+
+# 49. Test — Винник
+
+Вход:
+
+```text
+Винник Лев Арнольдович
+```
+
+Ожидаемый display:
+
+```text
+Винник Лев
+```
+
+---
+
+# 50. Test — Мишуев
+
+Вход:
+
+```text
+Мишуев Александр Адольфович
+```
+
+Ожидаемый display:
+
+```text
+Мишуев Александр
+```
+
+---
+
+# 51. Test — assistant
+
+Вход:
+
+```text
+Лихачева Екатерина Олеговна
+```
+
+Ожидаемый display:
+
+```text
+Лихачева Екатерина
+```
+
+---
+
+# 52. Test — ФИО из двух частей
+
+Вход:
+
+```text
+Сойдан Айкут
+```
+
+Результат:
+
+```text
+Сойдан Айкут
+```
+
+---
+
+# 53. Test — исходное full_name
+
+После rendering:
+
+```js
+employee.full_name
+```
+
+по-прежнему содержит:
+
+```text
+Елизарова Лаура Вячеславовна
+```
+
+---
+
+# 54. Test — detail modal
+
+Card:
+
+```text
+Елизарова Лаура
+```
+
+Modal:
+
+```text
+Елизарова Лаура Вячеславовна
+```
+
+---
+
+# 55. Test — search by patronymic
+
+Поиск:
+
+```text
+Вячеславовна
+```
+
+продолжает находить employee, если это поддерживается текущим search implementation.
+
+---
+
+# 56. Test — PDF
+
+Подробный PDF:
+
+```text
+Top-3 → full name
+остальные → Фамилия Имя
+```
+
+Excluded employee отсутствует полностью.
+
+---
+
+# 57. Обновить `functionality`
+
+В рамках CR обязательно обновить актуальный `functionality`.
+
+Добавить отдельный раздел:
+
+```text
+Фильтрация сотрудников по статусу
+```
+
+Зафиксировать:
+
+> Сотрудники со статусом `Отпуск по уходу за ребенком` полностью исключаются из отображаемой организационной структуры и расчетной численности.
+
+Уточнить:
+
+> Такие сотрудники не участвуют в `staffCount`, `totalWithVacancies`, employee columns, manager resolution, assistant resolution, direct-report presentation, Holding Leadership Projection и PDF export.
+
+---
+
+# 58. Обновить `functionality` — формат ФИО
+
+Зафиксировать:
+
+> Для большинства карточек организационной структуры ФИО отображается в формате `Фамилия Имя`.
+
+Исключение:
+
+> Полное ФИО сохраняется только для top-3: Селиванова Василия Геннадиевича, Лукьянова Алексея Александровича и Клюева Алексея Васильевича.
+
+Для:
+
+```text
+Винника
+Мишуева
+руководителей дирекций
+руководителей отделов
+assistants
+direct reports
+обычных сотрудников
+```
+
+использовать:
+
+```text
+Фамилия Имя
+```
+
+---
+
+# 59. Обновить `functionality` — исходные данные ФИО
+
+Зафиксировать:
+
+> Сокращение ФИО является исключительно presentation rule. Исходное `full_name` хранится полностью и используется для идентификации, поиска, detail modal и других business operations.
+
+---
+
+# 60. Критерии приемки
+
+CR считается выполненным, если:
+
+- [ ] Все сотрудники со статусом `Отпуск по уходу за ребенком` отсутствуют в оргструктуре.
+- [ ] Они отсутствуют в employee columns.
+- [ ] Они не отображаются managers.
+- [ ] Они не отображаются assistants.
+- [ ] Они не отображаются direct reports.
+- [ ] Они не возвращаются через Holding Leadership Config.
+- [ ] Они не учитываются в `staffCount`.
+- [ ] Они не учитываются в `totalWithVacancies`.
+- [ ] Они не попадают в aggregated parent counts.
+- [ ] Vacancy count не изменен.
+- [ ] Они отсутствуют в PDF.
+- [ ] Они не участвуют в compact role aggregation.
+- [ ] Селиванов отображается с полным ФИО.
+- [ ] Лукьянов отображается с полным ФИО.
+- [ ] Клюев отображается с полным ФИО.
+- [ ] Винник отображается как `Винник Лев`.
+- [ ] Мишуев отображается как `Мишуев Александр`.
+- [ ] Обычные managers отображаются как `Фамилия Имя`.
+- [ ] Assistants отображаются как `Фамилия Имя`.
+- [ ] Direct reports отображаются как `Фамилия Имя`.
+- [ ] Employee cards отображаются как `Фамилия Имя`.
+- [ ] ФИО из двух частей не повреждаются.
+- [ ] Исходный `full_name` не изменяется.
+- [ ] Detail modal продолжает показывать полное ФИО.
+- [ ] Search продолжает работать по полному ФИО.
+- [ ] Leadership deduplication не сломана.
+- [ ] Assistant ownership не сломан.
+- [ ] AS IS работает.
+- [ ] TO BE работает.
+- [ ] Changes работает.
+- [ ] Screen rendering работает.
+- [ ] PDF работает.
+- [ ] `functionality` обновлен.
+- [ ] Regression tests добавлены.
+- [ ] Все существующие tests проходят.
+- [ ] `npm test` проходит.
+- [ ] `npm run build` проходит.
+
+---
+
+# 61. Порядок реализации для Cline
+
+Перед внесением изменений:
+
+1. Изучить актуальный `functionality`.
+2. Найти `transformNode()` / data preparation.
+3. Найти расчет `staffCount`.
+4. Найти расчет `totalWithVacancies`.
+5. Найти manager resolution.
+6. Найти `sourceUsers`.
+7. Найти `users`.
+8. Найти Holding Leadership executive lookup.
+9. Найти assistant lookup.
+10. Найти direct-report lookup.
+11. Найти screen employee/manager renderers.
+12. Найти общий renderer карточек.
+13. Найти detail modal.
+14. Найти search implementation.
+15. Найти обычный PDF renderer.
+16. Найти compact PDF role aggregation.
+17. Определить одно место для structural state filtering.
+18. Определить одно место для presentation name formatting.
+19. Только после этого вносить изменения.
+
+После реализации:
+
+1. обновить `functionality`;
+2. добавить regression tests;
+3. запустить `npm test`;
+4. запустить `npm run build`;
+5. проверить employee со статусом `Отпуск по уходу за ребенком`;
+6. проверить staffCount его department;
+7. проверить aggregated Holding count;
+8. проверить excluded manager;
+9. проверить excluded assistant;
+10. проверить excluded direct report;
+11. проверить Holding Leadership;
+12. проверить top-3;
+13. проверить Винника;
+14. проверить Мишуева;
+15. проверить обычного manager;
+16. проверить assistant card;
+17. проверить employee card;
+18. проверить detail modal;
+19. проверить search;
+20. проверить PDF;
+21. показать список измененных файлов.
+
+---
+
+# 62. Ограничения
+
+Не скрывать excluded employees только через CSS.
+
+Не оставлять excluded employees в численности.
+
+Не менять vacancy logic.
+
+Не мутировать raw API objects.
+
+Не обрезать исходный `full_name`.
+
+Не определять top-3 через текстовый `if` внутри card renderer.
+
+Не размножать статус:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+по разным файлам.
+
+Не размножать formatter сокращенного ФИО по renderers.
+
+Не менять Holding hierarchy в рамках этого CR.
+
+Не менять Unified Layout geometry.
+
+---
+
+# 63. Главный принцип фильтрации
+
+Сотрудник со статусом:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+не является участником текущей отображаемой organizational structure.
+
+Поэтому он должен быть исключен:
+
+```text
+до counts
+до presentation hierarchy
+до layout
+до render
+```
+
+а не просто визуально скрыт.
+
+---
+
+# 64. Главный принцип отображения ФИО
+
+Исходная employee model всегда содержит полное:
+
+```text
+Фамилия Имя Отчество
+```
+
+Organizational presentation использует:
+
+```text
+Фамилия Имя
+```
+
+для всех, кроме:
+
+```text
+Селиванов Василий Геннадиевич
+Лукьянов Алексей Александрович
+Клюев Алексей Васильевич
+```
+
+Для этих top-3 полное ФИО сохраняется.

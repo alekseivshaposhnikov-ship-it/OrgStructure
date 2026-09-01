@@ -67,15 +67,20 @@ function drawAllConnectors(group, flat, map) {
   byParent.forEach((children, pid) => {
     const p = map.get(pid); if (!p) return;
 
-    // CR-014 §31, §75: assistant — отдельная короткая связь от нижней границы
-    // manager рядом с правым краем к верхнему центру assistant-карточки.
+    // CR-015 §8-9: assistant — sidecar СПРАВА от manager, на уровне карточки.
+    // Короткая связь от правого центра manager к левому центру assistant
+    // (не привязана к children junction и не проходит через interior карточек).
     const assistants = children.filter(c => c.type === 'assistant');
     assistants.forEach(a => {
-      const fromX = p.x + p.cardWidth - 12;
-      const fromY = p.y + p.cardHeight;
-      const toX = a.x + a.cardWidth / 2;
-      const toY = a.y;
-      drawPath(group, fromX, fromY, toX, toY);
+      const fromX = p.x + p.cardWidth;
+      const fromY = p.y + p.cardHeight / 2;
+      const toX = a.x;
+      const toY = a.y + a.cardHeight / 2;
+      const midX = fromX + (toX - fromX) / 2;
+      const d = Math.abs(toY - fromY) < 1
+        ? `M ${fromX} ${fromY} L ${toX} ${toY}`
+        : `M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}`;
+      group.appendChild(createSvg('path', { d, fill: 'none', stroke: C.line, 'stroke-width': 1.5 }));
     });
 
     const orgChildren = children.filter(c => c.type !== 'assistant');

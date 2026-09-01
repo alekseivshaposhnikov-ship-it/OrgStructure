@@ -153,17 +153,17 @@ Leadership mapping дирекций выполняется преимущест�
 
 ### Ассистенты руководителей
 
-Персональный или административный ассистент привязан к своему непосредственному руководителю и визуально располагается рядом с его карточкой по паттерну **«под-справа»**: ассистент находится ниже руководителя, смещен вправо и не уезжает далеко из-за ширины соседних ветвей. Ассистент является sidecar-node руководителя.
+Персональный или административный ассистент привязан к своему непосредственному руководителю и визуально располагается **справа от карточки руководителя на её уровне** (CR-015): верх assistant-карточки остаётся приблизительно на уровне manager с небольшим vertical offset, поэтому ассистент не выглядит отдельным organizational level. Ассистент является локальным sidecar-node руководителя.
 
 Правила:
 
 * ассистент не является самостоятельным организационным уровнем: не создает новый organizational row, не изменяет effectiveLayoutLevel, sub_level и parent-child hierarchy дочерних подразделений;
-* assistant является sidecar-node manager: он не создает organizational row, но его фактический bounding box учитывается при расчете вертикального расстояния до следующего organizational row; следующий row не может пересекаться с assistant-card или ее connector;
-* для manager с ассистентом layout резервирует локальную assistant-zone между manager card и children junction (`assistantVerticalGap + assistant.height + assistantToChildrenGap`); для manager без ассистента дополнительная зона не создается;
-* позиция ассистента рассчитывается от карточки руководителя (локальные параметры `assistantHorizontalGap` / `assistantVerticalGap`), а не от ширины subtree;
-* несколько ассистентов одного руководителя образуют компактную sidecar-группу рядом с карточкой; assistant-zone рассчитывается по фактическому bounding box группы;
+* assistant является локальным visual sidecar руководителя: его координаты рассчитываются только относительно manager card, а не относительно subtree, children row или общего layout row;
+* позиция ассистента: `assistant.x = manager.x + manager.width + assistantHorizontalGap`, `assistant.y = manager.y + assistantVerticalOffset` — assistant преимущественно располагается справа от manager с небольшим vertical offset и не должен существенно удаляться от manager при увеличении ширины его organizational subtree;
+* ассистент не резервирует отдельную вертикальную зону под manager: высота row учитывает фактический bounding box карточек row (включая assistant), но следующий organizational row не смещается из-за наличия ассистента;
+* несколько ассистентов одного руководителя образуют компактную sidecar-группу рядом с карточкой;
 * ассистенты разных руководителей отображаются одновременно, каждый у своего manager, без перекрестной привязки;
-* при сворачивании руководителя ассистент скрывается вместе с его веткой, при раскрытии снова располагается по правилу «под-справа».
+* при сворачивании руководителя ассистент остаётся видимым рядом с manager (manager → assistant и manager → organizational children — две независимые визуальные связи); при раскрытии снова располагается по правилу sidecar справа.
 
 Привязки верхнего уровня (presentation configuration):
 
@@ -178,15 +178,28 @@ LEGENDA Comfort / Мишуев → Николаева Татьяна Влади�
 
 ### Геометрия связей (connector lines)
 
-* любой manager / department с organizational children имеет читаемую основную связь: main vertical stem от нижнего центра карточки до children junction;
-* junction располагается в свободной зоне между нижней границей parent (с учетом assistant) и верхом детей; линии не проходят через interior карточек;
-* connector assistant отделен от organizational children connector: короткая отдельная связь от нижней границы manager рядом с правым краем к верхнему центру assistant-карточки;
-* connector paths строятся на явных anchor points (нижний центр parent, верхний центр child) и рисуются до карточек (карточки поверх линий).
+* любой manager / department с organizational children имеет читаемую основную связь: main vertical stem от нижнего центра карточки (`parent.x + parent.width / 2`, `parent.y + parent.height`) до children junction;
+* junction располагается в свободной зоне между нижней границей parent visual block (с учетом assistant) и верхом детей: `visualBottom < junctionY < childrenTop`; линии не проходят через interior карточек;
+* connector assistant отделен от organizational children connector: короткая отдельная связь от правого центра manager-карточки к левому центру assistant-карточки;
+* connector paths строятся на явных anchor points (нижний центр parent, правый/левый центр sidecar, верхний центр child) и рисуются до карточек (карточки поверх линий).
 
 ### Положение toggle collapse / expand
 
-* toggle привязан к layout-геометрии, а не к переменной content height: `toggleX = node.x + node.width / 2`, `toggleY = node.y + node.height + TOGGLE_GAP`;
-* для siblings одного organizational row toggle controls имеют общий визуальный baseline независимо от высоты содержимого карточек.
+* toggle привязан к layout-геометрии, а не к переменной content height: `toggleX = node.x + node.width / 2`, `toggleY = rowVisualBottom + toggleGap`;
+* для siblings одного organizational row toggle controls имеют общий визуальный baseline независимо от высоты содержимого карточек;
+* toggle располагается на main organizational stem карточки между card и junction; наличие assistant не смещает toggle.
+
+### Геометрия экранной организационной диаграммы (CR-015)
+
+Общие правила геометрии экранной организационной диаграммы:
+
+* Assistant является локальным visual sidecar руководителя. Его координаты рассчитываются относительно manager card, а не относительно subtree или organizational row.
+* Assistant преимущественно располагается справа от manager с небольшим vertical offset и не должен существенно удаляться от manager при увеличении ширины его organizational subtree.
+* Manager → assistant и manager → organizational children являются двумя независимыми визуальными связями. Assistant connector не используется как часть основной organizational connector hierarchy.
+* Для любого node с organizational children должна существовать читаемая vertical stem от bottom-center parent card до children junction. Наличие assistant не отменяет и не изменяет эту stem.
+* Connector paths строятся через явные layout anchors и свободную connector-zone между visual parent block и children row. Connector paths не должны проходить через interior bounding boxes карточек.
+* Для каждого visual row layout учитывает максимальную фактическую высоту карточек. Connector-zone следующего уровня строится ниже visual bottom самой высокой карточки row.
+* Collapse / expand control является частью layout geometry и привязан к main organizational stem / row anchor, а не к внутреннему DOM-content карточки. Controls sibling nodes одного organizational row должны иметь согласованный visual baseline.
 
 ---
 

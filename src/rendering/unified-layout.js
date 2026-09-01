@@ -44,13 +44,19 @@ const DEFAULT_OPTIONS = {
   rowGap: 60,
   personGap: 8,
   contentGap: 30,
-  // CR-013_assistant §6, §9-11: assistant — sidecar-node руководителя.
-  // Позиция рассчитывается от карточки manager (под-справа), а не от subtree.
+  // CR-015 §3-6: assistant — локальный sidecar СПРАВА от manager. Позиция
+  // рассчитывается только от карточки manager, а не от subtree/row:
+  //   assistant.x = manager.x + manager.width + assistantHorizontalGap;
+  //   assistant.y = manager.y + assistantVerticalOffset.
+  // Верх assistant остаётся приблизительно на уровне manager (небольшой
+  // vertical offset), поэтому assistant не выглядит отдельным organizational level.
   assistantHorizontalGap: 16,
-  assistantVerticalGap: 12,
-  assistantToChildrenGap: 28,
+  assistantVerticalOffset: 28,
   assistantSidecarWidth: 240,
   assistantSidecarHeight: 44,
+  // CR-015 §22-26: collapse/expand control — часть layout-геометрии. Baseline
+  // toggle привязан к visual row (rowVisualBottom + toggleGap), а не к content height.
+  toggleGap: 14,
   paddingX: 40,
   paddingY: 40,
   // Ролевая presentation для PDF (CR-003-02): department-card получает
@@ -241,12 +247,17 @@ export function buildLayoutTree(
     const isCollapsed = collapsedIds ? collapsedIds.has(data.id) : false;
 
     if (isCollapsed) {
+      // CR-015 §28, §53: при collapse скрываются только organizational children.
+      // Sidecar-ассистенты остаются видимыми рядом с manager — assistant не
+      // является organizational child и не должен исчезать вместе с веткой.
+      const sidecarAssistants = children.filter((child) => child.type === NODE_ASSISTANT);
       return {
         type: NODE_DEPARTMENT,
         data,
-        children: [],
+        children: sidecarAssistants,
         collapsed: true,
-        hiddenChildrenCount: children.length,
+        // Скрыты все children, кроме оставшихся видимыми sidecar-ассистентов.
+        hiddenChildrenCount: children.length - sidecarAssistants.length,
       };
     }
 
@@ -489,11 +500,11 @@ function buildRowIndexMap(tree) {
 }
 
 /**
- * CR-013_assistant_fix2 §1-3, §6-8: высота row учитывает локальную assistant-zone
- * для manager с ассистентами. Зона резервирует вертикальное место под
- * sidecar-карточки и их connector перед следующим organizational row, но НЕ
- * создаёт новый row и не меняет effectiveLayoutLevel. Для manager без
- * ассистентов зона не добавляется (conditional).
+ * CR-015 §15, §21: высота row учитывает фактический bounding box карточек row.
+ * Sidecar-ассистенты находятся на одной визуальной строке с manager (справа,
+ * с небольшим vertical offset), поэтому НЕ резервируют отдельную вертикальную
+ * зону под manager — учитывается только их реальная вертикальная протяжённость
+ * в пределах row. Для manager без ассистентов row height не меняется.
  */
 function collectRowHeights(node, rowHeights, rowIndexMap, opts) {
   if (node.type === NODE_DEPARTMENT) {
@@ -502,15 +513,10 @@ function collectRowHeights(node, rowHeights, rowIndexMap, opts) {
 
     const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
     if (assistants.length) {
-      // Bounding box группы ассистентов (они расположены в ряд на одном y).
-      const groupHeight = Math.max(...assistants.map((assistant) => assistant.height));
-      rowHeight = Math.max(
-        rowHeight,
-        node.height +
-          opts.assistantVerticalGap +
-          groupHeight +
-          opts.assistantToChildrenGap,
-      );
+      // Ассистенты лежат на одном y = node.y + assistantVerticalOffset;
+      // нижний край группы относительно node.y:
+      const groupBottom = Math.max(...assistants.map((assistant) => assistant.height));
+      rowHeight = Math.max(rowHeight, opts.assistantVerticalOffset + groupBottom);
     }
 
     rowHeights[index] = Math.max(rowHeights[index] || 0, rowHeight);
@@ -544,26 +550,72 @@ function assignY(node, rowTops, rowIndexMap, parent, opts) {
 }
 
 /**
- * CR-013_assistant §6, §9-11: позиционирует sidecar-ассистентов относительно
- * карточки их руководителя (под-справа), а не относительно subtree/row.
+ * CR-015 §3-6, §9: позиционирует sidecar-ассистентов СПРАВА от карточки их
+ * руководителя, на уровне manager (небольшой vertical offset). Позиция
+ * рассчитывается только относительно карточки manager и не зависит от ширины
+ * subtree / organizational row / junction.
  *
  * - x = manager.x + manager.width + assistantHorizontalGap (несколько
  *   ассистентов укладываются компактной группой с тем же gap);
- * - y = manager.y + manager.height + assistantVerticalGap. Вертикальное место
- *   под ассистентом резервируется assistant-zone в collectRowHeights
- *   (CR-013_assistant_fix2 §1-3).
+ * - y = manager.y + assistantVerticalOffset — верх assistant остаётся
+ *   приблизительно на уровне manager.
  */
 function placeAssistantSidecars(tree, opts) {
   (function walk(node) {
     const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
     let cursorX = node.x + node.width + opts.assistantHorizontalGap;
     assistants.forEach((assistant) => {
-      assistant.y = node.y + node.height + opts.assistantVerticalGap;
+      assistant.y = node.y + opts.assistantVerticalOffset;
       assistant.x = cursorX;
       cursorX += assistant.width + opts.assistantHorizontalGap;
     });
     (node.children || []).forEach(walk);
   })(tree);
+}
+
+/**
+ * CR-015 §22-26: toggle collapse/expand — часть layout-геометрии, а не
+ * внутреннего content карточки.
+ *
+ * Для каждого visual row считается фактический нижний край карточек
+ * (rowVisualBottom = max по department/assistant card), затем для всех
+ * collapseable department-узлов row устанавливается общий baseline:
+ *
+ *   toggleY = rowVisualBottom + opts.toggleGap;
+ *
+ * X toggle привязан к main organizational stem карточки
+ * (node.x + node.width / 2) — см. renderer. Наличие assistant не меняет toggleX.
+ */
+function attachTogglePositions(tree, opts) {
+  const byRow = new Map();
+
+  function collect(node) {
+    if (node.row != null) {
+      if (!byRow.has(node.row)) byRow.set(node.row, []);
+      byRow.get(node.row).push(node);
+    }
+    (node.children || []).forEach(collect);
+  }
+  collect(tree);
+
+  const rowVisualBottom = new Map();
+  byRow.forEach((rowNodes, row) => {
+    // NODE_EMPLOYEES — content-колонка в connector-зоне, в визуальный row
+    // карточек не входит и на baseline toggle не влияет.
+    const cards = rowNodes.filter((node) => node.type !== NODE_EMPLOYEES);
+    rowVisualBottom.set(row, Math.max(...cards.map((node) => node.y + node.height)));
+  });
+
+  function walk(node) {
+    if (node.type === NODE_DEPARTMENT) {
+      const orgChildren = (node.children || []).filter((child) => child.type !== NODE_ASSISTANT);
+      if (node.collapsed || orgChildren.length) {
+        node.toggleY = rowVisualBottom.get(node.row) + opts.toggleGap;
+      }
+    }
+    (node.children || []).forEach(walk);
+  }
+  walk(tree);
 }
 
 function collect(tree, nodes, edges, flatData, parent) {
@@ -606,8 +658,11 @@ export function computeUnifiedLayout(rootNode, options = {}) {
   const { rowTops, rowIndexMap } = computeRowTops(tree, opts);
   assignY(tree, rowTops, rowIndexMap, null, opts);
 
-  // Sidecar-ассистенты — позиция от карточки руководителя (CR-013_assistant §6).
+  // Sidecar-ассистенты — позиция от карточки руководителя (CR-015 §3-6).
   placeAssistantSidecars(tree, opts);
+
+  // Toggle collapse/expand — часть layout-геометрии (CR-015 §22-26).
+  attachTogglePositions(tree, opts);
 
   attachLayoutMeta(tree);
 
