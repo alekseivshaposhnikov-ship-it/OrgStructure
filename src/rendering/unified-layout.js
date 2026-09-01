@@ -466,58 +466,86 @@ function computeSizes(node, opts) {
   (node.children || []).forEach((child) => computeSizes(child, opts));
 }
 
-function computeSubtreeWidths(node, colGap, opts) {
+function computeSubtreeWidths(node, colGap) {
   if (node.type !== NODE_DEPARTMENT || !node.children.length) {
     node.subtreeWidth = node.width;
-    applyAssistantFootprint(node, opts);
     return node.subtreeWidth;
   }
 
   // Sidecar-ассистенты (CR-013_assistant §7, §10) не участвуют в организационной
-  // ширине ветки (не считаются children-столбцом), но их visual footprint
-  // учитывается в subtreeWidth (CR-017 §7-8, §12).
+  // ширине ветки и НЕ увеличивают subtreeWidth (CR-018 §4.1): их асимметричный
+  // visual footprint обрабатывается отдельным packing-проходом
+  // compactSiblingBranches() по фактическим visual bounds (CR-018 §7).
   const children = node.children.filter((child) => child.type !== NODE_ASSISTANT);
   if (!children.length) {
     node.subtreeWidth = node.width;
-    applyAssistantFootprint(node, opts);
     return node.subtreeWidth;
   }
 
   const childrenWidth =
-    children.reduce((sum, child) => sum + computeSubtreeWidths(child, colGap, opts), 0) +
+    children.reduce((sum, child) => sum + computeSubtreeWidths(child, colGap), 0) +
     (children.length - 1) * colGap;
 
   node.subtreeWidth = Math.max(node.width, childrenWidth);
-  applyAssistantFootprint(node, opts);
   return node.subtreeWidth;
 }
 
 /**
- * CR-017 §7-8, §12, §16: assistant sidecar является частью visual footprint
- * manager branch. subtreeWidth расширяется так, чтобы правый край assistant-группы
- * не выходил за правую границу subtree-блока — следующий sibling branch после
- * этого гарантированно начинается после видимого assistant (перекрытия нет).
- *
- * Аналитически: assistant.x = node.x + node.width + assistantHorizontalGap,
- * node.x = left + subtreeWidth/2 - node.width/2 (assignX). Условие
- * assistantRight <= left + subtreeWidth:
- *
- *   subtreeWidth/2 + node.width/2 + gap + groupWidth <= subtreeWidth
- *   → subtreeWidth >= node.width + 2*gap + 2*groupWidth
- *
- * Для manager без assistant функция ничего не меняет (CR-017 §25).
+ * CR-018 §9: фактические визуальные границы ветви по реально отображаемым
+ * узлам layout tree (department cards, assistant sidecars, employee columns,
+ * дочерние department-узлы). Collapsed children в layout tree отсутствуют,
+ * поэтому скрытые ветви не резервируют место (CR-018 §16).
  */
-function applyAssistantFootprint(node, opts) {
-  const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
-  if (!assistants.length) return;
+function computeVisualBounds(branch) {
+  let minX = branch.x;
+  let maxX = branch.x + branch.width;
 
-  const gap = opts.assistantHorizontalGap;
-  const groupWidth =
-    assistants.reduce((sum, ast) => sum + ast.width, 0) +
-    (assistants.length - 1) * gap;
+  (function walk(node) {
+    minX = Math.min(minX, node.x);
+    maxX = Math.max(maxX, node.x + node.width);
+    (node.children || []).forEach(walk);
+  })(branch);
 
-  const required = node.width + 2 * gap + 2 * groupWidth;
-  node.subtreeWidth = Math.max(node.subtreeWidth || node.width, required);
+  return { minX, maxX, width: maxX - minX };
+}
+
+/**
+ * CR-018 §8: сдвигает всю branch (department card, assistant sidecar,
+ * employee column, дочерние department-узлы) на dx вправо, сохраняя
+ * внутреннюю геометрию ветви.
+ */
+function shiftBranch(node, dx) {
+  if (!dx) return;
+  node.x += dx;
+  (node.children || []).forEach((child) => shiftBranch(child, dx));
+}
+
+/**
+ * CR-018 §7, §13, §25: компактный collision-aware horizontal packing.
+ *
+ * Для каждой sibling-группы (children одного parent, кроме assistant) слева
+ * направо проверяются фактические visual bounds соседних ветвей. Если правая
+ * ветвь пересекает visual footprint левой (с учётом colGap), она сдвигается
+ * ровно на величину пересечения. No collision → no additional shift.
+ * Сложность O(n) на sibling-группу.
+ */
+function compactSiblingBranches(tree, opts) {
+  (function process(node) {
+    const branches = (node.children || []).filter((child) => child.type !== NODE_ASSISTANT);
+
+    let prev = null;
+    branches.forEach((branch) => {
+      if (prev) {
+        const leftBounds = computeVisualBounds(prev);
+        const rightBounds = computeVisualBounds(branch);
+        const overlap = leftBounds.maxX + opts.colGap - rightBounds.minX;
+        if (overlap > 0) shiftBranch(branch, overlap);
+      }
+      prev = branch;
+    });
+
+    (node.children || []).forEach((child) => process(child));
+  })(tree);
 }
 
 function assignX(node, left, colGap) {
@@ -708,7 +736,7 @@ export function computeUnifiedLayout(rootNode, options = {}) {
   computeRows(tree);
 
   computeSizes(tree, opts);
-  computeSubtreeWidths(tree, opts.colGap, opts);
+  computeSubtreeWidths(tree, opts.colGap);
   assignX(tree, opts.paddingX, opts.colGap);
 
   const { rowTops, rowIndexMap } = computeRowTops(tree, opts);
@@ -716,6 +744,10 @@ export function computeUnifiedLayout(rootNode, options = {}) {
 
   // Sidecar-ассистенты — позиция от карточки руководителя (CR-015 §3-6).
   placeAssistantSidecars(tree, opts);
+
+  // CR-018 §7: компактный collision-aware horizontal packing по фактическим
+  // visual bounds (организационная геометрия не меняется).
+  compactSiblingBranches(tree, opts);
 
   // Toggle collapse/expand — часть layout-геометрии (CR-015 §22-26).
   attachTogglePositions(tree, opts);
@@ -738,6 +770,17 @@ export function computeUnifiedLayout(rootNode, options = {}) {
     minY = Math.min(minY, node.y);
     maxY = Math.max(maxY, node.y + node.height);
   });
+
+  // CR-018 §20-21: финальные границы схемы считаются по фактическим координатам
+  // после packing. Если packing вывел ветви левее paddingX — выровнять всё вправо.
+  if (minX < opts.paddingX) {
+    const dx = opts.paddingX - minX;
+    nodes.forEach((node) => {
+      node.x += dx;
+    });
+    minX += dx;
+    maxX += dx;
+  }
 
   const width = maxX - minX + opts.paddingX * 2;
   const height = maxY - minY + opts.paddingY * 2;

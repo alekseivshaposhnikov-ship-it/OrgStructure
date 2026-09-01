@@ -1,0 +1,992 @@
+# CR-019 — Упрощение размещения ассистентов по уровню руководителя
+
+## 1. Цель
+
+Упростить и стабилизировать визуальное размещение персональных и административных ассистентов.
+
+Текущая универсальная модель sidecar справа от manager приводит к избыточной ширине схемы и усложняет collision resolution.
+
+Нужно разделить отображение assistants на два визуальных паттерна:
+
+1. для top-management — assistant располагается компактно `под-справа`, как в референсной оргструктуре портала;
+2. для всех остальных руководителей — assistant располагается непосредственно под карточкой руководителя.
+
+При этом assistant во всех случаях остается специальным visual node и не изменяет организационную hierarchy.
+
+---
+
+# 2. Top-management
+
+Под top-management в рамках layout использовать тот же семантический признак, который уже применяется для верхнеуровневых руководителей.
+
+Не определять уровень по ФИО внутри renderer.
+
+Для текущего Holding view к top-management относятся:
+
+```text
+Селиванов Василий Геннадиевич
+Лукьянов Алексей Александрович
+Клюев Алексей Васильевич
+```
+
+Если в presentation model уже существует признак вроде:
+
+```js
+keepFullName
+isTopManagement
+isHoldingExecutive
+```
+
+использовать наиболее подходящий семантический флаг.
+
+При необходимости добавить отдельный:
+
+```js
+assistantPlacement: "side"
+```
+
+---
+
+# 3. Assistant у top-management
+
+Для top-management assistant должен располагаться справа и немного ниже manager.
+
+Целевой паттерн:
+
+```text
+┌──────────────────────────┐
+│         Manager          │
+└──────────────────────────┘
+                  ┌──────────────────────┐
+                  │      Assistant       │
+                  └──────────────────────┘
+```
+
+или максимально близко:
+
+```text
+┌──────────────────────────┐
+│         Manager          │
+└──────────────────────────┘
+             └─────┐
+                   ┌──────────────────────┐
+                   │      Assistant       │
+                   └──────────────────────┘
+```
+
+Главное:
+
+- assistant находится справа от manager;
+- слегка ниже;
+- визуально воспринимается как сопровождающий manager;
+- расстояние небольшое;
+- assistant не уезжает далеко вправо;
+- assistant не формирует самостоятельную организационную колонку.
+
+---
+
+# 4. Геометрия top-management assistant
+
+Рекомендуемая модель:
+
+```js
+assistant.x =
+  manager.x
+  + manager.width
+  + TOP_ASSISTANT_HORIZONTAL_GAP;
+
+assistant.y =
+  manager.y
+  + TOP_ASSISTANT_VERTICAL_OFFSET;
+```
+
+Где:
+
+```text
+TOP_ASSISTANT_HORIZONTAL_GAP
+```
+
+должен быть небольшим.
+
+Например:
+
+```text
+8–20 px
+```
+
+А:
+
+```text
+TOP_ASSISTANT_VERTICAL_OFFSET
+```
+
+должен давать только небольшое смещение вниз.
+
+Например:
+
+```text
+20–50% высоты manager card
+```
+
+Конкретные значения подобрать визуально под существующие карточки.
+
+Не привязывать их к ширине subtree.
+
+---
+
+# 5. Assistant у руководителей ниже top-management
+
+Для любого manager, который не относится к top-management, assistant должен располагаться непосредственно под manager.
+
+Целевой паттерн:
+
+```text
+┌──────────────────────────┐
+│         Manager          │
+└──────────────────────────┘
+            │
+┌──────────────────────────┐
+│        Assistant         │
+└──────────────────────────┘
+            │
+        children
+```
+
+При этом assistant остается special visual node.
+
+Он НЕ является organizational level.
+
+---
+
+# 6. Assistant ниже уровня не должен расширять branch по ширине
+
+Это ключевой принцип.
+
+Для обычного manager:
+
+```text
+Manager
+Assistant
+```
+
+assistant должен занимать ту же локальную горизонтальную область, что и manager.
+
+Предпочтительно:
+
+```js
+assistantCenterX === managerCenterX;
+```
+
+или:
+
+```js
+assistant.x =
+  manager.x
+  + (manager.width - assistant.width) / 2;
+```
+
+Таким образом assistant не увеличивает horizontal footprint ветви.
+
+---
+
+# 7. Assistant ниже уровня и vertical layout
+
+Для обычного manager assistant должен располагаться с небольшим вертикальным gap:
+
+```js
+assistant.y =
+  manager.y
+  + manager.height
+  + ASSISTANT_VERTICAL_GAP;
+```
+
+Например:
+
+```text
+8–16 px
+```
+
+после нижней границы manager.
+
+Следующий organizational row должен начинаться ниже assistant.
+
+---
+
+# 8. Assistant не создает `effectiveLayoutLevel`
+
+Несмотря на визуальное расположение под manager:
+
+```text
+Manager
+Assistant
+Departments
+```
+
+assistant не создает новый:
+
+```text
+effectiveLayoutLevel
+row
+sub_level
+```
+
+Для hierarchy остается:
+
+```text
+Manager
+├── Assistant [visual]
+├── Department A
+├── Department B
+└── Department C
+```
+
+а не:
+
+```text
+Manager
+└── Assistant
+    └── Departments
+```
+
+---
+
+# 9. Следующий organizational row
+
+Для manager с assistant снизу:
+
+```js
+visualBottom =
+  assistant.y + assistant.height;
+```
+
+Для manager без assistant:
+
+```js
+visualBottom =
+  manager.y + manager.height;
+```
+
+Children junction и следующий row строятся ниже:
+
+```text
+visualBottom + rowGap
+```
+
+---
+
+# 10. Top-management assistant не должен влиять на organizational row
+
+Для top-management assistant справа/под-справа:
+
+```text
+Manager      Assistant
+   │
+   │
+children junction
+```
+
+Он также не создает дополнительный organizational level.
+
+Но его реальный bounding box должен учитываться, чтобы он не пересекался с следующей строкой.
+
+---
+
+# 11. Упростить horizontal footprint
+
+После введения двух паттернов можно значительно упростить текущую сложную механику assistant footprint.
+
+## Для top-management
+
+Assistant участвует в visual bounds справа.
+
+Но таких узлов немного — только верхний management layer.
+
+Допускается небольшой controlled visual footprint.
+
+## Для остальных
+
+Assistant находится под manager и НЕ расширяет branch вправо.
+
+Следовательно, horizontal subtree width не должен увеличиваться из-за assistant.
+
+---
+
+# 12. Не использовать universal `applyAssistantFootprint()` для всех
+
+Текущая универсальная логика, которая расширяет subtree под любого assistant, больше не нужна в прежнем виде.
+
+Необходимо разделить behavior:
+
+```js
+if (isTopManagementManager(node)) {
+  applyTopAssistantSidecar(...)
+} else {
+  placeAssistantBelowManager(...)
+}
+```
+
+Но не hardcode конкретные ФИО.
+
+Использовать семантический presentation flag.
+
+---
+
+# 13. Рекомендуемый presentation property
+
+Для ясности архитектуры допустимо добавить в prepared node:
+
+```js
+assistantPlacement: "side"
+```
+
+или:
+
+```js
+assistantPlacement: "below"
+```
+
+Например:
+
+```js
+{
+  isHoldingExecutive: true,
+  assistantPlacement: "side"
+}
+```
+
+и:
+
+```js
+{
+  isHoldingExecutive: false,
+  assistantPlacement: "below"
+}
+```
+
+Renderer/layout читает готовое presentation rule.
+
+---
+
+# 14. Root Селиванов
+
+Для Селиванова использовать pattern:
+
+```text
+Селиванов
+          Давыдова
+```
+
+Визуально assistant располагается справа и немного ниже.
+
+Не ставить Давыдову отдельной строкой строго под Селивановым.
+
+---
+
+# 15. Лукьянов
+
+Для Лукьянова использовать:
+
+```text
+Лукьянов
+          Волкова
+```
+
+с тем же паттерном `под-справа`.
+
+---
+
+# 16. Клюев
+
+Для Клюева:
+
+```text
+Клюев
+        Лихачева
+```
+
+Assistant справа и немного ниже.
+
+---
+
+# 17. Винник
+
+Винник не относится к top-3 в рамках текущих presentation rules.
+
+Если у него появится assistant, использовать обычный pattern:
+
+```text
+Винник
+   │
+Assistant
+   │
+Дирекция
+```
+
+---
+
+# 18. Невзорова
+
+Для Невзоровой:
+
+```text
+Невзорова
+   │
+Щёкотова
+   │
+children
+```
+
+Assistant должен находиться строго в локальной вертикальной зоне branch.
+
+Он не должен расширять ветвь вправо.
+
+---
+
+# 19. Садкова
+
+Для Садковой:
+
+```text
+Садкова
+   │
+Кудашева
+   │
+children
+```
+
+После CR-016 сотрудник со статусом:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+не участвует в структуре.
+
+Следовательно, отображается только active assistant.
+
+---
+
+# 20. Мишуев / LEGENDA Comfort
+
+Для Мишуева:
+
+```text
+LEGENDA Comfort
+Мишуев Александр
+        │
+Николаева Татьяна
+        │
+children
+```
+
+Assistant должен располагаться под department card.
+
+Не использовать боковой sidecar.
+
+---
+
+# 21. Connector top-management → assistant
+
+Для top-management использовать короткий L-shaped connector:
+
+```text
+Manager
+   └──── Assistant
+```
+
+Он не должен смешиваться с main organizational connector.
+
+---
+
+# 22. Connector обычный manager → assistant
+
+Для assistant снизу использовать прямую вертикальную связь:
+
+```text
+Manager
+   │
+Assistant
+```
+
+Connector короткий и центрированный.
+
+---
+
+# 23. Main organizational connector
+
+Main connector manager → children остается независимым.
+
+Для обычного manager с assistant:
+
+```text
+Manager
+   │
+Assistant
+   │
+──────── children junction
+```
+
+Визуально connector может проходить через assistant block как единая вертикальная ось, но data hierarchy остается manager → children.
+
+То есть assistant визуально находится между manager и children, но не становится parent.
+
+---
+
+# 24. Toggle
+
+Toggle collapse / expand должен относиться к organizational branch, а не к assistant.
+
+Для manager с assistant снизу рекомендуемый pattern:
+
+```text
+Manager
+   │
+Assistant
+   │
+  (−)
+   │
+children junction
+```
+
+или:
+
+```text
+Manager
+   │
+Assistant
+   │
+children junction
+   │
+  (−)
+```
+
+Выбрать один текущий общий visual standard.
+
+Главное — toggle не должен находиться поверх assistant.
+
+---
+
+# 25. Collapse
+
+При collapse manager:
+
+- organizational children скрываются;
+- assistant остается видимым рядом / под manager согласно действующему правилу;
+- branch сохраняет компактный размер;
+- скрытые children не резервируют пространство.
+
+Для обычного manager:
+
+```text
+Manager
+   │
+Assistant
+   │
+  (+)
+```
+
+---
+
+# 26. Horizontal footprint обычного manager
+
+Для manager с assistant снизу:
+
+```js
+branchOwnWidth =
+  Math.max(
+    manager.width,
+    assistant.width
+  );
+```
+
+Но предпочтительно assistant card должна быть не шире manager card.
+
+Если assistant шире, центрировать ее относительно manager и учитывать реальную ширину.
+
+Не добавлять боковой reserve.
+
+---
+
+# 27. Horizontal footprint top-management
+
+Для top-management:
+
+```js
+visualRight =
+  Math.max(
+    manager.right,
+    assistant.right
+  );
+```
+
+Visual sidecar учитывается.
+
+Но дополнительное пространство резервируется только справа.
+
+Не создавать симметричный reserve слева.
+
+---
+
+# 28. Не использовать collision-aware packing там, где он больше не нужен
+
+После перевода обычных assistants вниз необходимость в сложном horizontal collision resolution существенно уменьшается.
+
+Не удалять существующую защиту от collisions без проверки, но упростить её:
+
+- обычные assistants ниже manager не должны вызывать horizontal collision;
+- sidecar collision проверяется только для top-management и редких специальных sidecar nodes.
+
+---
+
+# 29. Не менять hierarchy
+
+Не изменять:
+
+```text
+parentId
+children
+managerSubLevel
+effectiveLayoutLevel
+row
+```
+
+CR меняет только visual placement.
+
+---
+
+# 30. Не менять assistant ownership
+
+Не менять существующие связи:
+
+```text
+Селиванов → Давыдова
+Лукьянов → Волкова
+Клюев → Лихачева
+Невзорова → Щёкотова
+Садкова → Кудашева
+Мишуев → Николаева
+```
+
+CR работает только с layout presentation.
+
+---
+
+# 31. Regression test — top assistant
+
+Fixture:
+
+```text
+Top manager + assistant
+```
+
+Проверить:
+
+```js
+assistant.x > manager.x;
+assistant.y >= manager.y;
+```
+
+и небольшое расстояние между карточками.
+
+---
+
+# 32. Regression test — ordinary assistant
+
+Fixture:
+
+```text
+Manager + assistant
+```
+
+Проверить:
+
+```js
+assistantCenterX === managerCenterX
+```
+
+с допустимой погрешностью.
+
+И:
+
+```js
+assistant.y > manager.y + manager.height;
+```
+
+---
+
+# 33. Regression test — ordinary assistant не увеличивает horizontal width
+
+Сравнить:
+
+```text
+Manager
+```
+
+и:
+
+```text
+Manager
+└── Assistant below
+```
+
+Horizontal branch width должна измениться только если assistant физически шире manager.
+
+При равной или меньшей ширине:
+
+```js
+branchWidthWithAssistant === branchWidthWithoutAssistant
+```
+
+---
+
+# 34. Regression test — multiple sibling managers
+
+Fixture:
+
+```text
+Manager A + assistant below
+Manager B + assistant below
+Manager C
+```
+
+Проверить:
+
+- assistants не пересекаются;
+- sibling horizontal gap остается обычным;
+- assistants не создают дополнительные боковые резервы.
+
+---
+
+# 35. Regression test — top management
+
+Fixture:
+
+```text
+Селиванов + assistant side
+Лукьянов + assistant side
+Клюев + assistant side
+```
+
+Проверить:
+
+- assistant рядом;
+- assistant слегка ниже;
+- sidecar не перекрывает соседний top node;
+- схема остается компактной.
+
+---
+
+# 36. Regression test — Nевзорова / Садкова
+
+Проверить реальные cases:
+
+```text
+Невзорова
+└── Щёкотова below
+```
+
+и:
+
+```text
+Садкова
+└── Кудашева below
+```
+
+Никакие соседние department cards не перекрываются.
+
+---
+
+# 37. Regression test — LEGENDA Comfort
+
+Проверить:
+
+```text
+LEGENDA Comfort
+Мишуев
+└── Николаева below
+```
+
+Assistant не расширяет branch вправо.
+
+---
+
+# 38. Regression test — collapse ordinary manager
+
+После collapse:
+
+```text
+Manager
+Assistant
+(+)
+```
+
+и никакого лишнего горизонтального пространства.
+
+---
+
+# 39. Regression test — collapse top manager
+
+Для top-manager:
+
+```text
+Manager    Assistant
+(+)
+```
+
+Assistant остается sidecar.
+
+Hidden descendants не резервируют место.
+
+---
+
+# 40. Regression test — variable card widths
+
+Проверить минимум:
+
+```text
+230 px
+350 px
+380 px
+```
+
+Assistant below корректно центрируется относительно manager.
+
+Top sidecar корректно располагается справа.
+
+---
+
+# 41. Обновить `functionality`
+
+Добавить правило:
+
+> Используются два визуальных режима размещения assistant.
+
+## Top-management
+
+> Для top-management assistant отображается как компактный sidecar справа и немного ниже карточки руководителя.
+
+## Остальные руководители
+
+> Для остальных managers assistant располагается непосредственно под карточкой manager и не увеличивает горизонтальную ширину ветви.
+
+---
+
+# 42. Обновить `functionality` — hierarchy
+
+Зафиксировать:
+
+> В обоих режимах assistant остается visual node и не является самостоятельным organizational level.
+
+---
+
+# 43. Обновить `functionality` — compact layout
+
+Добавить:
+
+> Размещение assistant под обычным manager используется для предотвращения избыточного расширения organizational layout по горизонтали.
+
+---
+
+# 44. Acceptance criteria
+
+CR считается выполненным, если:
+
+- [ ] Селиванов имеет assistant `под-справа`.
+- [ ] Лукьянов имеет assistant `под-справа`.
+- [ ] Клюев имеет assistant `под-справа`.
+- [ ] Top assistants находятся ближе к manager, чем сейчас.
+- [ ] Top assistant не уезжает далеко вправо.
+- [ ] Винник не получает top-sidecar rule.
+- [ ] Невзорова имеет assistant непосредственно под карточкой.
+- [ ] Садкова имеет assistant непосредственно под карточкой.
+- [ ] Мишуев / LEGENDA Comfort имеет assistant непосредственно под карточкой.
+- [ ] Ordinary assistants не увеличивают horizontal branch width при ширине <= manager width.
+- [ ] Ordinary assistants не перекрываются соседними cards.
+- [ ] Sidecar top assistants не перекрываются соседними cards.
+- [ ] Assistant не меняет `effectiveLayoutLevel`.
+- [ ] Assistant не меняет `row`.
+- [ ] Assistant не становится parent departments.
+- [ ] Collapse работает.
+- [ ] Expand работает.
+- [ ] Hidden descendants не резервируют лишнюю ширину.
+- [ ] Общая структура Холдинга стала компактнее.
+- [ ] Zoom / viewport не сломан.
+- [ ] AS IS работает.
+- [ ] TO BE работает.
+- [ ] Changes работает.
+- [ ] `functionality` обновлен.
+- [ ] Regression tests добавлены.
+- [ ] `npm test` проходит.
+- [ ] `npm run build` проходит.
+
+---
+
+# 45. Порядок реализации для Cline
+
+Перед изменением кода:
+
+1. Найти текущий `placeAssistantSidecars`.
+2. Найти current assistant visual footprint calculation.
+3. Найти semantic flag top-management nodes.
+4. Не использовать ФИО напрямую в layout.
+5. Определить `assistantPlacement` для каждого manager.
+6. Разделить placement на `side` и `below`.
+7. Убрать horizontal assistant footprint для `below`.
+8. Сохранить visual footprint только для `side`.
+9. Пересчитать vertical visual bounds для `below`.
+10. Проверить connectors.
+11. Проверить toggle.
+12. Проверить collapse.
+13. Добавить regression tests.
+14. Обновить `functionality`.
+
+После реализации:
+
+1. проверить Селиванова;
+2. проверить Лукьянова;
+3. проверить Клюева;
+4. проверить Винника;
+5. проверить Невзорову;
+6. проверить Садкову;
+7. проверить LEGENDA Comfort;
+8. проверить collapsed view;
+9. проверить expanded view;
+10. проверить разные card widths;
+11. запустить `npm test`;
+12. запустить `npm run build`.
+
+---
+
+# 46. Главный принцип
+
+Assistant placement определяется уровнем presentation manager:
+
+```text
+TOP MANAGEMENT
+Manager
+        Assistant
+
+OTHER MANAGERS
+Manager
+   |
+Assistant
+```
+
+В обоих случаях:
+
+```text
+assistant ≠ organizational level
+assistant ≠ department parent
+assistant = visual companion manager
+```
+
+Главная цель изменения:
+
+```text
+сохранить наглядность
++
+убрать лишнюю горизонтальную ширину
++
+избежать сложного collision layout там,
+где достаточно простого вертикального размещения
+```.

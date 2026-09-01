@@ -1036,3 +1036,243 @@ describe("unified-layout · assistant footprint (CR-017)", () => {
   });
 });
 
+describe("unified-layout · compact horizontal packing (CR-018)", () => {
+  function makeBranch(overrides = {}) {
+    return dept(overrides.id || "A", overrides.name || "A", {
+      managerSubLevel: 2,
+      ...(overrides.assistants
+        ? {
+            users: overrides.assistants.map((name, i) =>
+              user(`ast-${overrides.id}-${i}`, name, {
+                position: i % 2 === 0 ? "Административный ассистент" : "Персональный ассистент",
+              }),
+            ),
+          }
+        : {}),
+      ...(overrides.children ? { children: overrides.children } : {}),
+    });
+  }
+
+  it("assistant placement сохраняется: x = manager.x + manager.width + gap, y = manager.y + offset (CR-018 §6, §28)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({ id: "A", name: "A", assistants: ["Assistant A"] }),
+        makeBranch({ id: "B", name: "B" }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    const manager = byId(nodes, "A");
+    const ast = byId(nodes, "ast-A-0");
+
+    expect(ast.x).toBe(manager.x + manager.width + 16);
+    expect(ast.y).toBe(manager.y + 28);
+  });
+
+  it("assistant не удваивает subtreeWidth (CR-018 §5, §29)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [makeBranch({ id: "A", name: "A", assistants: ["Assistant A"] })],
+    });
+    const { tree } = computeUnifiedLayout(root);
+
+    const a = tree.children.find((c) => c.data.id === "A");
+    expect(a.subtreeWidth).toBe(a.width);
+    expect(a.subtreeWidth).toBeLessThan(a.width + 2 * 16 + 2 * 240);
+  });
+
+  it("no collision → no additional shift (CR-018 §13, §30)", () => {
+    const withAst = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({
+          id: "A",
+          name: "A",
+          assistants: ["Assistant A"],
+          children: [
+            makeBranch({ id: "A1", name: "A1" }),
+            makeBranch({ id: "A2", name: "A2" }),
+            makeBranch({ id: "A3", name: "A3" }),
+            makeBranch({ id: "A4", name: "A4" }),
+          ],
+        }),
+        makeBranch({ id: "B", name: "B" }),
+      ],
+    });
+    const withoutAst = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({
+          id: "A",
+          name: "A",
+          children: [
+            makeBranch({ id: "A1", name: "A1" }),
+            makeBranch({ id: "A2", name: "A2" }),
+            makeBranch({ id: "A3", name: "A3" }),
+            makeBranch({ id: "A4", name: "A4" }),
+          ],
+        }),
+        makeBranch({ id: "B", name: "B" }),
+      ],
+    });
+
+    const { nodes: nodesWith } = computeUnifiedLayout(withAst);
+    const { nodes: nodesWithout } = computeUnifiedLayout(withoutAst);
+
+    // Широкий subtree A сам по себе оставляет место для assistant —
+    // дополнительного сдвига B не требуется (позиция B совпадает с baseline).
+    expect(byId(nodesWith, "B").x).toBe(byId(nodesWithout, "B").x);
+  });
+
+  it("collision устраняется сдвигом правой ветви с сохранением colGap (CR-018 §7, §31)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({ id: "A", name: "A", assistants: ["Assistant A"] }),
+        makeBranch({ id: "B", name: "B" }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    const a = byId(nodes, "A");
+    const ast = byId(nodes, "ast-A-0");
+    const b = byId(nodes, "B");
+
+    const aVisualMaxX = Math.max(a.x + a.width, ast.x + ast.width);
+    // B сдвинут за visual footprint A (с colGap), т.к. initial placement был в collision.
+    expect(b.x).toBeGreaterThan(a.x + a.subtreeWidth + 40);
+    expect(b.x).toBeGreaterThanOrEqual(aVisualMaxX + 40);
+    expect(rectsOverlap(rect(ast), rect(b))).toBe(false);
+  });
+
+  it("сдвигается вся branch: B, B1, B2 сохраняют внутреннюю геометрию (CR-018 §8, §32)", () => {
+    const withAst = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({ id: "A", name: "A", assistants: ["Assistant A"] }),
+        makeBranch({
+          id: "B",
+          name: "B",
+          children: [makeBranch({ id: "B1", name: "B1" }), makeBranch({ id: "B2", name: "B2" })],
+        }),
+      ],
+    });
+    const withoutAst = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({ id: "A", name: "A" }),
+        makeBranch({
+          id: "B",
+          name: "B",
+          children: [makeBranch({ id: "B1", name: "B1" }), makeBranch({ id: "B2", name: "B2" })],
+        }),
+      ],
+    });
+
+    const { nodes: nodesWith } = computeUnifiedLayout(withAst);
+    const { nodes: nodesWithout } = computeUnifiedLayout(withoutAst);
+
+    const relWith = (id) => byId(nodesWith, id).x - byId(nodesWith, "B").x;
+    const relWithout = (id) => byId(nodesWithout, id).x - byId(nodesWithout, "B").x;
+
+    // Относительные координаты внутри ветви B не меняются при сдвиге.
+    expect(relWith("B1")).toBeCloseTo(relWithout("B1"), 5);
+    expect(relWith("B2")).toBeCloseTo(relWithout("B2"), 5);
+  });
+
+  it("несколько assistants: группа справа, visualMaxX учитывает правый край (CR-018 §23, §33)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({ id: "A", name: "A", assistants: ["Assistant 1", "Assistant 2"] }),
+        makeBranch({ id: "B", name: "B" }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    const manager = byId(nodes, "A");
+    const ast1 = byId(nodes, "ast-A-0");
+    const ast2 = byId(nodes, "ast-A-1");
+    const b = byId(nodes, "B");
+
+    expect(ast1.x).toBe(manager.x + manager.width + 16);
+    expect(ast2.x).toBe(ast1.x + ast1.width + 16);
+    // Соседняя ветвь не пересекает группу (правый край второго assistant).
+    expect(b.x).toBeGreaterThanOrEqual(ast2.x + ast2.width + 40);
+    expect(rectsOverlap(rect(ast2), rect(b))).toBe(false);
+  });
+
+  it("collapsed branch: скрытое subtree не резервирует место (CR-018 §16, §34)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({
+          id: "A",
+          name: "A",
+          assistants: ["Assistant A"],
+          children: [makeBranch({ id: "A1", name: "A1" }), makeBranch({ id: "A2", name: "A2" })],
+        }),
+        makeBranch({ id: "B", name: "B" }),
+      ],
+    });
+    const { nodes, tree } = computeUnifiedLayout(root, { collapsedIds: new Set(["A"]) });
+
+    expect(byId(nodes, "A1")).toBeUndefined();
+    expect(byId(nodes, "A2")).toBeUndefined();
+
+    const a = tree.children.find((c) => c.data.id === "A");
+    expect(a.subtreeWidth).toBe(a.width);
+  });
+
+  it("итоговая ширина существенно меньше варианта с симметричным резервом (CR-018 §40)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: ["A", "B", "C", "D"].map((id) =>
+        makeBranch({ id, name: id, assistants: [`Assistant ${id}`] }),
+      ),
+    });
+    const { width } = computeUnifiedLayout(root);
+
+    // Симметричное резервирование дало бы >= 4 * (350 + 32 + 480) = 3448 + gaps.
+    const oldStyleWidth = 4 * (350 + 2 * 16 + 2 * 240) + 3 * 40;
+    expect(width).toBeLessThan(oldStyleWidth);
+
+    // Компактная оценка с фактическим каскадом сдвигов: ветвь i+1 начинается
+    // после visual footprint ветви i (manager + gap + assistant + colGap).
+    const compactWidth =
+      4 * 350 + 3 * (16 + 240 + 40) + (16 + 240) + 2 * 40;
+    expect(width).toBeLessThanOrEqual(compactWidth);
+  });
+
+  it("assistant не меняет organizational hierarchy: parentId/children/row/effectiveLayoutLevel (CR-018 §36)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeBranch({
+          id: "A",
+          name: "A",
+          assistants: ["Assistant A"],
+          children: [makeBranch({ id: "A1", name: "A1" })],
+        }),
+        makeBranch({ id: "B", name: "B" }),
+      ],
+    });
+    const { nodes, edges } = computeUnifiedLayout(root);
+
+    const a = byId(nodes, "A");
+    const a1 = byId(nodes, "A1");
+    const b = byId(nodes, "B");
+
+    // row/effectiveLayoutLevel не меняются из-за assistant (A на том же уровне, что B).
+    expect(a.row).toBe(b.row);
+    expect(a.effectiveLayoutLevel).toBe(b.effectiveLayoutLevel);
+    expect(a1.row).toBeGreaterThan(a.row);
+
+    // parent-child hierarchy сохранена.
+    const parentEdge = edges.find((e) => e.child === a);
+    const parentOfA = parentEdge ? parentEdge.parent.data.id : null;
+    expect(parentOfA).toBe("root");
+  });
+});
+
