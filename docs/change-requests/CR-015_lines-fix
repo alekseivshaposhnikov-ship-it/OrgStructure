@@ -1,0 +1,1468 @@
+# CR-015 — Исправление геометрии организационной диаграммы: assistants, connectors и controls
+
+## 1. Цель
+
+Исправить оставшиеся визуальные дефекты организационной диаграммы после реализации CR-014.
+
+На текущем этапе бизнес-логика структуры считается корректной:
+
+- Holding Leadership Projection работает;
+- executives распределены корректно;
+- дирекции находятся под соответствующими executives;
+- direct reports определены;
+- assistants связаны со своими руководителями;
+- hierarchy и `effectiveLayoutLevel` считаются корректно.
+
+В рамках данного CR **не менять бизнес-логику структуры**.
+
+Задача CR-015 — исключительно исправить геометрию визуализации:
+
+1. положение assistant относительно manager;
+2. assistant connector;
+3. основной connector manager → children;
+4. horizontal children junction;
+5. положение collapse / expand controls;
+6. пересечения линий с карточками;
+7. поведение элементов при variable-height cards.
+
+---
+
+# 2. Текущие проблемы
+
+На реальной диаграмме после CR-014 наблюдаются следующие дефекты.
+
+## 2.1. Assistant все еще расположен слишком низко
+
+Например:
+
+```text
+Селиванов
+                         Давыдова
+```
+
+или:
+
+```text
+Клюев
+
+                         Лихачева
+```
+
+Assistant логически привязан к manager правильно, но находится слишком далеко вниз.
+
+В результате он начинает визуально восприниматься как отдельный organizational level.
+
+Целевой вариант:
+
+```text
+Manager        Assistant
+```
+
+или с очень небольшим вертикальным смещением:
+
+```text
+Manager
+              Assistant
+```
+
+но не:
+
+```text
+Manager
+
+
+              Assistant
+```
+
+---
+
+# 3. Assistant должен быть локальным sidecar manager
+
+Assistant необходимо окончательно трактовать как:
+
+```text
+local visual sidecar
+```
+
+конкретного manager.
+
+Assistant:
+
+- не является organizational child row;
+- не является department;
+- не является промежуточным parent;
+- не влияет на `effectiveLayoutLevel`;
+- не влияет на organizational `row`;
+- не должен позиционироваться относительно всей ширины subtree.
+
+Его координаты должны рассчитываться **только относительно карточки manager**.
+
+---
+
+# 4. Целевая геометрия assistant
+
+Предпочтительное расположение:
+
+```text
+┌──────────────────────┐    ┌──────────────────────┐
+│       Manager        │    │      Assistant       │
+└──────────────────────┘    └──────────────────────┘
+```
+
+Допускается небольшое смещение assistant вниз:
+
+```text
+┌──────────────────────┐
+│       Manager        │
+└──────────────────────┘
+                  ┌──────────────────────┐
+                  │      Assistant       │
+                  └──────────────────────┘
+```
+
+Но верх assistant должен оставаться приблизительно на уровне manager.
+
+---
+
+# 5. Расчет координат assistant
+
+Позицию рассчитывать относительно manager card:
+
+```js
+assistant.x =
+  manager.x +
+  manager.width +
+  ASSISTANT_HORIZONTAL_GAP;
+
+assistant.y =
+  manager.y +
+  ASSISTANT_VERTICAL_OFFSET;
+```
+
+Где:
+
+```text
+ASSISTANT_HORIZONTAL_GAP
+```
+
+— небольшой горизонтальный gap;
+
+```text
+ASSISTANT_VERTICAL_OFFSET
+```
+
+— небольшой offset, например от `0` до нескольких десятков пикселей в зависимости от дизайна карточки.
+
+Не использовать для assistant:
+
+```text
+subtree center
+subtree width
+children row
+junction Y
+siblings width
+общий layout row center
+```
+
+---
+
+# 6. Assistant не должен уезжать из-за ширины subtree
+
+Это обязательный regression case.
+
+Например у Клюева может быть:
+
+```text
+Клюев
+├── 8 дирекций
+├── direct reports
+└── assistant
+```
+
+Увеличение количества дирекций не должно увеличивать расстояние:
+
+```text
+Клюев ↔ assistant
+```
+
+Assistant всегда остается локально возле Клюева.
+
+То же правило должно работать для:
+
+```text
+Селиванов
+Лукьянов
+Клюев
+Мишуев
+любого другого manager
+```
+
+---
+
+# 7. Assistant connector должен быть отдельной связью
+
+Сейчас assistant connector местами визуально смешивается с organizational connector.
+
+Это необходимо полностью разделить.
+
+Есть две независимые связи:
+
+```text
+manager → assistant
+```
+
+и:
+
+```text
+manager → organizational children
+```
+
+Они не должны использовать один path.
+
+---
+
+# 8. Целевой assistant connector
+
+Использовать короткий connector.
+
+Предпочтительно:
+
+```text
+Manager ───── Assistant
+```
+
+или:
+
+```text
+Manager
+    └────── Assistant
+```
+
+Connector должен:
+
+- быть коротким;
+- находиться только внутри локальной зоны manager;
+- не проходить через children junction;
+- не продолжаться дальше assistant;
+- не использовать horizontal line organizational row.
+
+---
+
+# 9. Assistant connector anchors
+
+Предпочтительно определить отдельные anchors.
+
+Например:
+
+```js
+managerAssistantAnchor = {
+  x: manager.x + manager.width,
+  y: manager.y + manager.height / 2,
+};
+
+assistantAnchor = {
+  x: assistant.x,
+  y: assistant.y + assistant.height / 2,
+};
+```
+
+Тогда connector:
+
+```text
+manager right-center
+        →
+assistant left-center
+```
+
+Если используется небольшое вертикальное смещение assistant, допускается короткий orthogonal path:
+
+```text
+Manager
+   │
+   └──────── Assistant
+```
+
+Не привязывать assistant connector к `childrenJunctionY`.
+
+---
+
+# 10. Main organizational connector должен быть независимым от assistant
+
+Основная organizational связь manager → children должна строиться так, как будто assistant является отдельным sidecar.
+
+Для manager с children обязательно должна существовать:
+
+```text
+manager bottom-center
+        │
+        │
+children junction
+```
+
+Например:
+
+```text
+Manager        Assistant
+   │
+   │
+──────────── children junction ───────────
+│           │           │
+Dept A      Dept B      Dept C
+```
+
+Assistant не должен:
+
+- прерывать main vertical stem;
+- заменять его;
+- смещать его X;
+- становиться его частью.
+
+---
+
+# 11. Обязательная вертикальная «палочка» под manager
+
+На текущей диаграмме у некоторых executives вертикальная связь визуально отсутствует или плохо читается.
+
+Например:
+
+```text
+Лукьянов
+Винник
+Клюев
+```
+
+Для любого node, имеющего organizational children, обязательна vertical stem:
+
+```text
+┌──────────────┐
+│   Manager    │
+└──────────────┘
+       │
+       │
+────────────── children junction
+```
+
+Она всегда начинается в:
+
+```js
+parent.x + parent.width / 2
+```
+
+и:
+
+```js
+parent.y + parent.height
+```
+
+---
+
+# 12. Parent bottom anchor
+
+Использовать единый anchor:
+
+```js
+const parentBottomAnchor = {
+  x: node.x + node.width / 2,
+  y: node.y + node.height,
+};
+```
+
+Main organizational connector всегда начинается от этого anchor.
+
+Наличие assistant не должно изменять `parentBottomAnchor`.
+
+---
+
+# 13. Child top anchor
+
+Для каждого organizational child:
+
+```js
+const childTopAnchor = {
+  x: child.x + child.width / 2,
+  y: child.y,
+};
+```
+
+Vertical child stem должен приходить именно к верхней границе child card.
+
+---
+
+# 14. Children junction
+
+Horizontal children junction должна находиться между:
+
+```text
+parent visual block
+```
+
+и:
+
+```text
+children row
+```
+
+и не должна совпадать с assistant card.
+
+Целевая геометрия:
+
+```text
+Manager       Assistant
+   │
+   │
+   │
+────────────── junction ──────────────
+│              │              │
+Dept A         Dept B         Dept C
+```
+
+---
+
+# 15. Junction Y
+
+Не использовать произвольный жесткий `midY`, не учитывающий реальные карточки.
+
+Определить:
+
+```js
+const managerBottom =
+  manager.y + manager.height;
+
+const assistantBottom =
+  assistant
+    ? assistant.y + assistant.height
+    : managerBottom;
+
+const visualBottom =
+  Math.max(managerBottom, assistantBottom);
+
+const childrenTop =
+  Math.min(
+    ...children.map((child) => child.y)
+  );
+```
+
+После этого:
+
+```js
+const junctionY =
+  visualBottom +
+  (childrenTop - visualBottom) / 2;
+```
+
+или аналогичную формулу.
+
+Главное условие:
+
+```text
+visualBottom < junctionY < childrenTop
+```
+
+---
+
+# 16. Assistant не должен пересекаться с children junction
+
+На текущих примерах assistant находится слишком близко к horizontal organizational line.
+
+Это необходимо исключить.
+
+Минимальное условие:
+
+```js
+assistant.bottom + MIN_GAP < junctionY;
+```
+
+Если assistant расположен почти на одной высоте с manager, это достигается естественно.
+
+Не опускать assistant вниз до уровня junction.
+
+---
+
+# 17. Lines не должны проходить через карточки
+
+На текущей диаграмме connector lines местами проходят физически через пространство карточек и затем скрываются под ними.
+
+Это делает структуру визуально неоднозначной.
+
+Connector path не должен проходить через interior bounding box:
+
+```text
+manager
+assistant
+department
+employee/direct-report
+```
+
+Разрешено касаться карточки только в anchor point на границе.
+
+---
+
+# 18. Не решать проблему только через z-order
+
+Недостаточно нарисовать:
+
+```text
+lines behind cards
+```
+
+и позволить карточке скрывать неправильную линию.
+
+Это маскирует дефект, но не исправляет его.
+
+Необходимо:
+
+1. корректно рассчитать path;
+2. разместить path в свободной зоне;
+3. затем использовать правильный SVG drawing order.
+
+---
+
+# 19. SVG drawing order
+
+Рекомендуемый порядок слоев:
+
+```text
+1. background
+2. organizational connector edges
+3. assistant connector edges
+4. node cards
+5. assistant cards
+6. toggle controls
+7. context menus / overlays
+```
+
+Допустима другая организация SVG layers, если визуальный результат соответствует требованиям.
+
+---
+
+# 20. Horizontal organizational line не должна проходить за карточкой
+
+Horizontal junction line должна находиться в свободной полосе между уровнями.
+
+НЕПРАВИЛЬНО:
+
+```text
+────── [CARD] ──────
+```
+
+ПРАВИЛЬНО:
+
+```text
+        CARD
+         │
+─────────┼─────────
+         │
+       CHILD
+```
+
+---
+
+# 21. Variable-height cards
+
+Карточки могут иметь разную высоту из-за:
+
+- одно-/двух-/трехстрочных названий;
+- должностей;
+- manager text;
+- дополнительного content.
+
+Layout должен корректно учитывать реальные bounding boxes.
+
+Для visual row рассчитывать:
+
+```js
+rowVisualBottom =
+  Math.max(
+    ...rowNodes.map(
+      (node) => node.y + node.height
+    )
+  );
+```
+
+Connector zone следующего уровня не должна начинаться выше `rowVisualBottom`.
+
+---
+
+# 22. Toggle collapse / expand
+
+Сейчас toggle control может визуально «плавать» по Y в зависимости от высоты конкретной карточки.
+
+Это необходимо исправить.
+
+Toggle является частью layout geometry, а не внутреннего card content.
+
+---
+
+# 23. Toggle anchor
+
+Toggle должен иметь явно определенную layout position.
+
+Например:
+
+```js
+toggleX =
+  node.x + node.width / 2;
+```
+
+Для Y использовать единый anchor, связанный с connector geometry.
+
+Предпочтительный вариант:
+
+```js
+toggleY = nodeToggleBaselineY;
+```
+
+где baseline определяется layout row.
+
+---
+
+# 24. Toggle controls siblings должны находиться на одном baseline
+
+Если sibling cards находятся на одном organizational row:
+
+```text
+Department A
+Department B
+Department C
+```
+
+их toggle controls должны визуально находиться на одной горизонтальной линии.
+
+Даже если высота карточек различается.
+
+НЕПРАВИЛЬНО:
+
+```text
+Card A       Card B       Card C
+  +              +
+                          +
+```
+
+ПРАВИЛЬНО:
+
+```text
+Card A       Card B       Card C
+
+
+  +             +             +
+```
+
+---
+
+# 25. Variable card height не должна двигать toggle
+
+Не вычислять toggle position по:
+
+```text
+количеству строк title
+DOM clientHeight внутренних элементов
+позиции текста
+```
+
+Использовать результат layout row geometry.
+
+---
+
+# 26. Toggle и connector должны быть согласованы
+
+Toggle желательно располагать непосредственно на vertical stem.
+
+Пример:
+
+```text
+Card
+ │
+(−)
+ │
+──────── junction
+```
+
+или:
+
+```text
+Card
+ │
+(+)
+```
+
+для collapsed branch.
+
+Toggle не должен визуально висеть отдельно от connector.
+
+---
+
+# 27. Expanded node
+
+Для expanded node:
+
+```text
+Card
+ │
+(−)
+ │
+junction
+```
+
+Toggle должен находиться между card и junction.
+
+---
+
+# 28. Collapsed node
+
+Для collapsed node:
+
+```text
+Card
+ │
+(+)
+```
+
+Toggle остается непосредственно связанным с card.
+
+Horizontal junction для скрытых children не рисуется.
+
+---
+
+# 29. Assistant не влияет на toggle position manager
+
+Наличие assistant не должно смещать toggle manager в сторону assistant.
+
+Toggle относится к main organizational stem:
+
+```text
+manager bottom-center
+```
+
+а не к assistant connector.
+
+---
+
+# 30. Корневой node с assistant
+
+Особенно проверить:
+
+```text
+Холдинг LEGENDA / Селиванов
++
+Давыдова
+```
+
+Целевая композиция:
+
+```text
+             Селиванов      Давыдова
+                 │
+                (−)
+                 │
+─────────────────┼────────────────
+          executives ниже
+```
+
+Assistant не должен находиться на той же линии, что и children junction.
+
+Assistant connector не должен становиться частью horizontal executives line.
+
+---
+
+# 31. Executive с assistant
+
+Например Клюев:
+
+```text
+Клюев        Лихачева
+  │
+ (−)
+  │
+──────────── children junction ──────────
+│       │       │       │
+...
+```
+
+Это является целевым визуальным паттерном.
+
+---
+
+# 32. Executive без assistant
+
+Например Винник:
+
+```text
+Винник
+  │
+ (−)
+  │
+────── children junction
+  │
+Дирекция ...
+```
+
+Отсутствие assistant не должно менять main connector semantics.
+
+---
+
+# 33. Multiple sibling executives
+
+Для:
+
+```text
+Лукьянов     Винник     Клюев
+```
+
+main stems должны быть одинаково читаемыми.
+
+Все executives одного organizational row должны использовать одну connector geometry model.
+
+---
+
+# 34. Не создавать отдельные координатные правила для Holding
+
+Исправление должно работать универсально для:
+
+```text
+Holding root
+Executives
+Directorates
+Departments
+Groups
+```
+
+Не делать:
+
+```js
+if (node.name === "Клюев") ...
+```
+
+или аналогичные visual hardcodes.
+
+---
+
+# 35. Не менять hierarchy
+
+CR-015 не должен менять:
+
+```text
+parentId
+effectiveLayoutLevel
+sub_level
+department ownership
+executive mappings
+direct reports
+```
+
+Это уже определено предыдущими CR.
+
+CR работает только с:
+
+```text
+x
+y
+visual bounding boxes
+anchors
+connector paths
+toggle positions
+```
+
+---
+
+# 36. Не менять Holding Leadership Config
+
+Не корректировать бизнес mapping executives/directorates в рамках этого CR, если для этого нет отдельной обнаруженной ошибки данных.
+
+Текущая hierarchy считается входными данными для visual layout.
+
+---
+
+# 37. Не менять employee filtering
+
+Не менять:
+
+```text
+sourceUsers
+users
+count >= 1
+```
+
+в рамках этого CR.
+
+Это не относится к визуальным дефектам.
+
+---
+
+# 38. Не менять PDF
+
+PDF export не является scope CR-015.
+
+Не вносить отдельные изменения в PDF renderer.
+
+Если PDF автоматически использует измененный Unified Layout — проверить отсутствие regression, но не перерабатывать PDF специально.
+
+---
+
+# 39. Не менять zoom / pan
+
+Zoom / pan не является предметом CR.
+
+Но необходимо убедиться, что визуальные изменения не ломают:
+
+```text
+zoom
+pan
+fit
+setCentered
+viewport persistence
+```
+
+---
+
+# 40. Collapse / expand
+
+Существующая логика collapse / expand должна сохраниться.
+
+После collapse / expand:
+
+- geometry пересчитывается;
+- assistant возвращается рядом с manager;
+- connectors перестраиваются;
+- toggle меняет `+ / −`;
+- viewport сохраняется.
+
+---
+
+# 41. Регрессионный кейс: root + assistant
+
+Fixture:
+
+```text
+Root
+├── Assistant
+├── Executive A
+├── Executive B
+└── Executive C
+```
+
+Проверить:
+
+- assistant находится рядом с Root;
+- assistant выше children junction;
+- assistant connector отдельный;
+- main vertical stem Root существует;
+- children junction не проходит через assistant.
+
+---
+
+# 42. Регрессионный кейс: executive + assistant
+
+Fixture:
+
+```text
+Executive
+├── Assistant
+├── Department A
+├── Department B
+└── Department C
+```
+
+Проверить:
+
+```text
+assistant рядом с executive
+main vertical stem существует
+junction находится ниже assistant
+departments не пересекаются с assistant
+```
+
+---
+
+# 43. Регрессионный кейс: executive без assistant
+
+Fixture:
+
+```text
+Executive
+└── Department
+```
+
+Проверить:
+
+```text
+Executive
+ │
+toggle
+ │
+Department
+```
+
+без лишней assistant-zone.
+
+---
+
+# 44. Test — assistant local position
+
+Проверить:
+
+```js
+assistant.x > manager.x;
+```
+
+и:
+
+```js
+Math.abs(
+  assistant.y - manager.y
+) <= MAX_ASSISTANT_VERTICAL_OFFSET;
+```
+
+Не использовать один жесткий pixel coordinate.
+
+---
+
+# 45. Test — assistant unaffected by subtree width
+
+Создать:
+
+```text
+Manager
+├── Assistant
+├── Child 1
+├── Child 2
+...
+├── Child 10
+```
+
+Затем сравнить с:
+
+```text
+Manager
+├── Assistant
+└── Child 1
+```
+
+Расстояние:
+
+```text
+Manager ↔ Assistant
+```
+
+должно оставаться практически одинаковым.
+
+---
+
+# 46. Test — assistant above junction
+
+Проверить:
+
+```js
+assistant.y + assistant.height
+  < junctionY;
+```
+
+с установленным минимальным gap.
+
+---
+
+# 47. Test — vertical stem exists
+
+Для node с children:
+
+```js
+parentBottomAnchor.y < junctionY;
+```
+
+и существует connector segment:
+
+```text
+parentBottomAnchor → junction
+```
+
+---
+
+# 48. Test — junction free zone
+
+Проверить:
+
+```js
+junctionY > parentVisualBottom;
+junctionY < childrenTop;
+```
+
+---
+
+# 49. Test — connector does not enter card interior
+
+Для каждого path segment проверить отсутствие пересечения с interior rectangle карточек, кроме разрешенных anchor contacts.
+
+Минимум проверить:
+
+```text
+manager
+assistant
+child departments
+```
+
+---
+
+# 50. Test — variable-height cards
+
+Fixture:
+
+```text
+Department A — 1 line title
+Department B — 2 lines title
+Department C — 3 lines title
+```
+
+Проверить:
+
+- line paths не проходят через cards;
+- controls имеют согласованный baseline;
+- row visual bottom учитывает самую высокую карточку.
+
+---
+
+# 51. Test — toggle baseline
+
+Для siblings одного organizational row:
+
+```js
+Math.abs(
+  toggleA.y - toggleB.y
+) <= tolerance;
+```
+
+и:
+
+```js
+Math.abs(
+  toggleB.y - toggleC.y
+) <= tolerance;
+```
+
+---
+
+# 52. Test — toggle belongs to main stem
+
+Проверить:
+
+```js
+toggle.x === manager.x + manager.width / 2;
+```
+
+с допустимой погрешностью.
+
+Assistant position не должен менять `toggle.x`.
+
+---
+
+# 53. Test — collapsed branch
+
+После collapse:
+
+- children отсутствуют;
+- children junction отсутствует;
+- toggle показывает `+`;
+- assistant остается рядом с manager, если manager остается видимым;
+- connector assistant остается корректным.
+
+---
+
+# 54. Test — expanded branch
+
+После expand:
+
+- children возвращаются;
+- junction восстанавливается;
+- main vertical stem восстанавливается;
+- toggle показывает `−`;
+- viewport не сбрасывается.
+
+---
+
+# 55. Test — multiple assistants/managers
+
+Fixture:
+
+```text
+Manager A + Assistant A
+Manager B
+Manager C + Assistant C
+```
+
+Проверить:
+
+- Assistant A остается возле Manager A;
+- Assistant C остается возле Manager C;
+- Manager B не получает пустое пространство;
+- один assistant не влияет на geometry другого manager.
+
+---
+
+# 56. Test — Holding real-case regression
+
+На реальном Holding fixture проверить минимум:
+
+```text
+Селиванов + Давыдова
+Лукьянов + Волкова
+Винник без assistant
+Клюев + Лихачева
+```
+
+Проверить визуальные anchors и отсутствие collisions.
+
+---
+
+# 57. Обновить `functionality`
+
+В рамках CR-015 обязательно обновить `functionality`.
+
+Не менять бизнес-описание hierarchy.
+
+Добавить отдельный раздел, например:
+
+```text
+Геометрия экранной организационной диаграммы
+```
+
+---
+
+# 58. Правило assistant в `functionality`
+
+Зафиксировать:
+
+> Assistant является локальным visual sidecar руководителя. Его координаты рассчитываются относительно manager card, а не относительно subtree или organizational row.
+
+Добавить:
+
+> Assistant преимущественно располагается справа от manager с небольшим vertical offset и не должен существенно удаляться от manager при увеличении ширины его organizational subtree.
+
+---
+
+# 59. Правило assistant connector в `functionality`
+
+Зафиксировать:
+
+> Manager → assistant и manager → organizational children являются двумя независимыми визуальными связями.
+
+Добавить:
+
+> Assistant connector не используется как часть основной organizational connector hierarchy.
+
+---
+
+# 60. Правило main vertical stem в `functionality`
+
+Зафиксировать:
+
+> Для любого node с organizational children должна существовать читаемая vertical stem от bottom-center parent card до children junction.
+
+Наличие assistant не отменяет и не изменяет эту stem.
+
+---
+
+# 61. Правило connector paths в `functionality`
+
+Зафиксировать:
+
+> Connector paths строятся через явные layout anchors и свободную connector-zone между visual parent block и children row.
+
+Добавить:
+
+> Connector paths не должны проходить через interior bounding boxes карточек.
+
+---
+
+# 62. Правило variable-height cards
+
+Зафиксировать:
+
+> Для каждого visual row layout учитывает максимальную фактическую высоту карточек. Connector-zone следующего уровня строится ниже visual bottom самой высокой карточки row.
+
+---
+
+# 63. Правило toggle
+
+Зафиксировать:
+
+> Collapse / expand control является частью layout geometry и привязан к main organizational stem / row anchor, а не к внутреннему DOM-content карточки.
+
+Добавить:
+
+> Controls sibling nodes одного organizational row должны иметь согласованный visual baseline.
+
+---
+
+# 64. Acceptance criteria
+
+CR считается выполненным, если:
+
+- [ ] Assistant находится рядом с manager, а не значительно ниже.
+- [ ] Assistant position не зависит от общей ширины subtree.
+- [ ] Assistant не попадает на children junction.
+- [ ] Assistant connector является отдельным коротким connector.
+- [ ] Main organizational stem существует независимо от assistant.
+- [ ] Под Лукьяновым видна vertical stem.
+- [ ] Под Винником видна vertical stem.
+- [ ] Под Клюевым видна vertical stem.
+- [ ] Под root Холдинга видна корректная vertical stem.
+- [ ] Children junction находится в свободной зоне.
+- [ ] Horizontal lines не проходят через карточки.
+- [ ] Vertical lines не проходят через карточки кроме anchor contact.
+- [ ] Lines не скрываются за карточками из-за неправильного path.
+- [ ] Variable-height cards корректно учитываются layout.
+- [ ] Toggle controls siblings находятся на согласованном baseline.
+- [ ] Toggle не плавает из-за количества строк текста.
+- [ ] Toggle остается связан с main vertical stem.
+- [ ] Assistant не влияет на `effectiveLayoutLevel`.
+- [ ] Assistant не меняет parent-child hierarchy.
+- [ ] Assistant не становится parent departments.
+- [ ] Manager без assistant не получает пустую assistant-zone.
+- [ ] Collapse работает.
+- [ ] Expand работает.
+- [ ] Viewport persistence не сломан.
+- [ ] Zoom / pan не сломаны.
+- [ ] AS IS не сломан.
+- [ ] TO BE не сломан.
+- [ ] Changes не сломан.
+- [ ] PDF не получает unintended regression.
+- [ ] `functionality` обновлен.
+- [ ] Regression tests добавлены.
+- [ ] Все старые tests проходят.
+- [ ] `npm test` проходит.
+- [ ] `npm run build` проходит.
+
+---
+
+# 65. Порядок реализации для Cline
+
+Перед внесением изменений:
+
+1. Не менять business hierarchy.
+2. Не менять Holding Leadership Config.
+3. Изучить актуальный `unified-layout.js`.
+4. Найти расчет `x/y` assistant.
+5. Найти расчет visual subtree bounds.
+6. Найти текущий `connectorPath()`.
+7. Найти расчет `junctionY` / `midY`.
+8. Найти расчет toggle positions.
+9. Найти SVG drawing order.
+10. Воспроизвести текущие дефекты на реальном Holding fixture.
+11. Зафиксировать причины каждого из четырех дефектов:
+    - assistant слишком низко;
+    - main stem отсутствует/плохо читается;
+    - toggle плавает;
+    - connector проходит через/за карточками.
+12. Предложить минимальное изменение anchor model.
+13. Только после этого менять код.
+
+После реализации:
+
+1. запустить все существующие tests;
+2. добавить regression tests CR-015;
+3. запустить `npm test`;
+4. запустить `npm run build`;
+5. проверить Holding целиком;
+6. проверить Селиванова + assistant;
+7. проверить Лукьянова + assistant;
+8. проверить Винника без assistant;
+9. проверить Клюева + assistant;
+10. проверить variable-height departments;
+11. проверить несколько collapse / expand подряд;
+12. убедиться, что viewport сохраняется;
+13. обновить `functionality`;
+14. показать список измененных файлов.
+
+---
+
+# 66. Ограничения
+
+Не использовать визуальные hardcode по ФИО:
+
+```text
+Селиванов
+Лукьянов
+Винник
+Клюев
+Давыдова
+Волкова
+Лихачева
+```
+
+Не создавать отдельную layout-логику только для Holding.
+
+Не менять hierarchy ради исправления картинки.
+
+Не менять `sub_level`.
+
+Не менять `effectiveLayoutLevel`.
+
+Не менять executive/directorate mapping.
+
+Не исправлять connector overlap только через CSS/z-index.
+
+Не исправлять assistant positioning фиксированными абсолютными screen coordinates.
+
+Не исправлять toggle drift фиксированным CSS `top`.
+
+---
+
+# 67. Главный принцип CR-015
+
+Структура данных уже корректна.
+
+CR-015 должен сделать так, чтобы визуальная геометрия однозначно отражала эту структуру.
+
+Использовать модель:
+
+```text
+Layout nodes
+    ↓
+Bounding boxes
+    ↓
+Explicit anchors
+    ↓
+Connector free zones
+    ↓
+SVG paths
+```
+
+а не:
+
+```text
+примерные координаты
++
+локальные визуальные смещения
+```
+
+---
+
+# 68. Целевой итоговый паттерн
+
+Для manager с assistant:
+
+```text
+                ┌──────────────────┐    ┌──────────────────┐
+                │     Manager      │────│    Assistant     │
+                └──────────────────┘    └──────────────────┘
+                         │
+                        (−)
+                         │
+             ────────────┼────────────
+             │           │           │
+         Department  Department  Department
+```
+
+Для manager без assistant:
+
+```text
+                ┌──────────────────┐
+                │     Manager      │
+                └──────────────────┘
+                         │
+                        (−)
+                         │
+             ────────────┼────────────
+             │           │           │
+         Department  Department  Department
+```
+
+Это должно стать единым визуальным паттерном для всей организационной диаграммы.
