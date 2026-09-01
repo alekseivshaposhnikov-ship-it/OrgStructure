@@ -504,33 +504,32 @@ describe("unified-layout · assistant sidecar (CR-013_assistant)", () => {
     });
   }
 
-  it("assistant расположен СПРАВА от manager на уровне его карточки (CR-015 §4-5)", () => {
+  it("обычный manager: assistant расположен непосредственно ПОД карточкой (CR-019 §5-7)", () => {
     const { nodes } = computeUnifiedLayout(makeManagerTree());
     const manager = byId(nodes, "manager");
     const ast = byId(nodes, "ast-1");
 
     expect(ast).toBeTruthy();
-    expect(ast.x).toBeGreaterThan(manager.x + manager.width);
-    // локальный offset: x = manager.x + manager.width + assistantHorizontalGap (16)
-    expect(ast.x).toBeCloseTo(manager.x + manager.width + 16, 5);
-    // y = manager.y + assistantVerticalOffset (28) — верх assistant на уровне
-    // manager, а не ниже его карточки.
-    expect(ast.y).toBeCloseTo(manager.y + 28, 5);
-    expect(ast.y).toBeLessThan(manager.y + manager.height);
+    // assistant центрирован относительно manager (не расширяет ветвь вправо).
+    expect(ast.x).toBeCloseTo(manager.x + (manager.width - ast.width) / 2, 5);
+    expect(ast.x + ast.width / 2).toBeCloseTo(manager.x + manager.width / 2, 5);
+    // assistant под нижней границей manager с вертикальным gap (8).
+    expect(ast.y).toBeCloseTo(manager.y + manager.height + 8, 5);
+    expect(ast.y).toBeGreaterThan(manager.y + manager.height);
   });
 
-  it("assistant не влияет на hierarchy и Y дочернего department (CR-015 §6)", () => {
+  it("assistant не влияет на hierarchy, но сдвигает следующий row вниз (CR-019 §9)", () => {
     const withAst = computeUnifiedLayout(makeManagerTree({ branchCount: 1 }));
     const noAst = computeUnifiedLayout(makeManagerTree({ withAssistant: false, branchCount: 1 }));
 
     const aWith = byId(withAst.nodes, "branch-0");
     const aNo = byId(noAst.nodes, "branch-0");
 
-    // Структура (row, level) не меняется; assistant не резервирует отдельную
-    // вертикальную зону, поэтому Y следующего row тоже не смещается.
+    // Структура (row, level) не меняется.
     expect(aWith.row).toBe(aNo.row);
     expect(aWith.effectiveLayoutLevel).toBe(aNo.effectiveLayoutLevel);
-    expect(aWith.y).toBe(aNo.y);
+    // Следующий row начинается ниже visual bottom assistant (под manager).
+    expect(aWith.y).toBeGreaterThan(aNo.y);
   });
 
   it("assistant не уезжает вправо при росте ширины subtree (CR-013_assistant Test 8)", () => {
@@ -582,10 +581,10 @@ describe("unified-layout · assistant sidecar (CR-013_assistant)", () => {
     expect(astA.data.id).not.toBe("ast-b");
     expect(mgrC.children.some((c) => c.type === NODE_ASSISTANT)).toBe(false);
 
-    // Assistant A рядом с Manager A
-    expect(astA.x).toBeCloseTo(mgrA.x + mgrA.width + 16, 5);
-    // Assistant B рядом с Manager B
-    expect(astB.x).toBeCloseTo(mgrB.x + mgrB.width + 16, 5);
+    // Assistant A под Manager A (центрирован), без бокового sidecar.
+    expect(astA.x).toBeCloseTo(mgrA.x + (mgrA.width - astA.width) / 2, 5);
+    // Assistant B под Manager B.
+    expect(astB.x).toBeCloseTo(mgrB.x + (mgrB.width - astB.width) / 2, 5);
   });
 
   it("проставляет headDisplayName в data department — «Фамилия Имя» (CR-016 §30)", () => {
@@ -657,7 +656,7 @@ describe("unified-layout · assistant sidecar (CR-013_assistant)", () => {
 
 
 describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
-  it("assistant полностью выше следующего row: assistant.bottom < childrenRowTop (CR-015 §16, §46)", () => {
+  it("assistant ниже manager и полностью выше следующего row (CR-019 §7, §9)", () => {
     const tree = dept("klyuev", "Клюев", {
       managerSubLevel: 2,
       users: [user("ast-1", "Лихачева", { position: "Персональный ассистент" })],
@@ -673,10 +672,9 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
       ...["A", "B", "C"].map((_, i) => byId(nodes, `dept-${i}`).y),
     );
 
-    // Assistant на уровне manager, не в зоне children junction.
-    expect(ast.y).toBeGreaterThan(manager.y);
-    expect(ast.y).toBeLessThan(manager.y + manager.height);
-    expect(ast.x).toBeGreaterThan(manager.x + manager.width);
+    // Assistant под manager (центрирован), не в зоне children junction.
+    expect(ast.y).toBeGreaterThan(manager.y + manager.height);
+    expect(ast.x + ast.width / 2).toBeCloseTo(manager.x + manager.width / 2, 5);
     expect(ast.y + ast.height).toBeLessThan(childrenRowTop);
     expect(childrenRowTop - (ast.y + ast.height)).toBeGreaterThanOrEqual(28);
   });
@@ -711,8 +709,9 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
     const manager = byId(nodes, "manager");
     const ast = byId(nodes, "ast-1");
 
-    expect(ast.x).toBeGreaterThan(manager.x + manager.width);
-    expect(ast.x).toBeLessThan(manager.x + manager.width + 100);
+    // assistant центрирован под manager, не уезжает вправо при широком subtree.
+    expect(ast.x + ast.width / 2).toBeCloseTo(manager.x + manager.width / 2, 5);
+    expect(ast.x).toBeLessThan(manager.x + manager.width);
     for (let i = 0; i < 10; i += 1) {
       const child = byId(nodes, `d${i}`);
       expect(ast.y + ast.height).toBeLessThanOrEqual(child.y);
@@ -746,9 +745,9 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
     const astA = byId(nodes, "ast-a");
     const astB = byId(nodes, "ast-b");
 
-    // Каждый assistant у своего manager, без перекрёстной привязки.
-    expect(astA.x).toBeGreaterThan(mgrA.x + mgrA.width);
-    expect(astB.x).toBeGreaterThan(mgrB.x + mgrB.width);
+    // Каждый assistant у своего manager (центрирован под ним), без перекрёстной привязки.
+    expect(astA.x + astA.width / 2).toBeCloseTo(mgrA.x + mgrA.width / 2, 5);
+    expect(astB.x + astB.width / 2).toBeCloseTo(mgrB.x + mgrB.width / 2, 5);
     expect(astA.x).toBeLessThan(mgrB.x);
     // Ассистенты выше своих детей.
     expect(astA.y + astA.height).toBeLessThanOrEqual(byId(nodes, "a1").y);
@@ -758,7 +757,7 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
     expect(byId(nodes, "b1").y).toBe(byId(nodes, "c1").y);
   });
 
-  it("assistant остаётся рядом с manager при collapse (CR-015 §28, §53)", () => {
+  it("assistant остаётся под manager при collapse (CR-019 §25)", () => {
     const tree = dept("manager", "Manager", {
       managerSubLevel: 2,
       users: [user("ast-1", "Anna", { position: "Административный ассистент" })],
@@ -777,10 +776,10 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
     expect(byId(nodes, "B")).toBeUndefined();
     expect(manager.collapsed).toBe(true);
     expect(manager.hiddenChildrenCount).toBe(2);
-    // Assistant — локальный sidecar и остаётся видимым рядом с manager.
+    // Assistant — visual node и остаётся видимым под manager.
     expect(ast).toBeTruthy();
-    expect(ast.x).toBeGreaterThan(manager.x + manager.width);
-    expect(ast.y).toBeLessThan(manager.y + manager.height);
+    expect(ast.y).toBeGreaterThan(manager.y + manager.height);
+    expect(ast.x + ast.width / 2).toBeCloseTo(manager.x + manager.width / 2, 5);
   });
 
   it("toggle имеет единый baseline для siblings одного row (CR-015 §24, §51)", () => {
@@ -850,7 +849,7 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
     expect(a.toggleY).toBe(rowVisualBottom + 14);
   });
 
-  it("наличие assistant не влияет на toggle manager (CR-015 §29, §52)", () => {
+  it("assistant below опускает toggle baseline ниже visual bottom assistant (CR-019 §24)", () => {
     const withAst = dept("manager", "Manager", {
       managerSubLevel: 2,
       users: [user("ast-1", "Anna", { position: "Административный ассистент" })],
@@ -864,15 +863,18 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
     const { nodes: nodesWith } = computeUnifiedLayout(withAst);
     const { nodes: nodesWithout } = computeUnifiedLayout(withoutAst);
 
-    const toggleWith = byId(nodesWith, "manager").toggleY;
+    const managerWith = byId(nodesWith, "manager");
+    const ast = byId(nodesWith, "ast-1");
+    const toggleWith = managerWith.toggleY;
     const toggleWithout = byId(nodesWithout, "manager").toggleY;
 
-    // X toggle = manager.x + manager.width / 2 (не зависит от assistant);
-    // baseline Y — тот же, потому что assistant не добавляет вертикальную зону.
-    expect(toggleWith).toBe(toggleWithout);
+    // Assistant под manager увеличивает вертикальный footprint row →
+    // toggle baseline ниже (не поверх assistant).
+    expect(toggleWith).toBeGreaterThan(toggleWithout);
+    expect(toggleWith).toBeGreaterThan(ast.y + ast.height);
   });
 
-  it("assistant не уезжает от manager при росте ширины subtree (CR-015 §6, §45)", () => {
+  it("assistant не уезжает от manager при росте ширины subtree (CR-019 §6, §32)", () => {
     const oneChild = dept("manager", "Manager", {
       managerSubLevel: 2,
       users: [user("ast-1", "Anna", { position: "Административный ассистент" })],
@@ -890,9 +892,9 @@ describe("unified-layout · assistant sidecar geometry (CR-015)", () => {
     const distanceSmall = byId(small, "ast-1").x - byId(small, "manager").x;
     const distanceLarge = byId(large, "ast-1").x - byId(large, "manager").x;
 
-    // Расстояние manager ↔ assistant не зависит от количества дирекций.
+    // assistant центрирован под manager — смещение по X не зависит от ширины subtree.
     expect(distanceSmall).toBeCloseTo(distanceLarge, 5);
-    expect(distanceSmall).toBeCloseTo(350 + 16, 5);
+    expect(distanceSmall).toBeCloseTo((350 - 240) / 2, 5);
   });
 });
 
@@ -1050,24 +1052,40 @@ describe("unified-layout · compact horizontal packing (CR-018)", () => {
           }
         : {}),
       ...(overrides.children ? { children: overrides.children } : {}),
+      // Остальные presentation-поля (assistantPlacement и т.п.).
+      ...overrides,
     });
   }
 
-  it("assistant placement сохраняется: x = manager.x + manager.width + gap, y = manager.y + offset (CR-018 §6, §28)", () => {
+  it("обычный assistant ниже manager, top-management assistant — sidecar справа (CR-019 §28, §31-32)", () => {
     const root = dept("root", "ROOT", {
       managerSubLevel: 1,
       children: [
+        // Обычный manager → assistant below (центрирован, под карточкой).
         makeBranch({ id: "A", name: "A", assistants: ["Assistant A"] }),
-        makeBranch({ id: "B", name: "B" }),
+        // Top-management → assistant sidecar справа и слегка ниже.
+        makeBranch({
+          id: "T",
+          name: "T",
+          assistants: ["Assistant T"],
+          assistantPlacement: "side",
+          keepFullName: true,
+        }),
       ],
     });
     const { nodes } = computeUnifiedLayout(root);
 
-    const manager = byId(nodes, "A");
-    const ast = byId(nodes, "ast-A-0");
+    const managerA = byId(nodes, "A");
+    const astA = byId(nodes, "ast-A-0");
+    expect(astA.x).toBeCloseTo(managerA.x + (managerA.width - astA.width) / 2, 5);
+    expect(astA.y).toBeCloseTo(managerA.y + managerA.height + 8, 5);
 
-    expect(ast.x).toBe(manager.x + manager.width + 16);
-    expect(ast.y).toBe(manager.y + 28);
+    const managerT = byId(nodes, "T");
+    const astT = byId(nodes, "ast-T-0");
+    expect(astT.x).toBe(managerT.x + managerT.width + 16);
+    expect(astT.y).toBe(managerT.y + 28);
+    expect(astT.x).toBeGreaterThan(managerT.x);
+    expect(astT.y).toBeGreaterThanOrEqual(managerT.y);
   });
 
   it("assistant не удваивает subtreeWidth (CR-018 §5, §29)", () => {
@@ -1125,11 +1143,17 @@ describe("unified-layout · compact horizontal packing (CR-018)", () => {
     expect(byId(nodesWith, "B").x).toBe(byId(nodesWithout, "B").x);
   });
 
-  it("collision устраняется сдвигом правой ветви с сохранением colGap (CR-018 §7, §31)", () => {
+  it("collision sidecar (top-management) устраняется сдвигом правой ветви (CR-018 §7, §31, CR-019 §35)", () => {
     const root = dept("root", "ROOT", {
       managerSubLevel: 1,
       children: [
-        makeBranch({ id: "A", name: "A", assistants: ["Assistant A"] }),
+        makeBranch({
+          id: "A",
+          name: "A",
+          assistants: ["Assistant A"],
+          assistantPlacement: "side",
+          keepFullName: true,
+        }),
         makeBranch({ id: "B", name: "B" }),
       ],
     });
@@ -1181,11 +1205,17 @@ describe("unified-layout · compact horizontal packing (CR-018)", () => {
     expect(relWith("B2")).toBeCloseTo(relWithout("B2"), 5);
   });
 
-  it("несколько assistants: группа справа, visualMaxX учитывает правый край (CR-018 §23, §33)", () => {
+  it("несколько assistants (top-management): группа справа, visualMaxX учитывает правый край (CR-018 §23, §33, CR-019 §16)", () => {
     const root = dept("root", "ROOT", {
       managerSubLevel: 1,
       children: [
-        makeBranch({ id: "A", name: "A", assistants: ["Assistant 1", "Assistant 2"] }),
+        makeBranch({
+          id: "A",
+          name: "A",
+          assistants: ["Assistant 1", "Assistant 2"],
+          assistantPlacement: "side",
+          keepFullName: true,
+        }),
         makeBranch({ id: "B", name: "B" }),
       ],
     });
@@ -1273,6 +1303,164 @@ describe("unified-layout · compact horizontal packing (CR-018)", () => {
     const parentEdge = edges.find((e) => e.child === a);
     const parentOfA = parentEdge ? parentEdge.parent.data.id : null;
     expect(parentOfA).toBe("root");
+  });
+});
+
+describe("unified-layout · assistant placement (CR-019)", () => {
+  function makeManagerWithAssistant(overrides = {}) {
+    return dept(overrides.id || "A", overrides.name || "A", {
+      managerSubLevel: 2,
+      users: overrides.assistants
+        ? overrides.assistants.map((name, i) =>
+            user(`ast-${overrides.id}-${i}`, name, {
+              position: i % 2 === 0 ? "Административный ассистент" : "Персональный ассистент",
+            }),
+          )
+        : [],
+      ...(overrides.children ? { children: overrides.children } : {}),
+      ...overrides,
+    });
+  }
+
+  it("ordinary assistant не увеличивает horizontal width ветви (CR-019 §6, §33)", () => {
+    const withAst = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [makeManagerWithAssistant({ id: "A", name: "A", assistants: ["Assistant"] })],
+    });
+    const withoutAst = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [makeManagerWithAssistant({ id: "A", name: "A" })],
+    });
+
+    const { tree: withTree, width: withWidth } = computeUnifiedLayout(withAst);
+    const { tree: withoutTree, width: withoutWidth } = computeUnifiedLayout(withoutAst);
+
+    const aWith = withTree.children.find((c) => c.data.id === "A");
+    const aWithout = withoutTree.children.find((c) => c.data.id === "A");
+
+    // Ширина ветви и общая ширина схемы не меняются (assistant 240 <= manager 350).
+    expect(aWith.subtreeWidth).toBe(aWithout.subtreeWidth);
+    expect(withWidth).toBe(withoutWidth);
+  });
+
+  it("реальные кейсы: Невзорова/Садкова/Мишуев — assistant под карточкой (CR-019 §36-37)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        dept("hr", "Дирекция по персоналу", {
+          managerSubLevel: 2,
+          manager: "Невзорова Екатерина Викторовна",
+          users: [
+            user("schekotova", "Щёкотова Екатерина Алексеевна", { position: "Административный ассистент" }),
+          ],
+        }),
+        dept("sales", "Дирекция по продажам", {
+          managerSubLevel: 2,
+          manager: "Садкова Ксения Александровна",
+          users: [
+            user("kudasheva", "Кудашева Виктория Витальевна", { position: "Административный ассистент" }),
+          ],
+        }),
+        dept("comfort", "LEGENDA Comfort", {
+          managerSubLevel: 2,
+          manager: "Мишуев Александр Адольфович",
+          users: [
+            user("nikolaeva", "Николаева Татьяна Владимировна", { position: "Персональный ассистент" }),
+          ],
+        }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    for (const astId of ["schekotova", "kudasheva", "nikolaeva"]) {
+      const ast = byId(nodes, astId);
+      const parent = nodes.find(
+        (n) => n.type === NODE_DEPARTMENT && (n.children || []).some((c) => c.data && c.data.id === astId),
+      );
+      expect(parent).toBeTruthy();
+      expect(ast.x + ast.width / 2).toBeCloseTo(parent.x + parent.width / 2, 5);
+      expect(ast.y).toBeGreaterThan(parent.y + parent.height);
+    }
+
+    // Никакие соседние department cards не перекрываются (CR-019 §36).
+    const schekotova = byId(nodes, "schekotova");
+    const sales = byId(nodes, "sales");
+    expect(rectsOverlap(rect(schekotova), rect(sales))).toBe(false);
+  });
+
+  it("collapse top-manager: sidecar остаётся, скрытые дети не резервируют место (CR-019 §39)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        dept("A", "A", {
+          managerSubLevel: 2,
+          assistantPlacement: "side",
+          keepFullName: true,
+          users: [user("ast-1", "Assistant", { position: "Административный ассистент" })],
+          children: [dept("A1", "A1", { managerSubLevel: 3 }), dept("A2", "A2", { managerSubLevel: 3 })],
+        }),
+        dept("B", "B", { managerSubLevel: 2 }),
+      ],
+    });
+    const { nodes, tree } = computeUnifiedLayout(root, { collapsedIds: new Set(["A"]) });
+
+    expect(byId(nodes, "A1")).toBeUndefined();
+    const a = tree.children.find((c) => c.data.id === "A");
+    const ast = byId(nodes, "ast-1");
+    const b = byId(nodes, "B");
+
+    // Sidecar assistant остаётся справа от manager.
+    expect(ast.x).toBe(a.x + a.width + 16);
+    // Скрытые descendants не резервируют место.
+    expect(a.subtreeWidth).toBe(a.width);
+    expect(rectsOverlap(rect(ast), rect(b))).toBe(false);
+  });
+
+  it("variable card widths: below центрируется, side — справа (CR-019 §40)", () => {
+    for (const width of [230, 350, 380]) {
+      const root = dept("root", "ROOT", {
+        managerSubLevel: 1,
+        children: [
+          makeManagerWithAssistant({ id: "A", name: "A", assistants: ["Assistant"] }),
+          makeManagerWithAssistant({
+            id: "T",
+            name: "T",
+            assistants: ["Assistant T"],
+            assistantPlacement: "side",
+            keepFullName: true,
+          }),
+        ],
+      });
+      const { nodes } = computeUnifiedLayout(root, { departmentWidth: width });
+
+      const manager = byId(nodes, "A");
+      const ast = byId(nodes, "ast-A-0");
+      expect(ast.x + ast.width / 2).toBeCloseTo(manager.x + manager.width / 2, 5);
+      expect(ast.y).toBeCloseTo(manager.y + manager.height + 8, 5);
+
+      const managerT = byId(nodes, "T");
+      const astT = byId(nodes, "ast-T-0");
+      expect(astT.x).toBe(managerT.x + managerT.width + 16);
+      expect(astT.y).toBe(managerT.y + 28);
+    }
+  });
+
+  it("несколько assistants ниже manager укладываются вертикальной группой (CR-019 §23)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      children: [
+        makeManagerWithAssistant({ id: "A", name: "A", assistants: ["Assistant 1", "Assistant 2"] }),
+      ],
+    });
+    const { nodes } = computeUnifiedLayout(root);
+
+    const manager = byId(nodes, "A");
+    const ast1 = byId(nodes, "ast-A-0");
+    const ast2 = byId(nodes, "ast-A-1");
+
+    expect(ast1.x).toBeCloseTo(manager.x + (manager.width - ast1.width) / 2, 5);
+    expect(ast2.x).toBeCloseTo(manager.x + (manager.width - ast2.width) / 2, 5);
+    expect(ast2.y).toBe(ast1.y + ast1.height + 8);
   });
 });
 

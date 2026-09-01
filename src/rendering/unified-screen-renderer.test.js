@@ -718,7 +718,7 @@ describe("unified-screen-renderer · connector geometry (CR-014)", () => {
   });
 
   it("assistant connector отделён от organizational connector (CR-014 Test 75, CR-015 §8-9)", () => {
-    const manager = makeLayoutNode({ x: 100, y: 100 });
+    const manager = makeLayoutNode({ x: 100, y: 100, assistantPlacement: "side" });
     const assistant = makeLayoutNode({
       type: NODE_ASSISTANT,
       x: manager.x + manager.width + 16,
@@ -733,7 +733,7 @@ describe("unified-screen-renderer · connector geometry (CR-014)", () => {
       { parent: manager, child: childA },
     ]);
 
-    // Отдельная assistant-связь: правый центр manager → левый центр assistant.
+    // Отдельная assistant-связь (side): правый центр manager → левый центр assistant.
     const expectedAssistant = assistantConnectorPath(manager, assistant);
     expect(paths).toContain(expectedAssistant);
     expect(expectedAssistant.startsWith(`M ${manager.x + manager.width} ${manager.y + manager.height / 2}`)).toBe(true);
@@ -746,8 +746,25 @@ describe("unified-screen-renderer · connector geometry (CR-014)", () => {
     expect(paths.some((p) => p === `M ${stemX} ${parentBottom} L ${stemX} ${junctionY}`)).toBe(true);
   });
 
+  it("assistant ниже manager: connector вертикальный bottom-center → top-center (CR-019 §22)", () => {
+    const manager = makeLayoutNode({ x: 100, y: 100 }); // без placement → below
+    const assistant = makeLayoutNode({
+      type: NODE_ASSISTANT,
+      x: manager.x + (manager.width - 240) / 2,
+      y: manager.y + manager.height + 8,
+      width: 240,
+      height: 44,
+    });
+
+    const path = assistantConnectorPath(manager, assistant);
+    expect(path).toBe(
+      `M ${manager.x + manager.width / 2} ${manager.y + manager.height} ` +
+        `L ${assistant.x + assistant.width / 2} ${assistant.y}`,
+    );
+  });
+
   it("junctionY находится ниже assistant и в свободной зоне (CR-015 §15-16, §46-48)", () => {
-    const manager = makeLayoutNode({ x: 100, y: 100 });
+    const manager = makeLayoutNode({ x: 100, y: 100, assistantPlacement: "side" });
     const assistant = makeLayoutNode({
       type: NODE_ASSISTANT,
       x: manager.x + manager.width + 16,

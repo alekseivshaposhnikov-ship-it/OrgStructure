@@ -115,6 +115,8 @@ export function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies })
         project: "",
         scenarioState: d.scenarioState,
         isHoldingExecutive,
+        // CR-019 §13: семантический флаг размещения assistant (side/below).
+        assistantPlacement: node.assistantPlacement || "below",
         parentId,
         x: node.x,
         y: node.y,

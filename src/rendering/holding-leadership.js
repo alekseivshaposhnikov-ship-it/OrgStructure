@@ -270,6 +270,9 @@ function buildExecutiveNode({ execCfg, person, directorates, directReports, find
     // CR-016 §20, §24-25: семантический presentation-флаг top-3 (полное ФИО).
     // Renderer работает только по этому флагу, а не по текстовому ФИО.
     keepFullName: Boolean(execCfg.keepFullName),
+    // CR-019 §13: top-3 (Селиванов/Лукьянов/Клюев) — assistant sidecar справа,
+    // остальные executives (например Винник) — assistant под карточкой.
+    assistantPlacement: execCfg.keepFullName ? "side" : "below",
     scenarioState: person.scenarioState || "",
     // CR-013_assistant §13: presentation-ассистент руководителя (sidecar).
     ...(assistantPerson ? { __assistant: normalizeAssistantPerson(assistantPerson) } : {}),
@@ -323,6 +326,7 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
       __assistant: null,
       __initialCollapsedIds: [],
       keepFullName: Boolean(HOLDING_LEADERSHIP_CONFIG.ceo.keepFullName),
+      assistantPlacement: "side",
     };
   }
 
@@ -502,6 +506,8 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
     __initialCollapsedIds: initialCollapsedIds,
     // CR-016 §20, §25: Селиванов — top-3, полное ФИО на карточке root.
     keepFullName: Boolean(HOLDING_LEADERSHIP_CONFIG.ceo.keepFullName),
+    // CR-019 §14: Селиванов — top-management, assistant «под-справа» (sidecar).
+    assistantPlacement: "side",
   };
 
   if (PROJECTION_DEBUG) {

@@ -337,6 +337,22 @@ describe("holding-leadership (CR-013)", () => {
     expect(vinnik.keepFullName).toBe(false);
   });
 
+  it("top-management assistantPlacement: Селиванов/Лукьянов/Клюев side, Винник below (CR-019 §35, §17)", () => {
+    const root = buildHoldingLeadershipTree(makeHoldingRoot());
+
+    // Селиванов (root) — top-management, sidecar «под-справа».
+    expect(root.assistantPlacement).toBe("side");
+
+    const lukyanov = root.children.find((e) => e.executiveKey === "lukyanov");
+    const klyuev = root.children.find((e) => e.executiveKey === "klyuev");
+    const vinnik = root.children.find((e) => e.executiveKey === "vinnik");
+
+    expect(lukyanov.assistantPlacement).toBe("side");
+    expect(klyuev.assistantPlacement).toBe("side");
+    // Винник не относится к top-management — assistant под карточкой.
+    expect(vinnik.assistantPlacement).toBe("below");
+  });
+
   it("excluded leadership employee не создаёт executive node и не ломает приложение (CR-016 §13, Test 45)", () => {
     const input = makeHoldingRoot();
     const admin = input.children.find((child) => child.department_name === "Администрация");
@@ -743,16 +759,16 @@ describe("holding-leadership · LEGENDA Comfort и ассистенты (CR-013_
       };
     };
 
-    // CR-015: assistant — sidecar на уровне manager. Он не создаёт новый
-    // row/level и НЕ резервирует вертикальную зону под manager, поэтому
-    // Y дочернего department не зависит от наличия assistant.
+    // CR-019: assistant — visual node под manager (below). Он не создаёт новый
+    // row/level, но следующий organizational row начинается ниже visual bottom
+    // assistant, поэтому Y дочернего department смещается вниз.
     const rowWith = byId(computeUnifiedLayout(make(true)).nodes, "dept-a").row;
     const rowWithout = byId(computeUnifiedLayout(make(false)).nodes, "dept-a").row;
     expect(rowWith).toBe(rowWithout);
 
     const yWith = byId(computeUnifiedLayout(make(true)).nodes, "dept-a").y;
     const yWithout = byId(computeUnifiedLayout(make(false)).nodes, "dept-a").y;
-    expect(yWith).toBe(yWithout);
+    expect(yWith).toBeGreaterThan(yWithout);
   });
 
   it("ассистент внутри LEGENDA Comfort привязан к своему manager (CR-013_fix Test 14)", () => {

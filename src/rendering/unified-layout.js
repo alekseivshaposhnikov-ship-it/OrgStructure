@@ -54,6 +54,9 @@ const DEFAULT_OPTIONS = {
   // vertical offset), поэтому assistant не выглядит отдельным organizational level.
   assistantHorizontalGap: 16,
   assistantVerticalOffset: 28,
+  // CR-019 §7: обычный assistant (assistantPlacement="below") располагается
+  // непосредственно под карточкой manager с небольшим вертикальным gap.
+  assistantVerticalGap: 8,
   assistantSidecarWidth: 240,
   assistantSidecarHeight: 44,
   // CR-015 §22-26: collapse/expand control — часть layout-геометрии. Baseline
@@ -269,6 +272,11 @@ export function buildLayoutTree(
 
     const isCollapsed = collapsedIds ? collapsedIds.has(data.id) : false;
 
+    // CR-019 §13: семантический флаг размещения assistant. Top-management
+    // (keepFullName / isHoldingExecutive + assistantPlacement="side") — sidecar
+    // справа; остальные руководители — "below" (непосредственно под manager).
+    const assistantPlacement = node.assistantPlacement || "below";
+
     if (isCollapsed) {
       // CR-015 §28, §53: при collapse скрываются только organizational children.
       // Sidecar-ассистенты остаются видимыми рядом с manager — assistant не
@@ -279,12 +287,13 @@ export function buildLayoutTree(
         data,
         children: sidecarAssistants,
         collapsed: true,
+        assistantPlacement,
         // Скрыты все children, кроме оставшихся видимыми sidecar-ассистентов.
         hiddenChildrenCount: children.length - sidecarAssistants.length,
       };
     }
 
-    return { type: NODE_DEPARTMENT, data, children };
+    return { type: NODE_DEPARTMENT, data, children, assistantPlacement };
   }
 
   return buildDepartment(rootNode, true);
@@ -467,18 +476,30 @@ function computeSizes(node, opts) {
 }
 
 function computeSubtreeWidths(node, colGap) {
-  if (node.type !== NODE_DEPARTMENT || !node.children.length) {
-    node.subtreeWidth = node.width;
-    return node.subtreeWidth;
+  // CR-019 §26: для обычного manager (assistantPlacement="below") assistant
+  // находится в вертикальном стеке под карточкой — ширина ветви определяется
+  // самой широкой карточкой (manager или assistant), без бокового резерва.
+  let ownWidth = node.width;
+  if (node.assistantPlacement !== "side") {
+    const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
+    const maxAssistantWidth = assistants.length
+      ? Math.max(...assistants.map((ast) => ast.width))
+      : 0;
+    ownWidth = Math.max(node.width, maxAssistantWidth);
   }
 
   // Sidecar-ассистенты (CR-013_assistant §7, §10) не участвуют в организационной
   // ширине ветки и НЕ увеличивают subtreeWidth (CR-018 §4.1): их асимметричный
   // visual footprint обрабатывается отдельным packing-проходом
   // compactSiblingBranches() по фактическим visual bounds (CR-018 §7).
+  if (node.type !== NODE_DEPARTMENT || !node.children.length) {
+    node.subtreeWidth = ownWidth;
+    return node.subtreeWidth;
+  }
+
   const children = node.children.filter((child) => child.type !== NODE_ASSISTANT);
   if (!children.length) {
-    node.subtreeWidth = node.width;
+    node.subtreeWidth = ownWidth;
     return node.subtreeWidth;
   }
 
@@ -486,7 +507,7 @@ function computeSubtreeWidths(node, colGap) {
     children.reduce((sum, child) => sum + computeSubtreeWidths(child, colGap), 0) +
     (children.length - 1) * colGap;
 
-  node.subtreeWidth = Math.max(node.width, childrenWidth);
+  node.subtreeWidth = Math.max(ownWidth, childrenWidth);
   return node.subtreeWidth;
 }
 
@@ -597,10 +618,19 @@ function collectRowHeights(node, rowHeights, rowIndexMap, opts) {
 
     const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
     if (assistants.length) {
-      // Ассистенты лежат на одном y = node.y + assistantVerticalOffset;
-      // нижний край группы относительно node.y:
-      const groupBottom = Math.max(...assistants.map((assistant) => assistant.height));
-      rowHeight = Math.max(rowHeight, opts.assistantVerticalOffset + groupBottom);
+      const maxAssistantHeight = Math.max(...assistants.map((assistant) => assistant.height));
+      if (node.assistantPlacement === "side") {
+        // Sidecar (CR-019 §3-4): ассистент на уровне manager с вертикальным
+        // offset — учитывается только его реальная протяжённость сверху.
+        rowHeight = Math.max(rowHeight, opts.assistantVerticalOffset + maxAssistantHeight);
+      } else {
+        // Below (CR-019 §7, §9): ассистент лежит ПОД manager — следующий
+        // organizational row начинается ниже визуального низа assistant.
+        rowHeight = Math.max(
+          rowHeight,
+          node.height + opts.assistantVerticalGap + maxAssistantHeight,
+        );
+      }
     }
 
     rowHeights[index] = Math.max(rowHeights[index] || 0, rowHeight);
@@ -634,25 +664,40 @@ function assignY(node, rowTops, rowIndexMap, parent, opts) {
 }
 
 /**
- * CR-015 §3-6, §9: позиционирует sidecar-ассистентов СПРАВА от карточки их
- * руководителя, на уровне manager (небольшой vertical offset). Позиция
- * рассчитывается только относительно карточки manager и не зависит от ширины
- * subtree / organizational row / junction.
+ * CR-019 §3-7: позиционирует assistants по уровню руководителя.
  *
- * - x = manager.x + manager.width + assistantHorizontalGap (несколько
- *   ассистентов укладываются компактной группой с тем же gap);
- * - y = manager.y + assistantVerticalOffset — верх assistant остаётся
- *   приблизительно на уровне manager.
+ * Top-management (assistantPlacement="side", CR-019 §3-4): assistant — компактный
+ * sidecar СПРАВА от карточки manager, слегка ниже (небольшой vertical offset).
+ * Позиция не зависит от ширины subtree / row / junction.
+ *
+ * Остальные руководители (assistantPlacement="below", CR-019 §5-7): assistant
+ * располагается НЕПОСРЕДСТВЕННО ПОД карточкой manager, центрирован по X:
+ *   assistant.x = manager.x + (manager.width - assistant.width) / 2
+ *   assistant.y = manager.y + manager.height + assistantVerticalGap
+ * Несколько assistants укладываются вертикальной группой с тем же gap.
  */
-function placeAssistantSidecars(tree, opts) {
+function placeAssistants(tree, opts) {
   (function walk(node) {
     const assistants = (node.children || []).filter((child) => child.type === NODE_ASSISTANT);
-    let cursorX = node.x + node.width + opts.assistantHorizontalGap;
-    assistants.forEach((assistant) => {
-      assistant.y = node.y + opts.assistantVerticalOffset;
-      assistant.x = cursorX;
-      cursorX += assistant.width + opts.assistantHorizontalGap;
-    });
+
+    if (assistants.length) {
+      if (node.assistantPlacement === "side") {
+        let cursorX = node.x + node.width + opts.assistantHorizontalGap;
+        assistants.forEach((assistant) => {
+          assistant.y = node.y + opts.assistantVerticalOffset;
+          assistant.x = cursorX;
+          cursorX += assistant.width + opts.assistantHorizontalGap;
+        });
+      } else {
+        let cursorY = node.y + node.height + opts.assistantVerticalGap;
+        assistants.forEach((assistant) => {
+          assistant.x = node.x + (node.width - assistant.width) / 2;
+          assistant.y = cursorY;
+          cursorY += assistant.height + opts.assistantVerticalGap;
+        });
+      }
+    }
+
     (node.children || []).forEach(walk);
   })(tree);
 }
@@ -742,8 +787,9 @@ export function computeUnifiedLayout(rootNode, options = {}) {
   const { rowTops, rowIndexMap } = computeRowTops(tree, opts);
   assignY(tree, rowTops, rowIndexMap, null, opts);
 
-  // Sidecar-ассистенты — позиция от карточки руководителя (CR-015 §3-6).
-  placeAssistantSidecars(tree, opts);
+  // Sidecar-ассистенты — позиция от карточки руководителя (CR-015 §3-6,
+  // CR-019 §3-7: side для top-management, below для остальных).
+  placeAssistants(tree, opts);
 
   // CR-018 §7: компактный collision-aware horizontal packing по фактическим
   // visual bounds (организационная геометрия не меняется).

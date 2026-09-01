@@ -67,20 +67,33 @@ function drawAllConnectors(group, flat, map) {
   byParent.forEach((children, pid) => {
     const p = map.get(pid); if (!p) return;
 
-    // CR-015 §8-9: assistant — sidecar СПРАВА от manager, на уровне карточки.
-    // Короткая связь от правого центра manager к левому центру assistant
-    // (не привязана к children junction и не проходит через interior карточек).
+    // CR-015 §8-9 + CR-019 §21-22: короткая связь manager → assistant.
+    // side (top-management): right-center manager → left-center assistant;
+    // below (обычные руководители): вертикальная bottom-center → top-center.
     const assistants = children.filter(c => c.type === 'assistant');
     assistants.forEach(a => {
-      const fromX = p.x + p.cardWidth;
-      const fromY = p.y + p.cardHeight / 2;
-      const toX = a.x;
-      const toY = a.y + a.cardHeight / 2;
-      const midX = fromX + (toX - fromX) / 2;
-      const d = Math.abs(toY - fromY) < 1
-        ? `M ${fromX} ${fromY} L ${toX} ${toY}`
-        : `M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}`;
-      group.appendChild(createSvg('path', { d, fill: 'none', stroke: C.line, 'stroke-width': 1.5 }));
+      if (p.assistantPlacement === 'side') {
+        const fromX = p.x + p.cardWidth;
+        const fromY = p.y + p.cardHeight / 2;
+        const toX = a.x;
+        const toY = a.y + a.cardHeight / 2;
+        const midX = fromX + (toX - fromX) / 2;
+        const d = Math.abs(toY - fromY) < 1
+          ? `M ${fromX} ${fromY} L ${toX} ${toY}`
+          : `M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}`;
+        group.appendChild(createSvg('path', { d, fill: 'none', stroke: C.line, 'stroke-width': 1.5 }));
+      } else {
+        const fromX = p.x + p.cardWidth / 2;
+        const fromY = p.y + p.cardHeight;
+        const toX = a.x + a.cardWidth / 2;
+        const toY = a.y;
+        group.appendChild(createSvg('path', {
+          d: `M ${fromX} ${fromY} L ${toX} ${toY}`,
+          fill: 'none',
+          stroke: C.line,
+          'stroke-width': 1.5,
+        }));
+      }
     });
 
     const orgChildren = children.filter(c => c.type !== 'assistant');

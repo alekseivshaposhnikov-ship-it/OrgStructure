@@ -44,35 +44,41 @@ function cardHtml(node, opts) {
 }
 
 /**
- * CR-015 §8-9: отдельная короткая связь manager → assistant.
+ * CR-015 §8-9 + CR-019 §21-22: отдельная короткая связь manager → assistant.
  *
- * Assistant — локальный sidecar СПРАВА от manager, поэтому connector идёт
- * от правого центра manager-карточки к левому центру assistant-карточки:
- *
- *   managerAssistantAnchor = { x: manager.x + manager.width, y: manager.y + manager.height / 2 };
- *   assistantAnchor        = { x: assistant.x,             y: assistant.y + assistant.height / 2 };
- *
- * При небольшом вертикальном смещении assistant используется короткий
- * orthogonal path внутри локальной зоны между карточками. Connector не
- * привязан к children junction и не выходит за пределы assistant.
+ * Два паттерна размещения assistant (CR-019 §3-7):
+ * - side (top-management): assistant справа от manager — connector от правого
+ *   центра manager-карточки к левому центру assistant (короткий L-shaped);
+ * - below (обычные руководители): assistant под manager — connector от нижнего
+ *   центра manager к верхнему центру assistant (короткая вертикальная прямая).
  */
 export function assistantConnectorPath(manager, assistant) {
-  const fromX = manager.x + manager.width;
-  const fromY = manager.y + manager.height / 2;
-  const toX = assistant.x;
-  const toY = assistant.y + assistant.height / 2;
+  if (manager.assistantPlacement === "side") {
+    const fromX = manager.x + manager.width;
+    const fromY = manager.y + manager.height / 2;
+    const toX = assistant.x;
+    const toY = assistant.y + assistant.height / 2;
 
-  if (Math.abs(toY - fromY) < 1) {
-    return `M ${fromX} ${fromY} L ${toX} ${toY}`;
+    if (Math.abs(toY - fromY) < 1) {
+      return `M ${fromX} ${fromY} L ${toX} ${toY}`;
+    }
+
+    const midX = fromX + (toX - fromX) / 2;
+    return `M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}`;
   }
 
-  const midX = fromX + (toX - fromX) / 2;
-  return `M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}`;
+  // below: assistant центрирован относительно manager → единая вертикальная ось.
+  const fromX = manager.x + manager.width / 2;
+  const fromY = manager.y + manager.height;
+  const toX = assistant.x + assistant.width / 2;
+  const toY = assistant.y;
+  return `M ${fromX} ${fromY} L ${toX} ${toY}`;
 }
 
 /**
- * Строит connector paths по edges (CR-014 §32-38, CR-015 §10-16):
- * - assistant: отдельная короткая связь manager right-center → assistant left-center;
+ * Строит connector paths по edges (CR-014 §32-38, CR-015 §10-16, CR-019 §21-23):
+ * - assistant: отдельная короткая связь manager → assistant (side: L-shaped
+ *   right-center → left-center; below: вертикальная bottom-center → top-center);
  * - organizational children: одна main vertical stem от parent bottom-center
  *   до junctionY в свободной зоне, горизонтальная junction и drop-линии.
  *
