@@ -1,0 +1,984 @@
+# CR-017 — Учет assistant sidecar в layout footprint и предотвращение перекрытия карточек
+
+## 1. Цель
+
+Исправить визуальный дефект организационной диаграммы, при котором карточки персональных / административных ассистентов перекрываются соседними department cards или скрываются за ними.
+
+Бизнес-логика assistant уже считается корректной:
+
+- assistant связан со своим manager;
+- assistant не является department;
+- assistant не создает organizational level;
+- assistant не меняет `effectiveLayoutLevel`;
+- assistant располагается рядом / справа от manager.
+
+Проблема CR-017 относится исключительно к расчету layout geometry.
+
+Не менять hierarchy.
+
+---
+
+# 2. Текущая проблема
+
+Сейчас assistant позиционируется как sidecar относительно manager card, но его реальный bounding box не полностью учитывается при расчете пространства, занимаемого ветвью manager.
+
+Из-за этого layout может расположить соседний department в той же области.
+
+Пример:
+
+```text
+Дирекция по продажам       LEGENDA Comfort
+        │
+        └── Assistant
+```
+
+Фактически получается:
+
+```text
+[Дирекция по продажам] [LEGENDA Comfort]
+                     [Assistant]
+```
+
+где assistant частично оказывается под соседней карточкой.
+
+Аналогичная проблема возникает у:
+
+```text
+Дирекция по персоналу
+Невзорова
+└── административный ассистент
+```
+
+и других managers с assistant sidecar.
+
+---
+
+# 3. Реальные кейсы
+
+По текущим данным:
+
+```text
+Дирекция по персоналу
+manager = Невзорова Екатерина Викторовна
+
+assistant =
+Щёкотова Екатерина Алексеевна
+Административный ассистент
+```
+
+Для Дирекции по продажам:
+
+```text
+manager = Садкова Ксения Александровна
+```
+
+Активный assistant:
+
+```text
+Кудашева Виктория Витальевна
+Административный ассистент
+```
+
+Елизарова Лаура Вячеславовна имеет статус:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+и после реализации CR-016 не должна участвовать в структуре.
+
+---
+
+# 4. Основной принцип исправления
+
+Assistant остается:
+
+```text
+visual sidecar
+```
+
+и НЕ становится:
+
+```text
+organizational child
+organizational row
+department
+```
+
+Но его bounding box должен участвовать в расчете физического пространства layout.
+
+Необходимо различать:
+
+```text
+organizational bounds
+```
+
+и:
+
+```text
+visual bounds
+```
+
+---
+
+# 5. Organizational bounds
+
+Organizational bounds определяют hierarchy:
+
+```text
+manager
+↓
+departments
+↓
+subdepartments
+```
+
+Assistant в них не добавляет новый уровень.
+
+То есть наличие assistant не должно менять:
+
+```text
+effectiveLayoutLevel
+row
+parentId departments
+```
+
+---
+
+# 6. Visual bounds
+
+Visual bounds должны учитывать все реально нарисованные элементы:
+
+```text
+manager card
+assistant card
+employee column
+department cards
+```
+
+Для manager с assistant:
+
+```js
+visualLeft =
+  Math.min(
+    manager.x,
+    assistant.x
+  );
+
+visualRight =
+  Math.max(
+    manager.x + manager.width,
+    assistant.x + assistant.width
+  );
+
+visualTop =
+  Math.min(
+    manager.y,
+    assistant.y
+  );
+
+visualBottom =
+  Math.max(
+    manager.y + manager.height,
+    assistant.y + assistant.height
+  );
+```
+
+Эти bounds должны участвовать в collision / sibling spacing.
+
+---
+
+# 7. Assistant должен расширять horizontal footprint branch
+
+Это ключевое изменение.
+
+Если:
+
+```text
+Manager width = 300
+Assistant width = 220
+```
+
+и assistant расположен справа:
+
+```text
+Manager      Assistant
+```
+
+ветвь не может считаться имеющей ширину только:
+
+```text
+300px
+```
+
+Ее visual footprint должен включать assistant.
+
+Концептуально:
+
+```js
+branchVisualRight =
+  Math.max(
+    subtreeRight,
+    assistant.x + assistant.width
+  );
+```
+
+---
+
+# 8. Следующий sibling должен начинаться после visual footprint
+
+При горизонтальном размещении siblings использовать не только department subtree width.
+
+Минимальный X следующей ветви:
+
+```js
+nextSiblingX >=
+  currentVisualRight +
+  SIBLING_GAP;
+```
+
+где `currentVisualRight` уже включает assistant.
+
+Это гарантирует:
+
+```text
+Manager + Assistant     Next Department
+```
+
+а не:
+
+```text
+Manager     Next Department
+              Assistant под ним
+```
+
+---
+
+# 9. Не решать проблему через z-index
+
+Запрещено считать исправлением:
+
+```css
+assistant {
+  z-index: 100;
+}
+```
+
+или изменение SVG draw order так, чтобы assistant оказался поверх department card.
+
+Это приведет только к:
+
+```text
+assistant закрывает соседний department
+```
+
+Вместо:
+
+```text
+department закрывает assistant
+```
+
+Нужно устранить само геометрическое пересечение.
+
+---
+
+# 10. Collision invariant
+
+После layout для любой assistant card должно выполняться:
+
+```js
+rectsOverlap(
+  assistantRect,
+  anyOtherDepartmentRect
+) === false;
+```
+
+за исключением собственной manager card, если выбран дизайн с допустимым небольшим overlap — но предпочтительно overlap не использовать вообще.
+
+Также:
+
+```js
+rectsOverlap(
+  assistantRect,
+  siblingAssistantRect
+) === false;
+```
+
+---
+
+# 11. Минимальный gap
+
+Между assistant и любой соседней department card должен оставаться визуальный gap.
+
+Например:
+
+```js
+MIN_SIDE_GAP = 16..24px;
+```
+
+Конкретное значение использовать из существующей системы layout gaps, если возможно.
+
+Не hardcode отдельное значение, если уже существует:
+
+```text
+colGap
+siblingGap
+nodeGap
+```
+
+---
+
+# 12. Collapsed branch
+
+Особенно важно исправить свернутое состояние.
+
+Сейчас после collapse subtree branch становится значительно уже.
+
+При этом assistant остается sidecar, из-за чего соседний node может занять освобожденную область и перекрыть assistant.
+
+Правило:
+
+> Collapse скрывает organizational descendants, но не уменьшает visual footprint manager ниже размера manager + visible assistant.
+
+Например:
+
+```text
+Expanded:
+
+Manager + Assistant
+├── Dept A
+├── Dept B
+└── Dept C
+```
+
+После collapse:
+
+```text
+Manager + Assistant
+```
+
+Width collapsed branch должна быть минимум:
+
+```js
+Math.max(
+  managerRight,
+  assistantRight
+) - visualLeft
+```
+
+---
+
+# 13. Assistant всегда должен оставаться видимым
+
+Если manager видим, его active assistant также должен быть полностью видим.
+
+Недопустимы состояния:
+
+```text
+assistant hidden behind sibling
+assistant partially hidden
+assistant clipped by branch bounds
+assistant clipped after collapse
+```
+
+---
+
+# 14. Parent branch bounds
+
+После размещения assistant необходимо обновлять visual bounds parent branch до размещения соседних sibling branches.
+
+Не делать:
+
+```text
+1. разместили managers
+2. разместили siblings
+3. поверх добавили assistants
+```
+
+если sibling placement уже завершен.
+
+Правильный pipeline должен быть концептуально:
+
+```text
+1. calculate manager position
+2. calculate assistant position
+3. calculate visual footprint manager + assistant
+4. calculate branch/subtree footprint
+5. place sibling branches
+6. build connectors
+```
+
+---
+
+# 15. Assistant не должен добавлять organizational depth
+
+Несмотря на участие в visual footprint:
+
+```text
+Manager
+Assistant
+```
+
+по-прежнему должны иметь один organizational block.
+
+Наличие assistant не должно сдвигать children на дополнительный `layout_level`.
+
+---
+
+# 16. Несколько assistants
+
+Layout должен корректно поддерживать более одного visible assistant.
+
+Например:
+
+```text
+Manager      Assistant 1
+             Assistant 2
+```
+
+В этом случае visual footprint должен учитывать bounding box всей assistant-group:
+
+```js
+assistantGroupBounds
+```
+
+а не только первого assistant.
+
+---
+
+# 17. Vertical footprint
+
+Хотя текущая проблема в основном горизонтальная, visual bounds должны учитывать и Y.
+
+Assistant не должен пересекаться с:
+
+```text
+children junction
+department cards следующего row
+toggle controls
+```
+
+Если sidecar немного ниже manager:
+
+```js
+visualBottom =
+  Math.max(
+    managerBottom,
+    assistantBottom
+  );
+```
+
+Connector zone следующего level начинается ниже `visualBottom`.
+
+---
+
+# 18. Connector geometry
+
+После изменения footprint убедиться, что assistant connector остается коротким:
+
+```text
+Manager ─── Assistant
+```
+
+Основной organizational connector остается независимым:
+
+```text
+Manager
+   │
+   │
+children junction
+```
+
+Изменение horizontal footprint не должно растягивать assistant connector через всю ветвь.
+
+---
+
+# 19. Toggle geometry
+
+Toggle manager должен продолжать относиться к main organizational stem.
+
+Assistant footprint не должен смещать:
+
+```text
+toggle.x
+```
+
+вправо.
+
+То есть:
+
+```js
+toggle.x =
+  manager.x + manager.width / 2;
+```
+
+а не:
+
+```js
+visualBoundsCenterX;
+```
+
+---
+
+# 20. Root / executive / department
+
+Механизм должен быть универсальным.
+
+Он должен одинаково работать для:
+
+```text
+Holding CEO
+executive
+directorate
+department
+service
+group
+```
+
+если node имеет assistant sidecar.
+
+Не создавать специальный layout только для Невзоровой или Садковой.
+
+---
+
+# 21. Реальный regression case — Невзорова
+
+Fixture должен содержать:
+
+```text
+Дирекция по персоналу
+Невзорова Екатерина
++
+Щёкотова Екатерина
+Административный ассистент
+```
+
+Рядом находится другая directorate card.
+
+Проверить:
+
+```js
+rectsOverlap(
+  schekotovaRect,
+  siblingDepartmentRect
+) === false;
+```
+
+---
+
+# 22. Реальный regression case — Садкова
+
+После применения фильтра CR-016:
+
+```text
+Елизарова
+```
+
+не участвует в структуре.
+
+Visible assistant:
+
+```text
+Кудашева Виктория
+```
+
+Проверить:
+
+```text
+Дирекция по продажам + Кудашева
+```
+
+и соседний:
+
+```text
+LEGENDA Comfort
+```
+
+не пересекаются.
+
+---
+
+# 23. Regression — collapsed Садкова
+
+Особенно проверить:
+
+```text
+Дирекция по продажам [collapsed]
++ Кудашева
+```
+
+рядом с:
+
+```text
+LEGENDA Comfort [collapsed]
+```
+
+После collapse:
+
+```js
+rectsOverlap(
+  assistantRect,
+  legendaComfortRect
+) === false;
+```
+
+---
+
+# 24. Regression — collapsed Невзорова
+
+После collapse Дирекции по персоналу:
+
+- Щёкотова остается рядом с Невзоровой;
+- полностью видима;
+- sibling directorate не перемещается поверх нее;
+- connector assistant остается видимым.
+
+---
+
+# 25. Regression — no assistant
+
+Для department без assistant ширина branch не должна искусственно увеличиваться.
+
+То есть новая логика не должна создавать лишние пустые места в структуре.
+
+---
+
+# 26. Regression — wide assistant
+
+Создать fixture:
+
+```text
+Manager card width = 250
+Assistant card width = 350
+```
+
+Проверить, что sibling placement учитывает более широкий assistant.
+
+---
+
+# 27. Regression — multiple sibling assistants
+
+Fixture:
+
+```text
+Dept A + Assistant A
+Dept B + Assistant B
+Dept C
+```
+
+Проверить:
+
+```text
+Assistant A не пересекает Dept B
+Assistant A не пересекает Assistant B
+Assistant B не пересекает Dept C
+```
+
+---
+
+# 28. Regression — varying card widths
+
+Проверить при:
+
+```text
+230px
+350px
+380px
+```
+
+и других значениях slider ширины карточек.
+
+Assistant footprint должен пересчитываться при изменении ширины card.
+
+---
+
+# 29. Regression — collapse / expand
+
+Последовательность:
+
+```text
+expand
+collapse
+expand
+collapse
+```
+
+не должна постепенно смещать assistant или накапливать layout offset.
+
+Layout должен быть детерминированным.
+
+---
+
+# 30. Regression — viewport
+
+Сохранить существующее правило:
+
+```text
+collapse / expand
+→ zoom сохраняется
+→ pan сохраняется
+```
+
+Исправление footprint не должно вызывать автоматический `fit()`.
+
+---
+
+# 31. Не менять assistant ownership
+
+CR-017 не должен менять правила определения:
+
+```text
+Невзорова → Щёкотова
+Садкова → Кудашева
+```
+
+или других assistant relations.
+
+Это входные данные layout.
+
+---
+
+# 32. Не менять CR-016 filtering
+
+Сотрудники со статусом:
+
+```text
+Отпуск по уходу за ребенком
+```
+
+по-прежнему исключаются до layout.
+
+CR-017 должен работать уже с очищенной presentation model.
+
+---
+
+# 33. Не менять business hierarchy
+
+Не менять:
+
+```text
+parentId
+effectiveLayoutLevel
+sub_level
+Holding Leadership mapping
+directorate ownership
+```
+
+---
+
+# 34. Не использовать абсолютные позиции
+
+Запрещены fixes вида:
+
+```js
+if (manager === sadkova) assistant.x -= 200;
+```
+
+или:
+
+```js
+assistant.style.left = "1234px";
+```
+
+Использовать только geometry manager / assistant / branch.
+
+---
+
+# 35. Рекомендуемая модель layout
+
+Для каждого organizational node рассчитывать:
+
+```js
+{
+  nodeBounds,
+  assistantBounds,
+  ownVisualBounds,
+  subtreeBounds
+}
+```
+
+где:
+
+```text
+nodeBounds
+```
+
+— manager/department card;
+
+```text
+assistantBounds
+```
+
+— assistant или assistant group;
+
+```text
+ownVisualBounds
+```
+
+— union node + assistant;
+
+```text
+subtreeBounds
+```
+
+— union ownVisualBounds + descendants.
+
+Sibling placement работает по `subtreeBounds`.
+
+---
+
+# 36. Union bounds
+
+Рекомендуется использовать общий helper:
+
+```js
+function unionRects(...rects) {
+  const valid = rects.filter(Boolean);
+
+  return {
+    left: Math.min(...valid.map(r => r.left)),
+    top: Math.min(...valid.map(r => r.top)),
+    right: Math.max(...valid.map(r => r.right)),
+    bottom: Math.max(...valid.map(r => r.bottom)),
+  };
+}
+```
+
+Не обязательно использовать именно эту реализацию, но должна существовать единая логика объединения visual bounds.
+
+---
+
+# 37. Важно: placement order
+
+Если текущий algorithm сначала окончательно размещает siblings, а assistant добавляет позже, это и является вероятной причиной бага.
+
+Необходимо либо:
+
+### Вариант A — предпочтительный
+
+Включить assistant footprint непосредственно в основной layout pass.
+
+### Вариант B
+
+После добавления assistants выполнить controlled horizontal collision resolution и пересчитать affected branches.
+
+Предпочтителен Вариант A, потому что он детерминированнее и проще для тестирования.
+
+---
+
+# 38. `functionality`
+
+Обновить `functionality`.
+
+Добавить правило:
+
+> Assistant является visual sidecar своего manager и не является организационным уровнем, но его фактический bounding box является частью visual footprint manager branch.
+
+Добавить:
+
+> При размещении соседних организационных ветвей layout обязан учитывать manager card, assistant card/group и descendants. Ни одна sibling department card не может занимать область visible assistant.
+
+Добавить:
+
+> Это правило сохраняется как в expanded, так и в collapsed состоянии ветви.
+
+---
+
+# 39. Acceptance criteria
+
+CR считается выполненным, если:
+
+- [ ] Щёкотова полностью видна рядом с Дирекцией по персоналу.
+- [ ] Карточка соседней дирекции не перекрывает Щёкотову.
+- [ ] Кудашева полностью видна рядом с Дирекцией по продажам.
+- [ ] `LEGENDA Comfort` не перекрывает Кудашеву.
+- [ ] То же сохраняется в collapsed состоянии.
+- [ ] Assistant остается sidecar, а не organizational child.
+- [ ] `effectiveLayoutLevel` не меняется.
+- [ ] `row` departments не меняется.
+- [ ] Assistant учитывается в horizontal visual footprint.
+- [ ] Assistant учитывается в vertical visual footprint.
+- [ ] Sibling placement использует visual/subtree bounds.
+- [ ] Assistant не перекрывает соседние department cards.
+- [ ] Assistant не перекрывает sibling assistants.
+- [ ] Assistant не пересекает children junction.
+- [ ] Toggle manager не смещается из-за assistant.
+- [ ] Connector manager → assistant остается коротким.
+- [ ] Main organizational connector не меняется.
+- [ ] Manager без assistant не получает лишнее пространство.
+- [ ] Изменение ширины карточек корректно пересчитывает footprint.
+- [ ] Collapse / expand работает.
+- [ ] Viewport persistence не сломан.
+- [ ] AS IS работает.
+- [ ] TO BE работает.
+- [ ] Changes работает.
+- [ ] `functionality` обновлен.
+- [ ] Regression tests добавлены.
+- [ ] Все существующие tests проходят.
+- [ ] `npm test` проходит.
+- [ ] `npm run build` проходит.
+
+---
+
+# 40. Порядок реализации для Cline
+
+Перед изменением кода:
+
+1. Изучить текущий `unified-layout`.
+2. Найти этап расчета subtree width.
+3. Найти этап horizontal sibling placement.
+4. Найти этап positioning assistant.
+5. Определить, позиционируется ли assistant до или после sibling placement.
+6. Проверить, входит ли assistant width в subtree bounds.
+7. Проверить collapsed branch width.
+8. Воспроизвести пересечение на Невзоровой.
+9. Воспроизвести пересечение на Садковой / Кудашевой.
+10. Зафиксировать конкретную причину дефекта.
+11. После этого изменить visual footprint calculation.
+
+После реализации:
+
+1. проверить Невзорову expanded;
+2. проверить Невзорову collapsed;
+3. проверить Садкову expanded;
+4. проверить Садкову collapsed;
+5. проверить соседний `LEGENDA Comfort`;
+6. проверить manager без assistant;
+7. проверить несколько sibling managers с assistants;
+8. проверить разные card widths;
+9. проверить collapse / expand несколько раз;
+10. проверить viewport persistence;
+11. обновить `functionality`;
+12. запустить `npm test`;
+13. запустить `npm run build`;
+14. показать измененные файлы.
+
+---
+
+# 41. Главный принцип
+
+Assistant не должен участвовать в организационной глубине дерева, но обязан участвовать в физической геометрии диаграммы.
+
+То есть:
+
+```text
+Hierarchy:
+Manager
+├── Department A
+└── Department B
+
+Visual:
+Manager + Assistant
+        ↓
+Departments
+```
+
+Для sibling placement используется весь:
+
+```text
+Manager + Assistant + subtree
+```
+
+visual footprint.
+
+Ни одна другая карточка не должна иметь возможность занять этот прямоугольник.
