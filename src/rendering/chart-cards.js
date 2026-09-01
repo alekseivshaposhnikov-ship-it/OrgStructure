@@ -96,7 +96,7 @@ function renderDepartmentPdf(nd, showVacancies, hideNames) {
 
       ${
         !hideNames && nd.headName
-          ? `<div class="chart-card-pdf__person">${escapeHtml(nd.headName)}</div>`
+          ? `<div class="chart-card-pdf__person">${escapeHtml(nd.headDisplayName || nd.headName)}</div>`
           : ""
       }
 
@@ -123,7 +123,7 @@ function renderEmployeePdf(nd, hideNames) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="employee">
       <div class="chart-card-pdf__eyebrow">Сотрудник</div>
-      ${!hideNames ? `<div class="chart-card-pdf__person">${escapeHtml(nd.name)}</div>` : ""}
+      ${!hideNames ? `<div class="chart-card-pdf__person">${escapeHtml(nd.displayName || nd.name)}</div>` : ""}
       ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
       ${renderProjectPdf(nd)}
     </div>
@@ -137,7 +137,7 @@ function renderAssistantCardPdf(nd, hideNames) {
          data-node-id="${escapeHtml(nd.id)}"
          data-node-type="employee">
       <div class="chart-card-pdf__eyebrow">Административный ассистент</div>
-      ${!hideNames ? `<div class="chart-card-pdf__person">${escapeHtml(nd.name)}</div>` : ""}
+      ${!hideNames ? `<div class="chart-card-pdf__person">${escapeHtml(nd.displayName || nd.name)}</div>` : ""}
       ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
       ${renderProjectPdf(nd)}
     </div>
@@ -164,7 +164,7 @@ function renderAssistantPdf(assistant, hideNames) {
       <div class="chart-card-pdf__eyebrow">Административный ассистент</div>
       ${
         !hideNames
-          ? `<div class="chart-card-pdf__assistant-name">${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}</div>`
+          ? `<div class="chart-card-pdf__assistant-name">${escapeHtml(assistant.displayName || assistant.full_name || assistant.name || "Сотрудник")}</div>`
           : ""
       }
       ${
@@ -198,7 +198,7 @@ function renderAssistantCard(nd, _viewMode) {
          data-node-type="assistant">
       ${renderScenarioBadge(nd)}
       <div class="chart-card__assistant-label">${escapeHtml(label)}</div>
-      <div class="chart-card__assistant-name">${escapeHtml(nd.name)}</div>
+      <div class="chart-card__assistant-name">${escapeHtml(nd.displayName || nd.name)}</div>
     </div>
   `;
 }
@@ -211,7 +211,7 @@ function renderDepartmentClassic(nd, showVacancies, viewMode) {
       ${renderScenarioBadge(nd)}
       ${renderMenuButton(viewMode)}
       <div class="chart-card__title">${escapeHtml(nd.name)}</div>
-      <div class="chart-card__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+      <div class="chart-card__manager">${escapeHtml(nd.headDisplayName || nd.headName || "Нет руководителя")}</div>
       ${nd.headPosition ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>` : ""}
       ${renderLayoutDebug(nd)}
       ${renderAssistant(nd.assistant)}
@@ -231,7 +231,7 @@ function renderDepartmentVariant2(nd, showVacancies, viewMode) {
       ${renderMenuButton(viewMode)}
       <div class="chart-card-v2__header"><div class="chart-card-v2__title">${escapeHtml(nd.name)}</div></div>
       <div class="chart-card-v2__body">
-        <div class="chart-card-v2__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+        <div class="chart-card-v2__manager">${escapeHtml(nd.headDisplayName || nd.headName || "Нет руководителя")}</div>
         ${nd.headPosition ? `<div class="chart-card-v2__position">${escapeHtml(nd.headPosition)}</div>` : ""}
         ${renderLayoutDebug(nd)}
         ${renderAssistant(nd.assistant)}
@@ -248,10 +248,10 @@ function renderDepartmentVariant3(nd, showVacancies, viewMode) {
          data-node-type="department">
       ${renderScenarioBadge(nd)}
       ${renderMenuButton(viewMode)}
-      <div class="chart-card-v3__avatar">${escapeHtml(getInitials(nd.headName))}</div>
+      <div class="chart-card-v3__avatar">${escapeHtml(getInitials(nd.headDisplayName || nd.headName))}</div>
       <div class="chart-card-v3__content">
         <div class="chart-card-v3__title">${escapeHtml(nd.name)}</div>
-        <div class="chart-card-v3__manager">${escapeHtml(nd.headName || "Нет руководителя")}</div>
+        <div class="chart-card-v3__manager">${escapeHtml(nd.headDisplayName || nd.headName || "Нет руководителя")}</div>
         ${nd.headPosition ? `<div class="chart-card-v3__position">${escapeHtml(nd.headPosition)}</div>` : ""}
         ${renderLayoutDebug(nd)}
         ${renderAssistant(nd.assistant)}
@@ -269,7 +269,7 @@ function renderEmployee(nd, viewMode) {
          data-node-type="employee">
       ${renderScenarioBadge(nd)}
       ${renderMenuButton(viewMode)}
-      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      <div class="chart-card__title">${escapeHtml(nd.displayName || nd.name)}</div>
       ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
       ${renderLayoutDebug(nd)}
       ${renderProject(nd)}
@@ -291,7 +291,7 @@ function renderHoldingExecutive(nd, viewMode) {
          data-node-type="executive">
       ${renderScenarioBadge(nd)}
       ${renderMenuButton(viewMode)}
-      <div class="chart-card__title">${escapeHtml(nd.name)}</div>
+      <div class="chart-card__title">${escapeHtml(nd.displayName || nd.name)}</div>
       ${nd.headPosition ? `<div class="chart-card__position">${escapeHtml(nd.headPosition)}</div>` : ""}
       ${renderLayoutDebug(nd)}
       ${renderProject(nd)}
@@ -319,7 +319,7 @@ function renderAssistant(assistant) {
   return `
     <div class="chart-card__assistant" data-assistant-id="${escapeHtml(assistant.id || "")}">
       <div class="chart-card__assistant-label">Административный ассистент</div>
-      <div class="chart-card__assistant-name">${escapeHtml(assistant.full_name || assistant.name || "Сотрудник")}</div>
+      <div class="chart-card__assistant-name">${escapeHtml(assistant.displayName || assistant.full_name || assistant.name || "Сотрудник")}</div>
       ${assistant.position ? `<div class="chart-card__assistant-position">${escapeHtml(assistant.position)}</div>` : ""}
       ${renderProject(assistant)}
     </div>

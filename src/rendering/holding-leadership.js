@@ -19,6 +19,8 @@
  * находятся в «Администрации» и копируются в presentation-узлы.
  */
 
+import { isEmployeeExcludedByState } from "../core/utils/employee.js";
+
 // Debug-лог итогового upper-level mapping (CR-013 §36).
 const PROJECTION_DEBUG = false;
 
@@ -38,12 +40,15 @@ export const HOLDING_LEADERSHIP_CONFIG = {
     title: "Генеральный директор",
     // CR-013_assistant §13: ассистент Селиванова — Давыдова Наталья Владимировна.
     assistantEmail: "n.davidova@legenda-dom.ru",
+    // CR-016 §20, §24-25: top-3 (Селиванов/Лукьянов/Клюев) сохраняют полное ФИО.
+    keepFullName: true,
   },
   executives: {
     lukyanov: {
       key: "lukyanov",
       email: "laa@legenda-dom.ru",
       title: "Операционный директор Холдинга",
+      keepFullName: true,
       // CR-013_assistant §13: ассистент Лукьянова — Волкова Алина Викторовна.
       assistantEmail: "a.volkova@legenda-dom.ru",
       // Дирекции идентифицируются по стабильному department_guid (CR-013_fix §12);
@@ -71,6 +76,8 @@ export const HOLDING_LEADERSHIP_CONFIG = {
       key: "klyuev",
       email: "avk@legenda-dom.ru",
       title: "Исполнительный директор Холдинга LEGENDA",
+      // CR-016 §20, §24-25: top-3 — полное ФИО на диаграмме.
+      keepFullName: true,
       // CR-013_assistant §13: ассистент Клюева — Лихачева Екатерина Олеговна.
       assistantEmail: "e.lihacheva@legenda-dom.ru",
       directorates: [
@@ -260,6 +267,9 @@ function buildExecutiveNode({ execCfg, person, directorates, directReports, find
     children: directorates,
     isHoldingExecutive: true,
     executiveKey: execCfg.key,
+    // CR-016 §20, §24-25: семантический presentation-флаг top-3 (полное ФИО).
+    // Renderer работает только по этому флагу, а не по текстовому ФИО.
+    keepFullName: Boolean(execCfg.keepFullName),
     scenarioState: person.scenarioState || "",
     // CR-013_assistant §13: presentation-ассистент руководителя (sidecar).
     ...(assistantPerson ? { __assistant: normalizeAssistantPerson(assistantPerson) } : {}),
@@ -312,6 +322,7 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
       __holdingPresentation: true,
       __assistant: null,
       __initialCollapsedIds: [],
+      keepFullName: Boolean(HOLDING_LEADERSHIP_CONFIG.ceo.keepFullName),
     };
   }
 
@@ -339,7 +350,21 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
 
   const findPerson = (email) => {
     const records = byEmail.get(normalizeEmail(email));
-    return records && records.length ? selectPrimaryRecord(records) : null;
+    if (!records || records.length === 0) return null;
+
+    const selected = selectPrimaryRecord(records);
+    // CR-016 §13-15: status filtering имеет приоритет над leadership config.
+    // Excluded сотрудник (например «Отпуск по уходу за ребенком») не может
+    // быть возвращён в оргструктуру через конфиг — executive / direct report /
+    // assistant node не создаётся, выводится диагностический warning.
+    if (isEmployeeExcludedByState(selected)) {
+      console.warn(
+        `Holding projection: Configured leadership employee excluded by employee state — "${selected.full_name}" (${email}) узел пропущен.`,
+      );
+      return null;
+    }
+
+    return selected;
   };
 
   const assistant = findPerson(HOLDING_LEADERSHIP_CONFIG.ceo.assistantEmail);
@@ -347,8 +372,9 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
   const mapping = [];
 
   Object.values(HOLDING_LEADERSHIP_CONFIG.executives).forEach((execCfg) => {
-    const records = byEmail.get(normalizeEmail(execCfg.email));
-    const person = records && records.length ? selectPrimaryRecord(records) : null;
+    // CR-016 §13: единый lookup с status filtering (findPerson отбрасывает
+    // excluded сотрудников и выводит диагностический warning).
+    const person = findPerson(execCfg.email);
     if (!person) {
       console.warn(
         `Holding projection: руководитель "${execCfg.title}" (${execCfg.email}) не найден в источнике данных — узел пропущен.`,
@@ -390,7 +416,7 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
         {
           executive: execCfg.key,
           email: execCfg.email,
-          sourceRecords: records?.length || 0,
+          sourceRecords: (byEmail.get(normalizeEmail(execCfg.email)) || []).length,
           selectedName: person.full_name,
           selectedPosition: person.rawPosition,
           selectedEmployment: person.typeEmployment,
@@ -474,6 +500,8 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
     __holdingPresentation: true,
     __assistant: assistant ? { ...assistant, position: ASSISTANT_POSITION } : null,
     __initialCollapsedIds: initialCollapsedIds,
+    // CR-016 §20, §25: Селиванов — top-3, полное ФИО на карточке root.
+    keepFullName: Boolean(HOLDING_LEADERSHIP_CONFIG.ceo.keepFullName),
   };
 
   if (PROJECTION_DEBUG) {

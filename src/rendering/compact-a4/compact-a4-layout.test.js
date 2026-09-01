@@ -111,6 +111,31 @@ describe('compact-a4-layout (единый layout)', () => {
       expect(root.manager).toBe('');
     });
 
+    it('должен сокращать ФИО руководителя до «Фамилия Имя» (CR-016 §30)', () => {
+      const flat = buildFlat({ manager: 'Глазунов Всеволод Игоревич' });
+
+      const root = flat.find((n) => n.id === 'root');
+      expect(root.manager).toBe('Глазунов Всеволод');
+    });
+
+    it('должен сокращать ФИО сотрудника в колонке employees (CR-016 §34)', () => {
+      const flat = buildFlat({
+        users: [
+          {
+            id: 'u1',
+            name: 'Елизарова Лаура Вячеславовна',
+            full_name: 'Елизарова Лаура Вячеславовна',
+            position: 'Специалист',
+            isVacancy: false,
+            project: '',
+          },
+        ],
+      });
+
+      const employees = flat.find((n) => n.type === 'employees');
+      expect(employees.persons[0].name).toBe('Елизарова Лаура');
+    });
+
     it('должен маппить вакансию как type=vacancy', () => {
       const flat = buildFlat({
         users: [

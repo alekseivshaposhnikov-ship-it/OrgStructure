@@ -667,7 +667,7 @@ function drawPdfDepartmentCard(group, node, opts) {
   });
 
   if (!opts.hideNames && data.headName) {
-    appendWrappedText(group, data.headName, {
+    appendWrappedText(group, data.headDisplayName || data.headName, {
       x: 18,
       y: 76,
       maxWidth: node.width - 80,
@@ -884,7 +884,7 @@ function drawPdfAssistantCard(group, node, opts) {
     }),
   );
 
-  const name = opts.hideNames ? "" : data.name || data.full_name || "Сотрудник";
+  const name = opts.hideNames ? "" : data.displayName || data.name || data.full_name || "Сотрудник";
   appendWrappedText(group, `Административный ассистент — ${name}`, {
     x: 18,
     y: 30,
@@ -989,7 +989,7 @@ function drawPdfPersonCard(group, person, hideNames) {
     }),
   );
 
-  const title = isVacancy ? "Вакансия" : hideNames ? "" : data.name || "Сотрудник";
+  const title = isVacancy ? "Вакансия" : hideNames ? "" : data.displayName || data.name || "Сотрудник";
 
   appendWrappedText(group, title, {
     x: 10,

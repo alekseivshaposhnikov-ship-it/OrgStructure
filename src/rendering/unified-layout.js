@@ -14,6 +14,8 @@
  * Модуль не зависит от DOM и легко тестируется.
  */
 
+import { formatEmployeeDisplayName } from "../core/utils/employee.js";
+
 const MAX_SUBLEVEL = Number.MAX_SAFE_INTEGER;
 
 /**
@@ -160,6 +162,8 @@ export function buildLayoutTree(
         isDepartment: false,
         isVacancy: false,
         isAssistant: true,
+        // CR-016 §32: presentation ФИО (Фамилия Имя), полное имя не трогаем.
+        displayName: formatEmployeeDisplayName(assistant.full_name || assistant.name || ""),
       },
     };
   }
@@ -171,6 +175,15 @@ export function buildLayoutTree(
       name: node.department_name || node.name || "Без названия",
       headName: node.department_manager || "",
       headPosition: node.department_manager_position || "",
+      // CR-016 §30: presentation ФИО руководителя (Фамилия Имя) для карточек.
+      // Полный headName сохраняется для detail modal / поиска / идентификации.
+      headDisplayName: node.department_manager
+        ? formatEmployeeDisplayName(node.department_manager, {
+            keepFullName: Boolean(node.keepFullName),
+          })
+        : "",
+      // CR-016 §20, §24: семантический presentation-флаг топ-3 (полное ФИО).
+      keepFullName: Boolean(node.keepFullName),
       staffCount: node.staffCount || 0,
       vacancyCount: node.vacancyCount || 0,
       totalWithVacancies: node.totalWithVacancies ?? node.staffCount ?? 0,
@@ -195,6 +208,12 @@ export function buildLayoutTree(
         name: node.department_name || node.__person.full_name || data.name,
         position: data.headPosition || node.__person.position || "",
         isDepartment: true,
+        // CR-016 §20, §22, §49: presentation ФИО карточки — топ-3 (keepFullName)
+        // сохраняют полное ФИО, остальные (например Винник) — «Фамилия Имя».
+        displayName: formatEmployeeDisplayName(
+          node.department_name || node.__person.full_name || data.name,
+          { keepFullName: data.keepFullName },
+        ),
       });
     }
 
@@ -231,6 +250,10 @@ export function buildLayoutTree(
             ...user,
             id: user.id || `user_${Math.random().toString(16).slice(2)}`,
             name: user.full_name || user.name || "Сотрудник",
+            // CR-016 §34: presentation ФИО (Фамилия Имя), топ-3 — полное.
+            displayName: formatEmployeeDisplayName(user.full_name || user.name || "", {
+              keepFullName: Boolean(user.keepFullName),
+            }),
             position: user.position || "",
             isDepartment: false,
             isVacancy: !!user.isVacancy,

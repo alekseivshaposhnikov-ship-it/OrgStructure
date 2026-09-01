@@ -21,6 +21,8 @@ function dept(id, name, overrides = {}) {
     children: overrides.children || [],
     scenarioState: overrides.scenarioState || "",
     ...(overrides.pdfRoles ? { pdfRoles: overrides.pdfRoles } : {}),
+    // Остальные presentation-поля (keepFullName, __person, __assistant и т.п.).
+    ...overrides,
   };
 }
 
@@ -584,6 +586,72 @@ describe("unified-layout · assistant sidecar (CR-013_assistant)", () => {
     expect(astA.x).toBeCloseTo(mgrA.x + mgrA.width + 16, 5);
     // Assistant B рядом с Manager B
     expect(astB.x).toBeCloseTo(mgrB.x + mgrB.width + 16, 5);
+  });
+
+  it("проставляет headDisplayName в data department — «Фамилия Имя» (CR-016 §30)", () => {
+    const root = dept("root", "ROOT", {
+      manager: "Глазунов Всеволод Игоревич",
+      children: [],
+    });
+    const { tree } = computeUnifiedLayout(root);
+
+    expect(tree.data.headName).toBe("Глазунов Всеволод Игоревич");
+    expect(tree.data.headDisplayName).toBe("Глазунов Всеволод");
+  });
+
+  it("проставляет headDisplayName с полным ФИО для top-3 manager (CR-016 §20)", () => {
+    const root = dept("root", "ROOT", {
+      manager: "Лукьянов Алексей Александрович",
+      keepFullName: true,
+      children: [],
+    });
+    const { tree } = computeUnifiedLayout(root);
+
+    expect(tree.data.headName).toBe("Лукьянов Алексей Александрович");
+    expect(tree.data.headDisplayName).toBe("Лукьянов Алексей Александрович");
+    expect(tree.data.keepFullName).toBe(true);
+  });
+
+  it("проставляет displayName для employee-колонки (CR-016 §34)", () => {
+    const root = dept("root", "ROOT", {
+      users: [user("u1", "Елизарова Лаура Вячеславовна")],
+      children: [],
+    });
+    const { tree } = computeUnifiedLayout(root);
+
+    const employeesNode = tree.children.find((c) => c.type === NODE_EMPLOYEES);
+    const person = employeesNode.persons[0];
+    expect(person.data.name).toBe("Елизарова Лаура Вячеславовна");
+    expect(person.data.displayName).toBe("Елизарова Лаура");
+  });
+
+  it("проставляет displayName для assistant sidecar (CR-016 §32)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      users: [user("ast-1", "Лихачева Екатерина Олеговна", { position: "Административный ассистент" })],
+      children: [],
+    });
+    const { tree } = computeUnifiedLayout(root);
+
+    const ast = tree.children.find((c) => c.type === NODE_ASSISTANT);
+    expect(ast).toBeTruthy();
+    expect(ast.data.displayName).toBe("Лихачева Екатерина");
+  });
+
+  it("executive (__person) получает displayName: top-3 полное, остальные сокращённые (CR-016 §20, §23)", () => {
+    const root = dept("root", "Винник Лев Арнольдович", {
+      __person: {
+        id: "exec-1",
+        full_name: "Винник Лев Арнольдович",
+        position: "Директор",
+      },
+      keepFullName: false,
+      children: [],
+    });
+    const { tree } = computeUnifiedLayout(root);
+
+    expect(tree.data.name).toBe("Винник Лев Арнольдович");
+    expect(tree.data.displayName).toBe("Винник Лев");
   });
 });
 

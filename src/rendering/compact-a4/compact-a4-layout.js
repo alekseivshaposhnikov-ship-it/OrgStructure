@@ -104,7 +104,7 @@ export function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies })
         id: d.id,
         type: "department",
         name: d.name,
-        manager: hideNames ? "" : d.headName,
+        manager: hideNames ? "" : d.headDisplayName || d.headName,
         position: d.headPosition,
         // Executive (CR-013 §27): искусственная численность не отображается.
         count: isHoldingExecutive
@@ -130,7 +130,7 @@ export function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies })
       flat.push({
         id: d.id,
         type: "assistant",
-        name: hideNames ? "" : d.full_name || d.name || "Сотрудник",
+        name: hideNames ? "" : d.displayName || d.full_name || d.name || "Сотрудник",
         position: d.position || "",
         project: normalizeProjects(d.project),
         scenarioState: d.scenarioState || "",
@@ -157,7 +157,7 @@ export function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies })
             ? "Вакансия"
             : hideNames
               ? ""
-              : person.data.name,
+              : person.data.displayName || person.data.name,
           position: String(person.data.position || ""),
           project: normalizeProjects(person.data.project),
           scenarioState: person.data.scenarioState || "",

@@ -317,6 +317,64 @@ describe("holding-leadership (CR-013)", () => {
     );
     expect(root.__initialCollapsedIds).toContain(itDirectorate.department_guid);
   });
+
+  it("top-3 получают keepFullName, Винник — нет (CR-016 §20, §23, §25)", () => {
+    const root = buildHoldingLeadershipTree(makeHoldingRoot());
+
+    // Селиванов (root) — top-3, полное ФИО.
+    expect(root.keepFullName).toBe(true);
+    expect(root.department_manager).toBe("Селиванов Василий Геннадиевич");
+
+    // Лукьянов и Клюев — top-3, полное ФИО.
+    const lukyanov = root.children.find((e) => e.executiveKey === "lukyanov");
+    const klyuev = root.children.find((e) => e.executiveKey === "klyuev");
+    const vinnik = root.children.find((e) => e.executiveKey === "vinnik");
+
+    expect(lukyanov.keepFullName).toBe(true);
+    expect(klyuev.keepFullName).toBe(true);
+
+    // Винник — executive верхнего уровня, но НЕ top-3 (CR-016 §23).
+    expect(vinnik.keepFullName).toBe(false);
+  });
+
+  it("excluded leadership employee не создаёт executive node и не ломает приложение (CR-016 §13, Test 45)", () => {
+    const input = makeHoldingRoot();
+    const admin = input.children.find((child) => child.department_name === "Администрация");
+
+    // Приоритетная запись Лукьянова получает исключающий статус.
+    admin.users.forEach((user) => {
+      if (user.email === "laa@legenda-dom.ru" && user.typeEmployment === "Основное место работы") {
+        user.state = "Отпуск по уходу за ребенком";
+      }
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const root = buildHoldingLeadershipTree(input);
+
+    const executives = root.children.filter((c) => c.isHoldingExecutive);
+    expect(executives.map((e) => e.executiveKey)).not.toContain("lukyanov");
+    expect(executives).toHaveLength(2);
+    expect(warnSpy).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it("excluded assistant не получает presentation-привязку (CR-016 §15, Test 43)", () => {
+    const input = makeHoldingRoot();
+    const admin = input.children.find((child) => child.department_name === "Администрация");
+
+    admin.users.forEach((user) => {
+      if (user.email === "n.davidova@legenda-dom.ru") {
+        user.state = "Отпуск по уходу за ребенком";
+      }
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const root = buildHoldingLeadershipTree(input);
+
+    expect(root.__assistant).toBeFalsy();
+    warnSpy.mockRestore();
+  });
 });
 
 

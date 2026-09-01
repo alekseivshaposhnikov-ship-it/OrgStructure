@@ -28,6 +28,8 @@ function dept(id, name, overrides = {}) {
     users: overrides.users || [],
     children: overrides.children || [],
     scenarioState: overrides.scenarioState || "",
+    // Остальные presentation-поля (keepFullName, __person и т.п.).
+    ...overrides,
   };
 }
 
@@ -311,6 +313,32 @@ describe("pdf-d3-export.js", () => {
 
       const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
       expect(texts.some((t) => /Иван|Пётр|Мария|Анна|Ольга/.test(t))).toBe(false);
+    });
+
+    it("PDF использует сокращённое ФИО руководителя «Фамилия Имя» (CR-016 §37, Test 56)", () => {
+      const root = dept("root", "Root", {
+        manager: "Глазунов Всеволод Игоревич",
+        managerPosition: "Руководитель",
+      });
+      const layout = buildLayout(root);
+      const svg = renderUnifiedLayoutToPdf(layout, {});
+
+      const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
+      expect(texts.some((t) => t.includes("Глазунов Всеволод"))).toBe(true);
+      expect(texts.some((t) => t.includes("Глазунов Всеволод Игоревич"))).toBe(false);
+    });
+
+    it("PDF: top-3 (keepFullName) сохраняют полное ФИО (CR-016 §37, Test 56)", () => {
+      const root = dept("root", "Root", {
+        manager: "Селиванов Василий Геннадиевич",
+        managerPosition: "Генеральный директор",
+        keepFullName: true,
+      });
+      const layout = buildLayout(root);
+      const svg = renderUnifiedLayoutToPdf(layout, {});
+
+      const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
+      expect(texts.some((t) => t.includes("Селиванов Василий Геннадиевич"))).toBe(true);
     });
 
     it("showVacancies=false скрывает вакансии из employee columns", () => {

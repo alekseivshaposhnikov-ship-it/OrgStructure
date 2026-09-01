@@ -182,5 +182,63 @@ describe('chart-cards.js', () => {
       expect(html).toContain('layout: 4');
       expect(html).toContain('row: 1');
     });
+
+    it('employee card использует displayName, а не полное ФИО (CR-016 §34)', () => {
+      const html = renderNodeContent(
+        makeEmployeeNode({
+          name: 'Елизарова Лаура Вячеславовна',
+          full_name: 'Елизарова Лаура Вячеславовна',
+          displayName: 'Елизарова Лаура',
+        }),
+      );
+      expect(html).toContain('Елизарова Лаура');
+      expect(html).not.toContain('Елизарова Лаура Вячеславовна');
+    });
+
+    it('department card использует headDisplayName (CR-016 §30)', () => {
+      const html = renderNodeContent(
+        makeDepartmentNode({
+          headName: 'Глазунов Всеволод Игоревич',
+          headDisplayName: 'Глазунов Всеволод',
+        }),
+        { cardDesign: 'classic' },
+      );
+      expect(html).toContain('Глазунов Всеволод');
+      expect(html).not.toContain('Глазунов Всеволод Игоревич');
+    });
+
+    it('executive card: топ-3 полное ФИО, остальные сокращённые (CR-016 §20, §23, §48-49)', () => {
+      const selivanov = renderNodeContent(
+        makeEmployeeNode({
+          isHoldingExecutive: true,
+          name: 'Селиванов Василий Геннадиевич',
+          displayName: 'Селиванов Василий Геннадиевич',
+          headPosition: 'Генеральный директор',
+        }),
+      );
+      expect(selivanov).toContain('Селиванов Василий Геннадиевич');
+
+      const vinnik = renderNodeContent(
+        makeEmployeeNode({
+          isHoldingExecutive: true,
+          name: 'Винник Лев Арнольдович',
+          displayName: 'Винник Лев',
+          headPosition: 'Директор по развитию',
+        }),
+      );
+      expect(vinnik).toContain('Винник Лев');
+      expect(vinnik).not.toContain('Винник Лев Арнольдович');
+    });
+
+    it('assistant card использует displayName (CR-016 §32)', () => {
+      const html = renderNodeContent(
+        makeAssistantNode({
+          name: 'Лихачева Екатерина Олеговна',
+          displayName: 'Лихачева Екатерина',
+        }),
+      );
+      expect(html).toContain('Лихачева Екатерина');
+      expect(html).not.toContain('Лихачева Екатерина Олеговна');
+    });
   });
 });
