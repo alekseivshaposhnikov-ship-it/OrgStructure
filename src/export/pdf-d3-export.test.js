@@ -825,6 +825,36 @@ describe("pdf-d3-export.js", () => {
       expect(deptNode.data.pdfCardLayout.availableTitleWidth).toBeLessThan(deptNode.width - 60);
     });
 
+    it("Test 4a: перенос длинной должности увеличивает высоту строки роли (CR-020 §3)", () => {
+      const short = computeRoleCardLayout(
+        {
+          name: "Root",
+          headPosition: "",
+          roles: [{ position: "Специалист", count: 1, vacancies: 0 }],
+        },
+        350,
+      );
+      const long = computeRoleCardLayout(
+        {
+          name: "Root",
+          headPosition: "",
+          roles: [
+            {
+              position: "Специалист по информационной безопасности и защите персональных данных",
+              count: 1,
+              vacancies: 0,
+            },
+          ],
+        },
+        350,
+      );
+
+      expect(short.roleRows[0].height).toBe(16);
+      expect(long.roleRows[0].lines.length).toBeGreaterThan(1);
+      expect(long.roleRows[0].height).toBeGreaterThan(short.roleRows[0].height);
+      expect(long.cardHeight).toBeGreaterThan(short.cardHeight);
+    });
+
     it("Test 5: смена числа roles изменяет высоту карточки", () => {
       const root1 = dept("root", "Root", { users: makeUsers(["Специалист"]) });
       const root3 = dept("root", "Root", {

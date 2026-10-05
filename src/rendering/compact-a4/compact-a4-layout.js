@@ -129,6 +129,18 @@ export function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies })
       });
     } else if (node.type === NODE_ASSISTANT) {
       const d = node.data;
+      const members = Array.isArray(d.members)
+        ? d.members.map((member) => ({
+            id: member.id,
+            name: hideNames
+              ? ""
+              : member.displayName || member.full_name || member.name || "Сотрудник",
+            position: member.position || "",
+            project: normalizeProjects(member.project),
+            scenarioState: member.scenarioState || "",
+          }))
+        : null;
+
       flat.push({
         id: d.id,
         type: "assistant",
@@ -136,6 +148,7 @@ export function unifiedLayoutToCompactFlat(layout, { hideNames, showVacancies })
         position: d.position || "",
         project: normalizeProjects(d.project),
         scenarioState: d.scenarioState || "",
+        members,
         parentId,
         x: node.x,
         y: node.y,

@@ -20,6 +20,7 @@
  */
 
 import { isEmployeeExcludedByState } from "../core/utils/employee.js";
+import { isAssistantUser } from "./unified-layout.js";
 
 // Debug-лог итогового upper-level mapping (CR-013 §36).
 const PROJECTION_DEBUG = false;
@@ -65,6 +66,10 @@ export const HOLDING_LEADERSHIP_CONFIG = {
       key: "vinnik",
       email: "l.vinnik@legenda-dom.ru",
       title: "Директор по развитию градостроительной подготовки проектов",
+      // CR-020 §4: Винник не создаёт отдельный промежуточный уровень — его
+      // дирекция находится непосредственно под Селивановым, а сам Винник
+      // отображается руководителем этой дирекции (department_manager из API).
+      inline: true,
       directorates: [
         {
           id: "b805ce29-bfa4-11ec-b6d7-4c5262500118",
@@ -376,16 +381,6 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
   const mapping = [];
 
   Object.values(HOLDING_LEADERSHIP_CONFIG.executives).forEach((execCfg) => {
-    // CR-016 §13: единый lookup с status filtering (findPerson отбрасывает
-    // excluded сотрудников и выводит диагностический warning).
-    const person = findPerson(execCfg.email);
-    if (!person) {
-      console.warn(
-        `Holding projection: руководитель "${execCfg.title}" (${execCfg.email}) не найден в источнике данных — узел пропущен.`,
-      );
-      return;
-    }
-
     // Mapping по стабильному department_guid с name fallback (CR-013_fix §13).
     // Presentation overrides (CR-013_assistant §4) применяются к отдельным
     // дирекциям (LEGENDA Comfort) и не мутируют исходное дерево.
@@ -404,6 +399,32 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
       console.warn(
         `Holding projection: дирекции "${execCfg.title}" не найдены в дереве режима: ${missingDirectorates.join(", ")}.`,
       );
+    }
+
+    // CR-020 §4: inline-руководитель (Винник) не создаёт отдельный
+    // управленческий узел — его дирекции поднимаются непосредственно под
+    // Селиванова, а сам руководитель отображается в карточке дирекции.
+    if (execCfg.inline) {
+      directorates.forEach((directorate) => {
+        presentationChildren.push(directorate);
+        mapping.push({
+          entity: directorate.department_name,
+          type: "department",
+          source: "API tree",
+          presentationParent: HOLDING_LEADERSHIP_CONFIG.ceo.name,
+        });
+      });
+      return;
+    }
+
+    // CR-016 §13: единый lookup с status filtering (findPerson отбрасывает
+    // excluded сотрудников и выводит диагностический warning).
+    const person = findPerson(execCfg.email);
+    if (!person) {
+      console.warn(
+        `Holding projection: руководитель "${execCfg.title}" (${execCfg.email}) не найден в источнике данных — узел пропущен.`,
+      );
+      return;
     }
 
     const directReports = (execCfg.directReports || [])
@@ -514,6 +535,68 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
     console.table(mapping);
   }
 
-  return presentationRoot;
+  // CR-020 §5: в верхнеуровневом представлении ассистенты остаются только у
+  // Селиванова, Лукьянова и Клюева (top-3). Остальные assistant-данные
+  // снимаются на уровне presentation-модели.
+  return applyUpperLevelAssistantPolicy(presentationRoot);
+}
+
+/**
+ * CR-020 §5: в верхнеуровневом (свёрнутом) представлении административные
+ * ассистенты отображаются только у трёх top-руководителей (Селиванов, Лукьянов,
+ * Клюев). У остальных узлов assistant-данные снимаются на уровне presentation-
+ * модели, а не через скрытие уже отрисованных карточек.
+ *
+ * Top-3 определяется существующим семантическим флагом `keepFullName`.
+ * Исходное дерево не мутируется.
+ */
+function applyUpperLevelAssistantPolicy(node) {
+  if (!node) return node;
+
+  const children = mapChildrenPreservingReference(
+    node.children,
+    applyUpperLevelAssistantPolicy,
+  );
+
+  // Top-3 (Селиванов/Лукьянов/Клюев) сохраняют ассистента.
+  if (node.keepFullName) {
+    return children === node.children ? node : { ...node, children };
+  }
+
+  const hasExplicitAssistant = Boolean(node.__assistant);
+  const users = stripAssistantUsers(node.users);
+  const sourceUsers = stripAssistantUsers(node.sourceUsers);
+  const usersChanged = users !== node.users;
+  const sourceUsersChanged = sourceUsers !== node.sourceUsers;
+  const childrenChanged = children !== node.children;
+
+  // Нет assistant-данных и нет изменений в детях — сохраняем ссылку на узел,
+  // чтобы не ломать presentation-копии с внутренней структурой «по ссылке».
+  if (!hasExplicitAssistant && !usersChanged && !sourceUsersChanged && !childrenChanged) {
+    return node;
+  }
+
+  const result = { ...node, children };
+  if (hasExplicitAssistant) delete result.__assistant;
+  if (usersChanged) result.users = users;
+  if (sourceUsersChanged) result.sourceUsers = sourceUsers;
+  return result;
+}
+
+function mapChildrenPreservingReference(children, fn) {
+  if (!Array.isArray(children)) return children;
+  let changed = false;
+  const next = children.map((child) => {
+    const mapped = fn(child);
+    if (mapped !== child) changed = true;
+    return mapped;
+  });
+  return changed ? next : children;
+}
+
+function stripAssistantUsers(users) {
+  if (!Array.isArray(users)) return users;
+  const next = users.filter((user) => !isAssistantUser(user));
+  return next.length === users.length ? users : next;
 }
 

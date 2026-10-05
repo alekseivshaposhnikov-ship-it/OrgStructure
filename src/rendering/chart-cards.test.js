@@ -73,6 +73,14 @@ describe('chart-cards.js', () => {
       expect(html).toContain('chart-card--department');
     });
 
+    it('должен показывать «Вакансия» для подразделения без руководителя (CR-020 §2)', () => {
+      const html = renderNodeContent(makeDepartmentNode({ headName: '', headDisplayName: '' }), {
+        cardDesign: 'classic',
+      });
+      expect(html).toContain('Вакансия');
+      expect(html).not.toContain('Нет руководителя');
+    });
+
     it('должен рендерить department variant2 с классом v2', () => {
       const html = renderNodeContent(makeDepartmentNode(), { cardDesign: 'variant2' });
       expect(html).toContain('chart-card--department-v2');
@@ -103,6 +111,21 @@ describe('chart-cards.js', () => {
       const html = renderNodeContent(makeAssistantNode());
       expect(html).toContain('chart-card--assistant');
       expect(html).toContain('Административный ассистент');
+    });
+
+    it('должен рендерить группу административных ассистентов одной карточкой (CR-020 §6)', () => {
+      const html = renderNodeContent({
+        id: 'assistant-group-1',
+        isAssistant: true,
+        position: 'Административный ассистент',
+        members: [
+          { id: 'a1', displayName: 'Рысь Екатерина', position: 'Административный ассистент' },
+          { id: 'a2', displayName: 'Тимофеева Алена', position: 'Административный ассистент' },
+        ],
+      });
+      expect(html).toContain('chart-card--assistant-group');
+      expect(html).toContain('Рысь Екатерина');
+      expect(html).toContain('Тимофеева Алена');
     });
 
     it('должен рендерить department в PDF режиме', () => {

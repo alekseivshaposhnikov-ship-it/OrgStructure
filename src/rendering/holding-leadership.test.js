@@ -213,21 +213,30 @@ function makeHoldingWithFractionalSource() {
 }
 
 describe("holding-leadership (CR-013)", () => {
-  it("строит проекцию: root + 3 executive-узла, без Администрации как дирекции", () => {
+  it("строит проекцию: root + 2 executive-узла + дирекция Винника, без Администрации как дирекции", () => {
     const root = buildHoldingLeadershipTree(makeHoldingRoot());
 
     expect(root.department_guid).toBe("synthetic-root");
     expect(root.__holdingPresentation).toBe(true);
 
     const executives = root.children.filter((child) => child.isHoldingExecutive);
-    expect(executives).toHaveLength(3);
-    expect(executives.map((e) => e.executiveKey)).toEqual(["lukyanov", "vinnik", "klyuev"]);
+    expect(executives).toHaveLength(2);
+    expect(executives.map((e) => e.executiveKey)).toEqual(["lukyanov", "klyuev"]);
     expect(root.children.some((child) => child.department_name === "Администрация")).toBe(false);
+
+    // CR-020 §4: дирекция Винника — непосредственно под Селивановым.
+    expect(
+      root.children.some(
+        (child) =>
+          child.department_name === "Дирекция по развитию и градостроительной подготовке проектов",
+      ),
+    ).toBe(true);
   });
 
   it("executive-узлы получают корректные титулы и записи людей", () => {
     const root = buildHoldingLeadershipTree(makeHoldingRoot());
-    const [lukyanov, vinnik, klyuev] = root.children;
+    const lukyanov = root.children.find((e) => e.executiveKey === "lukyanov");
+    const klyuev = root.children.find((e) => e.executiveKey === "klyuev");
 
     expect(lukyanov.department_manager_position).toBe("Операционный директор Холдинга");
     expect(lukyanov.department_name).toContain("Лукьянов");
@@ -236,21 +245,31 @@ describe("holding-leadership (CR-013)", () => {
     expect(lukyanov.__person.typeEmployment).toBe("Основное место работы");
     expect(lukyanov.__person.subLevel).toBe(1.3);
 
-    expect(vinnik.department_manager_position).toBe(
-      "Директор по развитию градостроительной подготовки проектов",
-    );
     expect(klyuev.department_manager_position).toBe("Исполнительный директор Холдинга LEGENDA");
+
+    // CR-020 §4: Винник — руководитель своей дирекции, не отдельный executive.
+    const vinnikDirectorate = root.children.find(
+      (d) => d.department_name === "Дирекция по развитию и градостроительной подготовке проектов",
+    );
+    expect(vinnikDirectorate).toBeTruthy();
+    expect(root.children.some((c) => c.executiveKey === "vinnik")).toBe(false);
   });
 
   it("распределяет дирекции по руководителям (CR-013 §3)", () => {
     const root = buildHoldingLeadershipTree(makeHoldingRoot());
-    const [lukyanov, vinnik, klyuev] = root.children;
+    const lukyanov = root.children.find((e) => e.executiveKey === "lukyanov");
+    const klyuev = root.children.find((e) => e.executiveKey === "klyuev");
 
     expect(lukyanov.children.map((d) => d.department_name)).toEqual(LUKYANOV_DIRECTORATES);
-    expect(vinnik.children.map((d) => d.department_name)).toEqual([
-      "Дирекция по развитию и градостроительной подготовке проектов",
-    ]);
     expect(klyuev.children.map((d) => d.department_name)).toEqual(KLYUEV_DIRECTORATES);
+
+    // CR-020 §4: дирекция Винника — непосредственно под root.
+    expect(
+      root.children.some(
+        (d) =>
+          d.department_name === "Дирекция по развитию и градостроительной подготовке проектов",
+      ),
+    ).toBe(true);
   });
 
   it("прямые подчинённые Клюева (Сойдан, Кириллов) лежат в его users (CR-013 §4, §21)", () => {
@@ -296,7 +315,9 @@ describe("holding-leadership (CR-013)", () => {
     expect(root.staffCount).toBe(input.staffCount);
     expect(root.totalWithVacancies).toBe(input.totalWithVacancies);
 
-    const execStaff = root.children.reduce((sum, child) => sum + (child.staffCount || 0), 0);
+    const execStaff = root.children
+      .filter((child) => child.isHoldingExecutive)
+      .reduce((sum, child) => sum + (child.staffCount || 0), 0);
     expect(execStaff).toBe(0);
   });
 
@@ -328,16 +349,19 @@ describe("holding-leadership (CR-013)", () => {
     // Лукьянов и Клюев — top-3, полное ФИО.
     const lukyanov = root.children.find((e) => e.executiveKey === "lukyanov");
     const klyuev = root.children.find((e) => e.executiveKey === "klyuev");
-    const vinnik = root.children.find((e) => e.executiveKey === "vinnik");
 
     expect(lukyanov.keepFullName).toBe(true);
     expect(klyuev.keepFullName).toBe(true);
 
-    // Винник — executive верхнего уровня, но НЕ top-3 (CR-016 §23).
-    expect(vinnik.keepFullName).toBe(false);
+    // CR-020 §4: Винник больше не executive; его дирекция не является top-3.
+    const vinnikDirectorate = root.children.find(
+      (d) => d.department_name === "Дирекция по развитию и градостроительной подготовке проектов",
+    );
+    expect(vinnikDirectorate).toBeTruthy();
+    expect(vinnikDirectorate.keepFullName).toBeFalsy();
   });
 
-  it("top-management assistantPlacement: Селиванов/Лукьянов/Клюев side, Винник below (CR-019 §35, §17)", () => {
+  it("top-management assistantPlacement: Селиванов/Лукьянов/Клюев side (CR-019 §35, §17)", () => {
     const root = buildHoldingLeadershipTree(makeHoldingRoot());
 
     // Селиванов (root) — top-management, sidecar «под-справа».
@@ -345,12 +369,17 @@ describe("holding-leadership (CR-013)", () => {
 
     const lukyanov = root.children.find((e) => e.executiveKey === "lukyanov");
     const klyuev = root.children.find((e) => e.executiveKey === "klyuev");
-    const vinnik = root.children.find((e) => e.executiveKey === "vinnik");
 
     expect(lukyanov.assistantPlacement).toBe("side");
     expect(klyuev.assistantPlacement).toBe("side");
-    // Винник не относится к top-management — assistant под карточкой.
-    expect(vinnik.assistantPlacement).toBe("below");
+
+    // CR-020 §4: Винник — не executive; в верхнеуровневом представлении у его
+    // дирекции ассистент не выводится (CR-020 §5).
+    const vinnikDirectorate = root.children.find(
+      (d) => d.department_name === "Дирекция по развитию и градостроительной подготовке проектов",
+    );
+    expect(vinnikDirectorate).toBeTruthy();
+    expect(vinnikDirectorate.__assistant).toBeFalsy();
   });
 
   it("excluded leadership employee не создаёт executive node и не ломает приложение (CR-016 §13, Test 45)", () => {
@@ -369,7 +398,8 @@ describe("holding-leadership (CR-013)", () => {
 
     const executives = root.children.filter((c) => c.isHoldingExecutive);
     expect(executives.map((e) => e.executiveKey)).not.toContain("lukyanov");
-    expect(executives).toHaveLength(2);
+    // CR-020 §4: остаётся только Клюев (Винник — inline-дирекция, не executive).
+    expect(executives).toHaveLength(1);
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -404,10 +434,10 @@ describe("holding-leadership · layout и fallback (CR-013)", () => {
     const executives = layout.nodes.filter(
       (node) => node.type === NODE_DEPARTMENT && node.data && node.data.isHoldingExecutive,
     );
-    expect(executives).toHaveLength(3);
+    expect(executives).toHaveLength(2);
     executives.forEach((exec) => expect(exec.row).toBe(1));
 
-    // Дирекции (даже свёрнутые) — карточки на строке 2.
+    // Дирекции Лукьянова и Клюева (даже свёрнутые) — карточки на строке 2.
     const directorates = layout.nodes.filter(
       (node) =>
         node.type === NODE_DEPARTMENT &&
@@ -415,7 +445,17 @@ describe("holding-leadership · layout и fallback (CR-013)", () => {
         !node.data.isHoldingExecutive &&
         node.row === 2,
     );
-    expect(directorates.length).toBeGreaterThanOrEqual(13);
+    expect(directorates.length).toBeGreaterThanOrEqual(12);
+
+    // CR-020 §4: дирекция Винника — непосредственно под root, на строке executives.
+    const vinnikDirectorate = layout.nodes.find(
+      (node) =>
+        node.type === NODE_DEPARTMENT &&
+        node.data &&
+        node.data.name === "Дирекция по развитию и градостроительной подготовке проектов",
+    );
+    expect(vinnikDirectorate).toBeTruthy();
+    expect(vinnikDirectorate.row).toBe(1);
 
     // Ассистент Селиванова — NODE_ASSISTANT под root.
     const assistantNode = layout.nodes.find((node) => node.type === NODE_ASSISTANT);
@@ -447,7 +487,7 @@ describe("holding-leadership · layout и fallback (CR-013)", () => {
     const root = buildHoldingLeadershipTree(modeRoot, { fallbackTree: [makeHoldingRoot()] });
 
     const executives = root.children.filter((c) => c.isHoldingExecutive);
-    expect(executives).toHaveLength(3);
+    expect(executives).toHaveLength(2);
 
     const klyuev = root.children.find((e) => e.executiveKey === "klyuev");
     expect(klyuev.children.map((d) => d.department_name)).toContain(
@@ -525,7 +565,7 @@ describe("holding-leadership · fix (CR-013_fix)", () => {
     // makeHoldingRoot не имеет sourceUsers — руководители ищутся по users.
     const root = buildHoldingLeadershipTree(makeHoldingRoot());
     const executives = root.children.filter((exec) => exec.isHoldingExecutive);
-    expect(executives).toHaveLength(3);
+    expect(executives).toHaveLength(2);
   });
 
   it("primary record: «Основное место работы» побеждает, count не обязателен (CR-013_fix Test 5)", () => {
@@ -851,10 +891,9 @@ describe("holding-leadership · CR-013_assistant (ассистенты и LEGEND
     expect(comfort.department_manager).toBe("Мишуев Александр Адольфович");
     expect(klyuev.children.some((c) => c.department_name === "Мишуев Александр Адольфович")).toBe(false);
 
-    // ассистент Мишуева / LEGENDA Comfort = Николаева.
-    expect(comfort.__assistant).toBeTruthy();
-    expect(comfort.__assistant.email).toBe("t.nikolaeva@legenda-comfort.ru");
-    expect(comfort.__assistant.position).toBe("Административный ассистент");
+    // CR-020 §5: в верхнеуровневом представлении ассистент Мишуева / LEGENDA
+    // Comfort (Николаева) не выводится — ассистенты остаются только у top-3.
+    expect(comfort.__assistant).toBeFalsy();
   });
 
   it("ассистенты executives: Селиванов→Давыдова, Лукьянов→Волкова, Клюев→Лихачева (CR-013_assistant Test 5)", () => {

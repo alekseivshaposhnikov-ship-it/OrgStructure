@@ -54,6 +54,12 @@ const ROLE_MANAGER_HEIGHT = 12;
 const ROLE_MANAGER_TOP_OFFSET = 9; // baseline manager от верха его блока
 const ROLE_MANAGER_TO_ROLES_GAP = 6;
 const ROLE_ROW_HEIGHT = 16;
+// CR-020 §3: высота строки должности зависит от фактического числа строк
+// перенесённого текста, чтобы длинные названия не накладывались друг на друга.
+const ROLE_ROLE_FONT_SIZE = 10;
+const ROLE_ROLE_LINE_HEIGHT = 11;
+const ROLE_ROLE_MAX_LINES = 2;
+const ROLE_ROLE_BASELINE = ROLE_MANAGER_TOP_OFFSET + 3;
 const ROLE_COUNT_BADGE_WIDTH = 26;
 const ROLE_COUNT_BADGE_GAP = 8;
 const ROLE_CARD_MIN_HEIGHT = 54;
@@ -301,15 +307,35 @@ export function computeRoleCardLayout({ name, headPosition, roles }, departmentW
   }
 
   let rolesTop = null;
-  if (roles && roles.length) {
+  const roleRows = (roles || []).map((role) => {
+    const lines = wrapText(
+      String(role.position || "Без должности"),
+      Math.max(availableTitleWidth, 1),
+      ROLE_ROLE_FONT_SIZE,
+      ROLE_ROLE_MAX_LINES,
+    );
+    const height = ROLE_ROW_HEIGHT + (lines.length - 1) * ROLE_ROLE_LINE_HEIGHT;
+    return { ...role, lines, height };
+  });
+
+  if (roleRows.length) {
     cursorY += managerY != null ? ROLE_MANAGER_TO_ROLES_GAP : ROLE_TITLE_TO_MANAGER_GAP;
     rolesTop = cursorY;
-    cursorY += roles.length * ROLE_ROW_HEIGHT;
+    cursorY += roleRows.reduce((sum, row) => sum + row.height, 0);
   }
 
   const cardHeight = Math.max(ROLE_CARD_MIN_HEIGHT, cursorY + ROLE_CARD_PADDING_BOTTOM);
 
-  return { titleY, titleLines, titleHeight, availableTitleWidth, managerY, rolesTop, cardHeight };
+  return {
+    titleY,
+    titleLines,
+    titleHeight,
+    availableTitleWidth,
+    managerY,
+    rolesTop,
+    roleRows,
+    cardHeight,
+  };
 }
 
 /**
@@ -797,9 +823,13 @@ function drawRoleDepartmentCard(group, node, opts) {
   );
 
   // Роли — двухколоночная таблица role / count (CR-003-03 §6).
-  const roleBaseline = ROLE_MANAGER_TOP_OFFSET + 3;
-  roles.forEach((role, index) => {
-    const rowTop = cardLayout.rolesTop + index * ROLE_ROW_HEIGHT;
+  // CR-020 §3: каждая строка должности получает высоту по фактическому числу
+  // строк текста (roleRows), поэтому длинные названия не накладываются друг
+  // на друга и не выходят за границы карточки.
+  const roleBaseline = ROLE_ROLE_BASELINE;
+  const roleRows = cardLayout.roleRows || roles;
+  let rowTop = cardLayout.rolesTop;
+  roleRows.forEach((role) => {
     const roleGroup = createSvgElement("g", {
       transform: `translate(0, ${rowTop})`,
       "data-role": role.position,
@@ -810,9 +840,9 @@ function drawRoleDepartmentCard(group, node, opts) {
       x: ROLE_CARD_PADDING_LEFT,
       y: roleBaseline,
       maxWidth: cardLayout.availableTitleWidth,
-      lineHeight: 11,
-      maxLines: 2,
-      size: 10,
+      lineHeight: ROLE_ROLE_LINE_HEIGHT,
+      maxLines: ROLE_ROLE_MAX_LINES,
+      size: ROLE_ROLE_FONT_SIZE,
       weight: 500,
       fill: COLORS.text,
     });
@@ -840,6 +870,7 @@ function drawRoleDepartmentCard(group, node, opts) {
     }
 
     group.appendChild(roleGroup);
+    rowTop += role.height ?? ROLE_ROW_HEIGHT;
   });
 }
 
@@ -883,6 +914,41 @@ function drawPdfAssistantCard(group, node, opts) {
       "stroke-width": 2,
     }),
   );
+
+  // CR-020 §6: несколько административных ассистентов отображаются одной
+  // карточкой — метка роли один раз, затем ФИО каждого участника.
+  if (Array.isArray(data.members) && data.members.length > 1) {
+    appendWrappedText(group, "Административные ассистенты", {
+      x: 18,
+      y: 28,
+      maxWidth: node.width - 36,
+      lineHeight: 15,
+      maxLines: 1,
+      size: 12,
+      weight: 700,
+      fill: COLORS.text,
+    });
+
+    let y = 50;
+    data.members.forEach((member) => {
+      const memberName = opts.hideNames
+        ? ""
+        : member.displayName || member.full_name || member.name || "Сотрудник";
+      if (!memberName) return;
+      appendWrappedText(group, memberName, {
+        x: 18,
+        y,
+        maxWidth: node.width - 36,
+        lineHeight: 14,
+        maxLines: 1,
+        size: 11,
+        weight: 600,
+        fill: COLORS.text,
+      });
+      y += 16;
+    });
+    return;
+  }
 
   const name = opts.hideNames ? "" : data.displayName || data.name || data.full_name || "Сотрудник";
   appendWrappedText(group, `Административный ассистент — ${name}`, {

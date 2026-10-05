@@ -1002,6 +1002,12 @@ body {
   word-break: break-word;
 }
 
+.chart-card__assistant-member + .chart-card__assistant-member {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #e0e7ff;
+}
+
 .chart-card--assistant {
   padding: 10px;
   border: 2px solid var(--color-primary);

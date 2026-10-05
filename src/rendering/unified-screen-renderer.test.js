@@ -572,7 +572,7 @@ describe("unified-screen-renderer (CR-011)", () => {
 
     // Executive-карточки верхних руководителей.
     const executives = document.querySelectorAll('[data-node-type="executive"]');
-    expect(executives.length).toBeGreaterThanOrEqual(3);
+    expect(executives.length).toBeGreaterThanOrEqual(2);
     expect(document.querySelector('[data-node-type="executive"]').textContent).toContain(
       "Лукьянов",
     );
@@ -637,11 +637,11 @@ describe("unified-screen-renderer (CR-011)", () => {
     }
 
     const lukyanov = execByEmail("laa@legenda-dom.ru");
-    const vinnik = execByEmail("l.vinnik@legenda-dom.ru");
     const klyuev = execByEmail("avk@legenda-dom.ru");
     expect(lukyanov).toBeTruthy();
-    expect(vinnik).toBeTruthy();
     expect(klyuev).toBeTruthy();
+    // CR-020 §4: Винник — не executive; его дирекция находится под root.
+    expect(execByEmail("l.vinnik@legenda-dom.ru")).toBeFalsy();
 
     // Лукьянов + Волкова; Клюев + Лихачева.
     const volkova = assistantOf(lukyanov);
@@ -650,9 +650,6 @@ describe("unified-screen-renderer (CR-011)", () => {
     expect(lihacheva).toBeTruthy();
     expect(volkova.data.email).toBe("a.volkova@legenda-dom.ru");
     expect(lihacheva.data.email).toBe("e.lihacheva@legenda-dom.ru");
-
-    // Винник — без assistant.
-    expect(assistantOf(vinnik)).toBeFalsy();
 
     // Каждый assistant — локальный sidecar справа от своего manager на его уровне.
     [lukyanov, klyuev].forEach((manager) => {

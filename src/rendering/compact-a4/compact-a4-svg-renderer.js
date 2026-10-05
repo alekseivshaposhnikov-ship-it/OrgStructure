@@ -189,7 +189,20 @@ function drawAssistantCard(g, n) {
   const grp = createSvg('g', { transform: `translate(${n.x}, ${n.y})` });
   grp.appendChild(createSvg('rect', { x: 0, y: 0, width: n.cardWidth, height: n.cardHeight, rx: 5, ry: 5, fill: C.assistantBg, stroke: C.assistantStroke, 'stroke-width': 1.5 }));
   addText(grp, 'Адм. ассистент', 8, 14, 8, 600, C.assistantStroke);
-  if (n.name) drawText(grp, n.name, { x: 8, y: 26, maxW: n.cardWidth - 16, fontSize: 7, fw: 400, fill: C.text, maxLines: 1, lineH: 9 });
+
+  // CR-020 §6: сгруппированные административные ассистенты рисуются в одной
+  // карточке — каждый участник отдельной строкой без наложения.
+  if (Array.isArray(n.members) && n.members.length > 1) {
+    let y = 26;
+    n.members.forEach((member) => {
+      if (member.name) {
+        drawText(grp, member.name, { x: 8, y, maxW: n.cardWidth - 16, fontSize: 7, fw: 400, fill: C.text, maxLines: 1, lineH: 9 });
+      }
+      y += 12;
+    });
+  } else if (n.name) {
+    drawText(grp, n.name, { x: 8, y: 26, maxW: n.cardWidth - 16, fontSize: 7, fw: 400, fill: C.text, maxLines: 1, lineH: 9 });
+  }
   g.appendChild(grp);
 }
 

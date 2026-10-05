@@ -59,6 +59,9 @@ const DEFAULT_OPTIONS = {
   assistantVerticalGap: 8,
   assistantSidecarWidth: 240,
   assistantSidecarHeight: 44,
+  // CR-020 §6: высота одной дополнительной строки ФИО в сгруппированной
+  // карточке административных ассистентов (одна визуальная группа).
+  assistantMemberHeight: 30,
   // CR-015 §22-26: collapse/expand control — часть layout-геометрии. Baseline
   // toggle привязан к visual row (rowVisualBottom + toggleGap), а не к content height.
   toggleGap: 14,
@@ -171,6 +174,46 @@ export function buildLayoutTree(
     };
   }
 
+  function makeAssistantGroupNode(assistants) {
+    const members = assistants.map((assistant) => ({
+      ...assistant,
+      position: normalizeAssistantLabel(assistant.position),
+      isDepartment: false,
+      isVacancy: false,
+      isAssistant: true,
+      displayName: formatEmployeeDisplayName(assistant.full_name || assistant.name || ""),
+    }));
+
+    return {
+      type: NODE_ASSISTANT,
+      data: {
+        id: `assistant-group-${assistants
+          .map((assistant) => assistant.id)
+          .sort()
+          .join("+")}`,
+        position: "Административный ассистент",
+        isDepartment: false,
+        isVacancy: false,
+        isAssistant: true,
+        isAssistantGroup: true,
+        members,
+      },
+    };
+  }
+
+  function buildAssistantNodes(assistants) {
+    // CR-020 §6: два и более административных ассистента одного руководителя
+    // отображаются одной визуальной группой (не создаются отдельные ветки).
+    if (
+      assistants.length >= 2 &&
+      assistants.every((assistant) => isAdministrativeAssistant(assistant))
+    ) {
+      return [makeAssistantGroupNode(assistants)];
+    }
+
+    return assistants.map((assistant) => makeAssistantNode(assistant));
+  }
+
   function buildDepartment(node, _isRoot) {
     const data = {
       id: node.department_guid || node.id,
@@ -240,8 +283,8 @@ export function buildLayoutTree(
 
     // Собственные ассистенты подразделения — sidecar рядом с карточкой
     // руководителя (CR-013_assistant §6-8): не создают организационный уровень.
-    ownAssistants.forEach((assistant) => {
-      children.push(makeAssistantNode(assistant));
+    buildAssistantNodes(ownAssistants).forEach((assistantNode) => {
+      children.push(assistantNode);
     });
 
     if (users.length) {
@@ -458,7 +501,14 @@ function computeSizes(node, opts) {
   } else if (node.type === NODE_ASSISTANT) {
     // Sidecar-карточка ассистента (CR-013_assistant §6, §9): компактный размер.
     node.width = opts.assistantSidecarWidth ?? opts.assistantWidth;
-    node.height = opts.assistantSidecarHeight ?? opts.assistantHeight;
+    const baseHeight = opts.assistantSidecarHeight ?? opts.assistantHeight;
+    // CR-020 §6: сгруппированная карточка ассистентов получает высоту,
+    // достаточную для всех ФИО без наложения.
+    const memberCount = Array.isArray(node.data?.members) ? node.data.members.length : 0;
+    node.height =
+      memberCount > 1
+        ? baseHeight + (memberCount - 1) * (opts.assistantMemberHeight ?? 30)
+        : baseHeight;
   } else if (node.type === NODE_EMPLOYEES) {
     node.width = opts.employeeWidth;
     const n = node.persons.length;
@@ -753,6 +803,16 @@ function collect(tree, nodes, edges, flatData, parent) {
   if (tree.type === NODE_EMPLOYEES) {
     nodes.push(tree);
     tree.persons.forEach((person) => flatData.push(person.data));
+    return;
+  }
+
+  if (tree.type === NODE_ASSISTANT && Array.isArray(tree.data?.members)) {
+    nodes.push(tree);
+    flatData.push(tree.data);
+    // CR-020 §6: каждый участник группы остаётся доступен для детального
+    // просмотра по data-employee-id (поиск/клик), но отдельной карточкой не
+    // рендерится.
+    tree.data.members.forEach((member) => flatData.push(member));
     return;
   }
 

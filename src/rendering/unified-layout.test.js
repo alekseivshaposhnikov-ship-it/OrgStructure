@@ -637,6 +637,23 @@ describe("unified-layout · assistant sidecar (CR-013_assistant)", () => {
     expect(ast.data.displayName).toBe("Лихачева Екатерина");
   });
 
+  it("два административных ассистента группируются в один NODE_ASSISTANT (CR-020 §6)", () => {
+    const root = dept("root", "ROOT", {
+      managerSubLevel: 1,
+      users: [
+        user("ast-1", "Рысь Екатерина", { position: "Административный ассистент" }),
+        user("ast-2", "Тимофеева Алена", { position: "Административный ассистент" }),
+      ],
+      children: [],
+    });
+    const { tree } = computeUnifiedLayout(root);
+
+    const assistants = tree.children.filter((c) => c.type === NODE_ASSISTANT);
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0].data.members).toHaveLength(2);
+    expect(assistants[0].data.members.map((m) => m.id)).toEqual(["ast-1", "ast-2"]);
+  });
+
   it("executive (__person) получает displayName: top-3 полное, остальные сокращённые (CR-016 §20, §23)", () => {
     const root = dept("root", "Винник Лев Арнольдович", {
       __person: {
