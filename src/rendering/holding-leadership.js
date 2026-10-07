@@ -70,6 +70,11 @@ export const HOLDING_LEADERSHIP_CONFIG = {
       // дирекция находится непосредственно под Селивановым, а сам Винник
       // отображается руководителем этой дирекции (department_manager из API).
       inline: true,
+      // CR-022 §2-3: организационно дирекция остаётся непосредственно под
+      // Селивановым, но визуально отображается на уровне остальных дирекций
+      // (row / presentation level = 2), а не на уровне топ-руководителей
+      // (Лукьянов/Клюев). Явный визуальный уровень дирекции.
+      presentationRow: 2,
       directorates: [
         {
           id: "b805ce29-bfa4-11ec-b6d7-4c5262500118",
@@ -406,9 +411,16 @@ export function buildHoldingLeadershipTree(root, { fallbackTree = null } = {}) {
     // Селиванова, а сам руководитель отображается в карточке дирекции.
     if (execCfg.inline) {
       directorates.forEach((directorate) => {
-        presentationChildren.push(directorate);
+        // CR-022 §3: inline-дирекция может задавать явный визуальный уровень
+        // (organizational parent = Селиванов, visual/presentation level =
+        // presentationRow). Создаём presentation-копию узла, чтобы не мутировать
+        // исходное дерево режима (AS IS / TO BE / Changes).
+        const presentedDirectorate = Number.isFinite(execCfg.presentationRow)
+          ? { ...directorate, presentationRow: execCfg.presentationRow }
+          : directorate;
+        presentationChildren.push(presentedDirectorate);
         mapping.push({
-          entity: directorate.department_name,
+          entity: presentedDirectorate.department_name,
           type: "department",
           source: "API tree",
           presentationParent: HOLDING_LEADERSHIP_CONFIG.ceo.name,

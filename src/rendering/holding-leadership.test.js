@@ -168,10 +168,15 @@ function makeHoldingRoot() {
   const directorates = [
     ...LUKYANOV_DIRECTORATES.map((name) => makeDirectorate(name)),
     ...KLYUEV_DIRECTORATES.map((name) => makeDirectorate(name)),
-    makeDirectorate(
-      "Дирекция по развитию и градостроительной подготовке проектов",
-      "guid-развитие",
-    ),
+    {
+      ...makeDirectorate(
+        "Дирекция по развитию и градостроительной подготовке проектов",
+        "guid-развитие",
+      ),
+      // CR-022 §4: руководителем дирекции остаётся Винник Лев Арнольдович.
+      department_manager: "Винник Лев Арнольдович",
+      department_manager_position: "Заместитель генерального директора по развитию",
+    },
   ];
 
   return {
@@ -447,7 +452,9 @@ describe("holding-leadership · layout и fallback (CR-013)", () => {
     );
     expect(directorates.length).toBeGreaterThanOrEqual(12);
 
-    // CR-020 §4: дирекция Винника — непосредственно под root, на строке executives.
+    // CR-022 §2-4: дирекция Винника организационно остаётся под Селивановым, но
+    // визуально отображается на уровне остальных дирекций (row = 2), а не на
+    // уровне топ-руководителей (Лукьянов/Клюев). Отдельной карточки Винника нет.
     const vinnikDirectorate = layout.nodes.find(
       (node) =>
         node.type === NODE_DEPARTMENT &&
@@ -455,7 +462,30 @@ describe("holding-leadership · layout и fallback (CR-013)", () => {
         node.data.name === "Дирекция по развитию и градостроительной подготовке проектов",
     );
     expect(vinnikDirectorate).toBeTruthy();
-    expect(vinnikDirectorate.row).toBe(1);
+    expect(vinnikDirectorate.row).toBe(2);
+
+    // Отдельная карточка-руководитель Винника на верхнем уровне не создаётся.
+    const vinnikExecutiveCard = layout.nodes.find(
+      (node) =>
+        node.type === NODE_DEPARTMENT &&
+        node.data &&
+        node.data.isHoldingExecutive &&
+        node.data.email === "l.vinnik@legenda-dom.ru",
+    );
+    expect(vinnikExecutiveCard).toBeFalsy();
+
+    // Руководителем дирекции остаётся Винник Лев Арнольдович (ФИО «Фамилия Имя»).
+    expect(vinnikDirectorate.data.headName).toBe("Винник Лев Арнольдович");
+    expect(vinnikDirectorate.data.headDisplayName).toBe("Винник Лев");
+
+    // Дирекция не становится дочерней для Лукьянова или Клюева: её
+    // организационный родитель остаётся корнем (Селиванов).
+    const vinnikParent = layout.nodes.find((node) =>
+      (node.children || []).some((child) => child === vinnikDirectorate),
+    );
+    expect(vinnikParent).toBeTruthy();
+    expect(vinnikParent.data.isHoldingExecutive).toBeFalsy();
+    expect(vinnikParent.data.name).toBe("Холдинг LEGENDA");
 
     // Ассистент Селиванова — NODE_ASSISTANT под root.
     const assistantNode = layout.nodes.find((node) => node.type === NODE_ASSISTANT);

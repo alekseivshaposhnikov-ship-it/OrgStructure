@@ -237,6 +237,13 @@ export function buildLayoutTree(
       managerSubLevel: node.manager_sub_level,
     };
 
+    // CR-022 §3: явный визуальный уровень для presentation-узлов, у которых
+    // организационный родитель отличается от визуального уровня (например,
+    // inline-дирекция Винника: parent = Селиванов, visual row = 2).
+    if (Number.isFinite(node.presentationRow)) {
+      data.presentationRow = node.presentationRow;
+    }
+
     // Ролевая presentation (CR-003-02 §19): агрегированные должности переезжают
     // в data подразделения и используются только ролевым PDF-режимом.
     if (Array.isArray(node.pdfRoles)) {
@@ -420,6 +427,9 @@ function applySiblingFallback(node, isRoot = false) {
  * - встречающиеся levels сжимаются в строки 1..N без пустых строк
  *   (например 4 и 6 → строки 1 и 2);
  * - parent-child hierarchy сохраняется: child.row > parent.row.
+ * - явный визуальный уровень (`data.presentationRow`, CR-022 §3) имеет
+ *   приоритет: узел отображается на заданном row, сохраняя организационного
+ *   родителя (например inline-дирекция Винника: parent = Селиванов, row = 2).
  * Employees/assistant — строка родителя + 1.
  */
 function computeRows(tree) {
@@ -443,6 +453,10 @@ function computeRows(tree) {
     if (node.type === NODE_DEPARTMENT) {
       if (node === tree) {
         node.row = 0;
+      } else if (node.data && Number.isFinite(node.data.presentationRow)) {
+        // CR-022 §3: явный визуальный уровень (organizational parent может
+        // отличаться от визуального уровня). Parent-child hierarchy сохраняется.
+        node.row = Math.max(node.data.presentationRow, parentRow + 1);
       } else {
         const mappedRow = levelToRow.get(node.effectiveLayoutLevel) ?? parentRow + 1;
         node.row = Math.max(mappedRow, parentRow + 1);
