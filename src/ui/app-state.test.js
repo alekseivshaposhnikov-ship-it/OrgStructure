@@ -31,4 +31,11 @@ describe("app-state.js (CR-023)", () => {
     vi.stubGlobal("localStorage", { getItem: vi.fn(() => "grouped") });
     expect(createAppState().cardDesign).toBe("grouped");
   });
+
+  it("вакансии и уровни скрыты по умолчанию (CR-023-01 §3-4)", () => {
+    vi.stubGlobal("localStorage", { getItem: vi.fn(() => null) });
+    const state = createAppState();
+    expect(state.showVacancies).toBe(false);
+    expect(state.showLevels).toBe(false);
+  });
 });

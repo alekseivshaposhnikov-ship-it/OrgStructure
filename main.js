@@ -61,12 +61,24 @@ async function initApp() {
     renderApp();
     initExportHandler(state);
 
-    document
-      .getElementById("showVacancies")
-      ?.addEventListener("change", (event) => {
+    const showVacanciesInput = document.getElementById("showVacancies");
+    if (showVacanciesInput) {
+      showVacanciesInput.checked = state.showVacancies;
+      showVacanciesInput.addEventListener("change", (event) => {
         state.showVacancies = event.target.checked;
         renderApp();
       });
+    }
+
+    // CR-023-01 §3: отдельный переключатель диагностических уровней.
+    const showLevelsInput = document.getElementById("showLevels");
+    if (showLevelsInput) {
+      showLevelsInput.checked = state.showLevels;
+      showLevelsInput.addEventListener("change", (event) => {
+        state.showLevels = event.target.checked;
+        renderApp();
+      });
+    }
   } catch (error) {
     console.error("Ошибка инициализации:", error);
     container.innerHTML = "<p>Произошла ошибка. Обновите страницу.</p>";

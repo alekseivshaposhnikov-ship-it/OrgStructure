@@ -17,6 +17,7 @@
 
 import {
   computeUnifiedLayout,
+  formatLayoutDebugText,
   NODE_DEPARTMENT,
   NODE_EMPLOYEES,
   NODE_ASSISTANT,
@@ -169,6 +170,9 @@ export async function exportOrgChartToPdf({
         showVacancies,
         employeeMode,
         employeesHeaderHeight,
+        // CR-023-01 §8.4: диагностика уровней экспортируется при включённом
+        // переключателе «Показывать уровни».
+        showLevels: Boolean(layoutOptions.showLevels),
       });
 
       await renderSvgToPdf({ svg, fileName: sanitizeFileName(title) });
@@ -460,6 +464,7 @@ export function renderUnifiedLayoutToPdf(
     showVacancies = true,
     employeeMode = hideNames ? "roles" : "detailed",
     employeesHeaderHeight = PDF_LAYOUT_OPTIONS.employeesHeaderHeight,
+    showLevels = false,
   } = {},
 ) {
   // В ролевом режиме page-fit использует фактический bounding box визуально
@@ -505,6 +510,7 @@ export function renderUnifiedLayoutToPdf(
       showVacancies,
       employeeMode,
       employeesHeaderHeight,
+      showLevels,
     });
   });
 
@@ -732,6 +738,11 @@ function drawPdfDepartmentCard(group, node, opts) {
 
   const count = opts.showVacancies ? (data.totalWithVacancies ?? 0) : (data.staffCount ?? 0);
   drawCount(group, count, node.width, node.height);
+
+  // CR-023-01 §8.4: диагностическая строка в карточке подразделения.
+  if (opts.showLevels) {
+    drawPdfDebugLine(group, data, node.width, node.height);
+  }
 }
 
 /**
@@ -1047,9 +1058,9 @@ function drawDetailedPersonCards(group, node, opts) {
     // CR-023 §9: групповая карточка экспортируется как единая карточка
     // с должностью и списком ФИО.
     if (person.type === "group") {
-      drawPdfGroupCard(personGroup, person, opts.hideNames);
+      drawPdfGroupCard(personGroup, person, opts);
     } else {
-      drawPdfPersonCard(personGroup, person, opts.hideNames);
+      drawPdfPersonCard(personGroup, person, opts);
     }
 
     group.appendChild(personGroup);
@@ -1057,8 +1068,9 @@ function drawDetailedPersonCards(group, node, opts) {
   });
 }
 
-function drawPdfPersonCard(group, person, hideNames) {
+function drawPdfPersonCard(group, person, opts) {
   const { data } = person;
+  const hideNames = opts.hideNames;
   const isVacancy = data.isVacancy;
   const styles = isVacancy
     ? { fill: "#f5fbff", stroke: "#84caff", strokeWidth: 2 }
@@ -1107,6 +1119,11 @@ function drawPdfPersonCard(group, person, hideNames) {
   if (project) {
     drawProject(group, project, person.width, person.height);
   }
+
+  // CR-023-01 §8.4: диагностическая строка в карточке сотрудника.
+  if (opts.showLevels) {
+    drawPdfDebugLine(group, data, person.width, person.height);
+  }
 }
 
 /**
@@ -1114,8 +1131,9 @@ function drawPdfPersonCard(group, person, hideNames) {
  * ФИО сотрудников. Высота рассчитана в layout (measureGroupCardHeight) и
  * учитывает перенос длинной должности; все ФИО присутствуют в PDF.
  */
-function drawPdfGroupCard(group, person, hideNames) {
+function drawPdfGroupCard(group, person, opts) {
   const { data } = person;
+  const hideNames = opts.hideNames;
   const members = Array.isArray(data.members) ? data.members : [];
 
   group.appendChild(
@@ -1159,7 +1177,12 @@ function drawPdfGroupCard(group, person, hideNames) {
     wrapText(String(data.position || ""), headerMaxWidth, 12, 3).length,
   );
 
-  if (hideNames) return;
+  if (hideNames) {
+    if (opts.showLevels) {
+      drawPdfDebugLine(group, data, person.width, person.height);
+    }
+    return;
+  }
 
   let y = 6 + headerLines * 15 + 3 + 12;
   members.forEach((member) => {
@@ -1176,6 +1199,11 @@ function drawPdfGroupCard(group, person, hideNames) {
     });
     y += 16 + 3;
   });
+
+  // CR-023-01 §8.4: диагностическая строка в групповой карточке (один раз).
+  if (opts.showLevels) {
+    drawPdfDebugLine(group, data, person.width, person.height);
+  }
 }
 
 /**
@@ -1216,6 +1244,26 @@ function drawScenarioBadge(group, state) {
     size: 10,
     weight: 700,
     fill: colors.text,
+  });
+}
+
+/**
+ * CR-023-01 §8.4: диагностическая строка в PDF-карточке (sub_level / layout /
+ * row, для подразделения — level). Единый формат с экраном
+ * (formatLayoutDebugText); место под строку зарезервировано в layout.
+ */
+function drawPdfDebugLine(group, data, cardWidth, cardHeight) {
+  const text = formatLayoutDebugText(data);
+  if (!text) return;
+
+  appendWrappedText(group, text, {
+    x: 8,
+    y: cardHeight - 4,
+    maxWidth: Math.max(40, cardWidth - 16),
+    lineHeight: 10,
+    maxLines: 1,
+    size: 8,
+    fill: COLORS.muted,
   });
 }
 

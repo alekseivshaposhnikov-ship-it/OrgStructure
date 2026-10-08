@@ -44,8 +44,8 @@ main.js          композиция (точка входа)
 ### rendering/
 | Модуль | Назначение |
 |---|---|
-| `unified-layout.js` | Единый layout диаграммы (высоты уровней, колонки); presentation-группировка по должности и расчёт высот по содержимому (CR-023) |
-| `chart-cards.js` | HTML-карточки (classic / variant2 / variant3 / групповая / PDF-режим) |
+| `unified-layout.js` | Единый layout диаграммы (высоты уровней, колонки); presentation-группировка по должности; расчёт высот карточек по содержимому (`border-box`, включая диагностическую строку) и уровня подразделения (`level`) (CR-023, CR-023-01) |
+| `chart-cards.js` | HTML-карточки (classic / variant2 / variant3 / групповая / PDF-режим); диагностическая строка под содержимым (sub/layout/row/level) по флагу `layoutDebugConfig` (CR-023-01) |
 | `screen-viewport.js` | Единый viewport: zoom/pan/fit/center (CR-008_1); диапазон масштаба MIN/MAX_ZOOM_SCALE (CR-011) |
 | `tokens.js` | Палитра и сценарий-стайлы (CR-009) |
 | `svg-utils.js` | Общие SVG-хелперы: createSvgElement, appendText, truncateText |

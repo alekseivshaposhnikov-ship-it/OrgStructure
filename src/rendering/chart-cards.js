@@ -1,35 +1,25 @@
 import { escapeHtml, normalizeProjects } from "../core/utils/string.js";
 import { getScenarioLabel } from "./tokens.js";
-import { normalizeAssistantLabel } from "./unified-layout.js";
+import { normalizeAssistantLabel, formatLayoutDebugText } from "./unified-layout.js";
 
 /**
- * Единый флаг диагностики уровней (CR-010 §3).
- * CR-023 §6.5: в обычном пользовательском режиме технические подписи скрыты;
- * диагностика доступна только при явном включении (layoutDebugConfig.enabled = true).
+ * Единый флаг диагностики уровней (CR-010 §3, CR-023-01 §3).
+ * Управляется переключателем «Показывать уровни»: приложение синхронизирует
+ * его со state.showLevels перед рендером. В обычном пользовательском режиме
+ * технические подписи скрыты (enabled = false).
  */
 export const layoutDebugConfig = { enabled: false };
 
 /**
  * Возвращает строку диагностики уровней (без HTML) для card renderers.
- * - sub — реальное значение руководителя (actual);
- * - layout — вычисленный effectiveLayoutLevel;
- * - row — фактическая визуальная строка.
+ * CR-023-01 §2: формат включает sub_level, layout, row, а для подразделений —
+ * ещё и фактическую глубину (level). Реальные значения берутся существующими
+ * механизмами layout; отсутствующее значение обозначается «—».
  * compact — короткий формат для Compact A4 ("s:4 l:4 r:1").
  */
-export function getLayoutDebugText(nd, { compact = false } = {}) {
+export function getLayoutDebugText(nd, options = {}) {
   if (!layoutDebugConfig.enabled) return "";
-
-  const actual = nd.actualManagerSubLevel ?? nd.managerSubLevel ?? nd.subLevel;
-  const sub =
-    Number.isFinite(actual) && actual !== Number.MAX_SAFE_INTEGER
-      ? String(actual)
-      : "—";
-  const eff = nd.effectiveLayoutLevel ?? "—";
-  const row = nd.row ?? "—";
-
-  return compact
-    ? `s:${sub} l:${eff} r:${row}`
-    : `sub: ${sub} · layout: ${eff} · row: ${row}`;
+  return formatLayoutDebugText(nd, options);
 }
 
 /**
@@ -348,6 +338,7 @@ function renderEmployeeGroup(nd, viewMode) {
         <span class="chart-card__group-count">${members.length}</span>
       </div>
       <div class="chart-card__group-members">${memberHtml}</div>
+      ${renderLayoutDebug(nd)}
     </div>
   `;
 }

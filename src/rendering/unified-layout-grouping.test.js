@@ -2,8 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   computeUnifiedLayout,
   NODE_EMPLOYEES,
+  NODE_DEPARTMENT,
   measureEmployeeCardHeight,
   measureGroupCardHeight,
+  measureLayoutDebugHeight,
+  formatLayoutDebugText,
 } from "./unified-layout.js";
 
 function deptUsers(users) {
@@ -161,5 +164,121 @@ describe("unified-layout: presentation-группировка по должно�
     );
 
     expect(long).toBeGreaterThan(short);
+  });
+});
+
+describe("unified-layout: диагностические показатели (CR-023-01)", () => {
+  function dept(extra = {}) {
+    return {
+      id: "d1",
+      department_guid: "d1",
+      department_name: "Отдел",
+      department_manager: "Иванов Иван",
+      department_manager_position: "Руководитель",
+      manager_sub_level: 4,
+      staffCount: 1,
+      vacancyCount: 0,
+      totalWithVacancies: 1,
+      users: [
+        {
+          id: "u1",
+          full_name: "Петров Петр",
+          name: "Петров Петр",
+          position: "Специалист",
+          subLevel: 6.2,
+          isVacancy: false,
+        },
+      ],
+      children: [],
+      ...extra,
+    };
+  }
+
+  it("§5.3: измерение учитывает рамку и padding строк (группа из 3 полностью помещается)", () => {
+    const group = measureGroupCardHeight(
+      {
+        position: "Специалист",
+        members: [
+          { displayName: "Иванов Иван" },
+          { displayName: "Петров Петр" },
+          { displayName: "Сидоров Семен" },
+        ],
+      },
+      350,
+    );
+
+    // border(2*2) + padding(6*2) + header(15) + margin(3) + 3*(padding 2 + line 16) + 2*gap(3)
+    expect(group).toBe(94);
+
+    const single = measureEmployeeCardHeight(
+      { displayName: "Иванов Иван", position: "Специалист" },
+      350,
+    );
+    // border(2*2) + padding(6*2) + name(16) + gap(3) + position(14)
+    expect(single).toBe(49);
+  });
+
+  it("§2.2: глубина подразделения проставляется в data (level) и растёт вниз по дереву", () => {
+    const root = dept({
+      children: [
+        {
+          id: "c1",
+          department_guid: "c1",
+          department_name: "Отдел 2",
+          manager_sub_level: 4,
+          staffCount: 0,
+          vacancyCount: 0,
+          totalWithVacancies: 0,
+          users: [],
+          children: [],
+        },
+      ],
+    });
+
+    const layout = computeUnifiedLayout(root, { measureContent: true });
+    const departments = layout.nodes.filter((node) => node.type === NODE_DEPARTMENT);
+    const byId = (id) => departments.find((node) => node.data.id === id);
+
+    expect(byId("d1").data.level).toBe(0);
+    expect(byId("c1").data.level).toBe(1);
+  });
+
+  it("§3, §5.5: showLevels увеличивает высоту карточек на высоту диагностической строки", () => {
+    const root = dept();
+
+    const off = computeUnifiedLayout(root, { measureContent: true, showLevels: false });
+    const on = computeUnifiedLayout(root, { measureContent: true, showLevels: true });
+
+    const empOff = off.nodes.find((node) => node.type === NODE_EMPLOYEES);
+    const empOn = on.nodes.find((node) => node.type === NODE_EMPLOYEES);
+    expect(empOn.height).toBeGreaterThan(empOff.height);
+    expect(empOn.persons[0].height).toBeGreaterThan(empOff.persons[0].height);
+
+    const deptOff = off.nodes.find((node) => node.type === NODE_DEPARTMENT);
+    const deptOn = on.nodes.find((node) => node.type === NODE_DEPARTMENT);
+    expect(deptOn.height).toBeGreaterThan(deptOff.height);
+  });
+
+  it("§2: диагностика подразделения содержит level, sub, layout и row", () => {
+    const text = formatLayoutDebugText({
+      level: 3,
+      actualManagerSubLevel: 4,
+      effectiveLayoutLevel: 4,
+      row: 2,
+    });
+    expect(text).toBe("level: 3 · sub: 4 · layout: 4 · row: 2");
+  });
+
+  it("§2.1: диагностика сотрудника содержит sub и заглушки layout/row", () => {
+    const text = formatLayoutDebugText({ subLevel: 6.2 });
+    expect(text).toBe("sub: 6.2 · layout: — · row: —");
+  });
+
+  it("§3.1: высота диагностической строки растёт при переносе текста", () => {
+    const data = { level: 4, actualManagerSubLevel: 4.1, effectiveLayoutLevel: 4, row: 2 };
+    const wide = measureLayoutDebugHeight(data, 350);
+    const narrow = measureLayoutDebugHeight(data, 120);
+    expect(wide).toBeGreaterThan(0);
+    expect(narrow).toBeGreaterThan(wide);
   });
 });

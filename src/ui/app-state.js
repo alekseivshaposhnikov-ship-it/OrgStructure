@@ -24,7 +24,10 @@ export function createAppState() {
     scenario: null,
     chart: null,
     selectedNode: null,
-    showVacancies: true,
+    // CR-023-01 §4: вакансии скрыты по умолчанию (включаются переключателем).
+    showVacancies: false,
+    // CR-023-01 §3: диагностика уровней скрыта по умолчанию.
+    showLevels: false,
     cardDesign: normalizeCardDesign(localStorage.getItem("orgCardDesign")),
     cardWidth: Number(localStorage.getItem("orgCardWidth")) || 350,
     viewMode: "to-be",

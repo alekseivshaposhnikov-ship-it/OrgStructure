@@ -252,20 +252,22 @@ button:hover {
 }
 
 .chart-card__layout-debug {
-  position: absolute;
-  left: 10px;
-  bottom: 8px;
-  max-width: calc(100% - 90px);
+  /* CR-023-01 §3.1, §5.5: строка диагностики — в потоке, под содержимым
+     карточки, без наложения; высота карточки пересчитывается в layout
+     (measureLayoutDebugHeight). При выключенном переключателе не рендерится. */
+  margin-top: 3px;
+  padding: 0 44px 0 2px;
+  max-width: 100%;
   font-size: 9px;
+  line-height: 12px;
   font-weight: 400;
   color: #98a2b3;
   letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  opacity: 0.7;
+  text-align: left;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  opacity: 0.85;
   pointer-events: none;
-  z-index: 3;
 }
 
 /* Единый layout (CR007) */

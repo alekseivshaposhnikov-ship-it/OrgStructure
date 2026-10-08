@@ -11,6 +11,7 @@ import { exportCompactA4ToPdf, exportOrgChartToPdf } from "../export/pdf-d3-expo
 import { VIEW_MODE_TITLES } from "../core/constants.js";
 import { openEmployeeDetails } from "./employee-modal.js";
 import { openContextMenu } from "./scenario-actions.js";
+import { layoutDebugConfig } from "../rendering/chart-cards.js";
 
 export function initExportHandler(state) {
   document.getElementById("exportPdf")?.addEventListener("click", () => {
@@ -109,6 +110,9 @@ export function buildScreenLayoutOptions(state) {
   return {
     ...COMPACT_LAYOUT_OPTIONS,
     groupByPosition: state.cardDesign === "grouped",
+    // CR-023-01 §3: диагностика уровней управляется отдельным переключателем;
+    // геометрия карточек учитывает высоту диагностической строки.
+    showLevels: Boolean(state.showLevels),
   };
 }
 
@@ -155,6 +159,10 @@ export function getChartRootNode(state) {
  */
 export function renderScreenOrgChart(state, deps = {}) {
   if (!state.selectedNode) return;
+
+  // CR-023-01 §3: диагностическая строка рендерится только при включённом
+  // переключателе «Показывать уровни»; переключение происходит без перезагрузки JSON.
+  layoutDebugConfig.enabled = Boolean(state.showLevels);
 
   const rootNode = getChartRootNode(state);
   const rootNodes = [rootNode];

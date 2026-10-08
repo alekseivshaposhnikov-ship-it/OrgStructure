@@ -341,5 +341,46 @@ describe('chart-cards.js', () => {
 
       expect(html).not.toContain('Дрожжина Анжела');
     });
+
+    it('выводит level подразделения в диагностической строке (CR-023-01 §2.2)', () => {
+      const html = renderNodeContent(
+        makeDepartmentNode({ managerSubLevel: 4, effectiveLayoutLevel: 4, row: 2, level: 3 }),
+      );
+      expect(html).toContain('level: 3');
+      expect(html).toContain('sub: 4');
+    });
+
+    it('выводит диагностику в групповой карточке (CR-023-01 §2.3)', () => {
+      const html = renderNodeContent({
+        id: 'employee-group-1',
+        isGroup: true,
+        position: 'Специалист технической поддержки',
+        subLevel: 6.4,
+        members: [
+          { id: 'm1', displayName: 'Исаев Евгений' },
+          { id: 'm2', displayName: 'Иванченко Павел' },
+          { id: 'm3', displayName: 'Соловьёв Рафаэль' },
+        ],
+      });
+      expect(html).toContain('chart-card__layout-debug');
+      expect(html).toContain('sub: 6.4');
+      expect(html).toContain('Исаев Евгений');
+      expect(html).toContain('Соловьёв Рафаэль');
+    });
+
+    it('не выводит диагностику групповой карточки при выключенном флаге (CR-023-01 §3)', () => {
+      layoutDebugConfig.enabled = false;
+      const html = renderNodeContent({
+        id: 'employee-group-1',
+        isGroup: true,
+        position: 'Специалист',
+        subLevel: 6.4,
+        members: [
+          { id: 'm1', displayName: 'Исаев Евгений' },
+          { id: 'm2', displayName: 'Иванченко Павел' },
+        ],
+      });
+      expect(html).not.toContain('chart-card__layout-debug');
+    });
   });
 });

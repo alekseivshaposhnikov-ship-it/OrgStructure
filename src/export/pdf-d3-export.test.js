@@ -1098,4 +1098,20 @@ describe("PDF export: группировка по должности (CR-023 §9
     expect(texts.some((t) => t.includes("Дрожжина"))).toBe(false);
     expect(texts.some((t) => t.includes("Пермяков"))).toBe(false);
   });
+
+  it("экспортирует диагностические показатели при showLevels (CR-023-01 §8.4)", () => {
+    const layout = buildPdfLayout(groupRoot(), {
+      groupByPosition: true,
+      measureContent: true,
+      showLevels: true,
+    });
+    const svg = renderUnifiedLayoutToPdf(layout, { showLevels: true });
+    const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
+
+    // Диагностика подразделения содержит level; группы — sub.
+    expect(texts.some((t) => t.includes("level:"))).toBe(true);
+    expect(texts.some((t) => t.includes("sub:"))).toBe(true);
+    // Скрытие диагностики не ломает экспорт ФИО.
+    expect(texts.some((t) => t.includes("Дрожжина"))).toBe(true);
+  });
 });

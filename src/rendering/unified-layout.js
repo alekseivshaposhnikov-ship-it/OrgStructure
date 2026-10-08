@@ -76,6 +76,10 @@ const DEFAULT_OPTIONS = {
   // перенос длинных должностей). По умолчанию выключено — сохраняет прежнюю
   // геометрию для существующих сценариев/тестов; приложение включает его.
   measureContent: false,
+  // CR-023-01 §3: диагностические показатели (sub_level / layout / row / level)
+  // включаются отдельным переключателем «Показывать уровни». По умолчанию
+  // выключено — диагностика не резервирует место и не влияет на геометрию.
+  showLevels: false,
   // Ролевая presentation для PDF (CR-003-02): department-card получает
   // динамическую высоту по числу должностей. По умолчанию выключено —
   // не влияет на экран и detailed-режим.
@@ -95,6 +99,10 @@ const DEFAULT_OPTIONS = {
 export const CARD_METRICS = {
   paddingX: 8,
   paddingY: 6,
+  // CR-023-01 §5.3: рамка карточки (2px сверху и снизу, border-box) входит в
+  // фактическую высоту, поэтому измерение обязано её учитывать, иначе контент
+  // обрезается `.chart-card { overflow: hidden }`.
+  borderY: 2,
   nameFont: 13,
   nameLine: 16,
   positionFont: 11,
@@ -103,8 +111,20 @@ export const CARD_METRICS = {
   projectLine: 13,
   groupHeaderFont: 12,
   groupHeaderLine: 15,
+  // `.chart-card__group-members { margin-top: 3px }` — отступ от заголовка к ФИО.
+  groupHeaderGap: 3,
+  // `.chart-card__group-member { padding: 1px ... }` — внутренний отступ строки ФИО.
+  memberPaddingY: 1,
+  // margin/gap между отдельными элементами карточки сотрудника и между ФИО.
   memberGap: 3,
   minHeight: 44,
+  // Диагностическая строка (CR-023-01 §3.1): компактный шрифт 9px / line 12px.
+  debugFont: 9,
+  debugLine: 12,
+  debugMarginTop: 3,
+  // Резерв по бокам диагностической строки (внутренние отступы карточки +
+  // место под счётчик сотрудников справа). Совпадает с CSS .chart-card__layout-debug.
+  debugSideGap: 31,
 };
 
 /**
@@ -129,8 +149,9 @@ export function measureTextLines(text, maxWidth, fontSize, charWidthFactor = 0.5
 
 /** Высота одиночной карточки сотрудника/вакансии по содержимому (CR-023 §6.2). */
 export function measureEmployeeCardHeight(data, cardWidth, metrics = CARD_METRICS) {
-  const contentWidth = Math.max(40, cardWidth - metrics.paddingX * 2);
-  let height = metrics.paddingY;
+  const contentWidth = Math.max(40, cardWidth - metrics.paddingX * 2 - metrics.borderY * 2);
+  // border-box: рамка и внутренние отступы входят в фактическую высоту карточки.
+  let height = (metrics.paddingY + metrics.borderY) * 2;
 
   height +=
     measureTextLines(data.displayName || data.name, contentWidth, metrics.nameFont) *
@@ -150,31 +171,82 @@ export function measureEmployeeCardHeight(data, cardWidth, metrics = CARD_METRIC
       measureTextLines(project, contentWidth, metrics.projectFont) * metrics.projectLine;
   }
 
-  height += metrics.paddingY;
   return Math.max(height, metrics.minHeight);
 }
 
 /** Высота групповой карточки: заголовок должности + строки ФИО (CR-023 §5, §6.2). */
 export function measureGroupCardHeight(data, cardWidth, metrics = CARD_METRICS) {
-  const contentWidth = Math.max(40, cardWidth - metrics.paddingX * 2);
+  const contentWidth = Math.max(40, cardWidth - metrics.paddingX * 2 - metrics.borderY * 2);
   // Правая часть заголовка занята счётчиком сотрудников — текст должности
   // переносится в пределах оставшейся ширины.
   const headerWidth = Math.max(40, contentWidth * 0.72);
 
-  let height = metrics.paddingY;
+  // CR-023-01 §5.3: border-box — рамка + внутренние отступы.
+  let height = (metrics.paddingY + metrics.borderY) * 2;
   height +=
     measureTextLines(data.position, headerWidth, metrics.groupHeaderFont) *
     metrics.groupHeaderLine;
 
-  (data.members || []).forEach((member) => {
-    height +=
-      metrics.memberGap +
-      measureTextLines(member.displayName || member.name, contentWidth, metrics.nameFont) *
-        metrics.nameLine;
-  });
+  const members = Array.isArray(data.members) ? data.members : [];
+  if (members.length) {
+    // `.chart-card__group-members { margin-top: 3px }` + строки ФИО (padding + line).
+    height += metrics.groupHeaderGap;
+    members.forEach((member, index) => {
+      if (index > 0) height += metrics.memberGap;
+      const nameLines = Math.max(
+        1,
+        measureTextLines(member.displayName || member.name, contentWidth, metrics.nameFont),
+      );
+      // `.chart-card__group-member { padding: 1px ... }` + name line-height 16px.
+      height += metrics.memberPaddingY * 2 + nameLines * metrics.nameLine;
+    });
+  }
 
-  height += metrics.paddingY;
   return Math.max(height, metrics.minHeight);
+}
+
+/**
+ * Текст диагностической строки (CR-010, CR-023-01 §2). Единый источник формата
+ * для экранного рендера (chart-cards.js) и для измерения высоты в layout.
+ * - sub — реальный sub_level сущности (руководителя/сотрудника);
+ * - layout — вычисленный effectiveLayoutLevel;
+ * - row — фактическая визуальная строка;
+ * - level — фактическая глубина подразделения (только для подразделений).
+ * Отсутствующее значение обозначается «—». compact — короткий формат Compact A4.
+ */
+export function formatLayoutDebugText(nd, { compact = false } = {}) {
+  if (!nd) return "";
+
+  const actual = nd.actualManagerSubLevel ?? nd.managerSubLevel ?? nd.subLevel;
+  const sub =
+    Number.isFinite(actual) && actual !== MAX_SUBLEVEL ? String(actual) : "—";
+  const eff = nd.effectiveLayoutLevel ?? "—";
+  const row = nd.row ?? "—";
+  const level = Number.isFinite(nd.level) ? nd.level : null;
+
+  if (level !== null) {
+    return compact
+      ? `lvl:${level} s:${sub} l:${eff} r:${row}`
+      : `level: ${level} · sub: ${sub} · layout: ${eff} · row: ${row}`;
+  }
+
+  return compact
+    ? `s:${sub} l:${eff} r:${row}`
+    : `sub: ${sub} · layout: ${eff} · row: ${row}`;
+}
+
+/**
+ * Высота диагностической строки по её фактическому содержимому (CR-023-01 §5.5):
+ * шрифт 9px, line 12px, перенос допускается с пересчётом высоты. Возвращает 0,
+ * если диагностика выключена — блок не занимает место.
+ */
+export function measureLayoutDebugHeight(data, cardWidth, metrics = CARD_METRICS) {
+  const text = formatLayoutDebugText(data);
+  if (!text) return 0;
+
+  const available = Math.max(40, cardWidth - metrics.debugSideGap * 2);
+  const lines = measureTextLines(text, available, metrics.debugFont);
+  return metrics.debugMarginTop + lines * metrics.debugLine;
 }
 
 
@@ -270,6 +342,9 @@ function makePersonEntry(presentation, departmentNode, index) {
         name: presentation.position,
         position: presentation.position,
         memberCount: members.length,
+        // CR-023-01 §2.3: диагностика группы выводится один раз — sub_level
+        // берётся у представителя группы (первого участника).
+        subLevel: members[0]?.subLevel,
         members,
       },
     };
@@ -368,10 +443,13 @@ export function buildLayoutTree(
     return assistants.map((assistant) => makeAssistantNode(assistant));
   }
 
-  function buildDepartment(node, _isRoot) {
+  function buildDepartment(node, depth = 0) {
     const data = {
       id: node.department_guid || node.id,
       isDepartment: true,
+      // CR-023-01 §2.2: фактическая глубина подразделения в дереве (не sub_level
+      // сотрудника). Выводится в диагностической строке карточки подразделения.
+      level: Number.isFinite(depth) ? depth : 0,
       name: node.department_name || node.name || "Без названия",
       headName: node.department_manager || "",
       headPosition: node.department_manager_position || "",
@@ -462,7 +540,7 @@ export function buildLayoutTree(
     }
 
     (node.children || []).forEach((child) => {
-      children.push(buildDepartment(child, false));
+      children.push(buildDepartment(child, depth + 1));
     });
 
     const isCollapsed = collapsedIds ? collapsedIds.has(data.id) : false;
@@ -491,7 +569,7 @@ export function buildLayoutTree(
     return { type: NODE_DEPARTMENT, data, children, assistantPlacement };
   }
 
-  return buildDepartment(rootNode, true);
+  return buildDepartment(rootNode, 0);
 }
 
 /**
@@ -655,7 +733,12 @@ function computeSizes(node, opts) {
           opts.rolesDepartmentPadding;
       }
     } else {
-      node.height = opts.departmentHeight;
+      // CR-023-01 §5.5: при включённой диагностике высота карточки подразделения
+      // увеличивается на фактическую высоту диагностической строки, чтобы она
+      // размещалась под содержимым без обрезания.
+      node.height =
+        opts.departmentHeight +
+        (opts.showLevels ? measureLayoutDebugHeight(node.data, node.width, opts.cardMetrics || CARD_METRICS) : 0);
     }
   } else if (node.type === NODE_ASSISTANT) {
     // Sidecar-карточка ассистента (CR-013_assistant §6, §9): компактный размер.
@@ -675,15 +758,23 @@ function computeSizes(node, opts) {
     node.persons.forEach((person) => {
       person.width = opts.employeeWidth;
 
+      // CR-023-01 §5.5: диагностика включена — карточка получает дополнительную
+      // высоту по фактическому содержимому диагностической строки.
+      const debugHeight = opts.showLevels
+        ? measureLayoutDebugHeight(person.data, opts.employeeWidth, metrics)
+        : 0;
+
       if (person.type === "group") {
         // CR-023 §5, §7: высота групповой карточки — по фактическому
         // содержимому (заголовок должности + строки ФИО).
-        person.height = measureGroupCardHeight(person.data, opts.employeeWidth, metrics);
+        person.height =
+          measureGroupCardHeight(person.data, opts.employeeWidth, metrics) + debugHeight;
       } else if (opts.measureContent) {
         // CR-023 §6.2: высота одиночной карточки — по содержимому.
-        person.height = measureEmployeeCardHeight(person.data, opts.employeeWidth, metrics);
+        person.height =
+          measureEmployeeCardHeight(person.data, opts.employeeWidth, metrics) + debugHeight;
       } else {
-        person.height = opts.employeeHeight;
+        person.height = opts.employeeHeight + debugHeight;
       }
     });
 
