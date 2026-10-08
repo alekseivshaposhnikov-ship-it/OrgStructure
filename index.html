@@ -27,8 +27,38 @@
         </button>
       </div>
 
+      <div class="employee-search">
+        <input
+          id="employeeSearch"
+          type="text"
+          class="employee-search__input"
+          placeholder="Найти сотрудника по ФИО"
+          autocomplete="off"
+          aria-label="Найти сотрудника по ФИО"
+        />
+        <button
+          id="searchClear"
+          type="button"
+          class="employee-search__clear"
+          aria-label="Очистить поиск"
+        >
+          ×
+        </button>
+        <button
+          id="searchReturn"
+          type="button"
+          class="employee-search__return hidden"
+        ></button>
+        <div id="searchResults" class="search-results hidden"></div>
+      </div>
+
       <div class="controls">
         <button id="exportPdf">📄 Экспорт в PDF</button>
+
+        <div class="expand-controls">
+          <button id="expandAll" type="button" class="button-secondary">Развернуть всё</button>
+          <button id="collapseAll" type="button" class="button-secondary">Свернуть всё</button>
+        </div>
 
         <label class="vacancy-toggle">
           <input id="exportWithoutNames" type="checkbox" />
@@ -104,10 +134,22 @@
       <div id="orgChart"></div>
     </div>
 
-    <aside class="changes-panel">
+    <button id="changesToggle" type="button" class="changes-toggle hidden">
+      Изменения · 0
+    </button>
+
+    <aside id="changesPanel" class="changes-panel hidden">
       <div class="changes-panel__header">
         <h2>Изменения</h2>
         <span id="changesCount">0</span>
+        <button
+          id="changesPanelClose"
+          type="button"
+          class="changes-panel__close"
+          aria-label="Закрыть панель изменений"
+        >
+          ×
+        </button>
       </div>
       <div id="changesList" class="changes-list"></div>
     </aside>

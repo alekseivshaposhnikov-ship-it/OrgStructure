@@ -14,6 +14,15 @@ import {
 } from "./unified-layout.js";
 import { renderNodeContent } from "./chart-cards.js";
 import { createChartViewport } from "./screen-viewport.js";
+import {
+  createExpandState,
+  departmentIdOf,
+  hiddenEmployeeIds,
+  expandBranch,
+  collapseBranch,
+  expandAll as expandAllState,
+  collapseAll as collapseAllState,
+} from "../domain/expand-state.js";
 
 // CR-015 §22-26: toggle привязан к layout-геометрии (baseline visual row +
 // TOGGLE_GAP), а не к переменной content height. Основной источник —
@@ -177,6 +186,12 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     // CR-013 §22: явный список дирекций для initial collapse (leadership-проекция
     // Холдинга: дирекции под executive-узлами). Имеет приоритет над collapseTopLevel.
     initialCollapsedIds = null,
+    // CR-024 §2.5: внешнее состояние раскрытия (переживает пересоздание renderer).
+    expandState = null,
+    // CR-024 §2.2: сотрудники управляются отдельно и скрыты по умолчанию.
+    collapseEmployees = false,
+    // CR-024 §2.2: дополнительная высота карточки подразделения под кнопку.
+    employeesToggleHeight = 22,
   } = options;
 
   const cardOptions = { cardDesign, showVacancies, viewMode };
@@ -184,7 +199,11 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
   const state = {
     container,
     rootNodes,
-    collapsedIds: new Set(),
+    // CR-024 §2.5: состояние раскрытия подразделений/сотрудников. Внешнее
+    // состояние переиспользуется между рендерами, иначе создаётся локальное.
+    expandState: expandState || createExpandState(),
+    collapseEmployees,
+    employeesToggleHeight,
     layout: null,
     svg: null,
     zoomLayer: null,
@@ -197,30 +216,42 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
 
   /**
    * CR-012 §6, §7: при выборе корня Холдинга все его непосредственные
-   * department children (дирекции) получают initial collapsed state —
-   * через существующий механизм collapsedIds. Сам корень не сворачивается.
-   * Выполняется один раз при создании renderer'а (повторный выбор Холдинга
-   * создаёт новый инстанс → снова дефолтное состояние, §12).
+   * department children (дирекции) получают initial collapsed state.
+   * CR-024 §2.5: seeding выполняется один раз на корень — повторный рендер
+   * того же корня (поиск, фильтры, вакансии) сохраняет состояние раскрытия.
    */
   function initCollapsedIds() {
+    const rootId = rootNodes[0] ? departmentIdOf(rootNodes[0]) : "";
+    if (state.expandState.__seededRoot === rootId) return;
+
     // CR-013 §22: явный список дирекций (leadership-проекция Холдинга) —
     // имеет приоритет над «свернуть всех прямых детей root».
     if (Array.isArray(initialCollapsedIds) && initialCollapsedIds.length) {
       initialCollapsedIds.forEach((id) => {
-        if (id) state.collapsedIds.add(id);
+        if (id) state.expandState.childrenCollapsed.add(id);
       });
+      state.expandState.__seededRoot = rootId;
       return;
     }
 
-    if (!collapseTopLevel || !rootNodes || !rootNodes.length) return;
-    const root = rootNodes[0];
-    (root.children || []).forEach((child) => {
-      const id = child.department_guid || child.id;
-      if (id) state.collapsedIds.add(id);
-    });
+    if (collapseTopLevel && rootNodes && rootNodes.length) {
+      const root = rootNodes[0];
+      (root.children || []).forEach((child) => {
+        const id = departmentIdOf(child);
+        if (id) state.expandState.childrenCollapsed.add(id);
+      });
+    }
+
+    state.expandState.__seededRoot = rootId;
   }
 
   initCollapsedIds();
+
+  /** CR-024 §2.2: скрытые сотрудники — все подразделения без «Сотрудники» открыто. */
+  function computeHiddenEmployeeIds() {
+    if (!state.collapseEmployees) return null;
+    return hiddenEmployeeIds(state.expandState, rootNodes);
+  }
 
   function buildLayout() {
     state.layout = computeUnifiedLayout(rootNodes[0], {
@@ -240,7 +271,9 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
       paddingY,
       measureContent,
       groupByPosition,
-      collapsedIds: state.collapsedIds,
+      collapsedIds: state.expandState.childrenCollapsed,
+      hiddenEmployeeIds: computeHiddenEmployeeIds(),
+      employeesToggleHeight: state.employeesToggleHeight,
     });
   }
 
@@ -441,18 +474,100 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     return { render() {} };
   }
 
+  /**
+   * Основное действие toggle (CR-024 §2.1): раскрытие следующего уровня —
+   * показ только непосредственных дочерних подразделений.
+   */
   function toggleCollapse(id) {
     // CR-011 §10: до rerender зафиксировать viewport и якорь
     // (карточка, по которой нажали collapse/expand).
     captureViewport();
     captureAnchor(id);
 
-    if (state.collapsedIds.has(id)) {
-      state.collapsedIds.delete(id);
+    if (state.expandState.childrenCollapsed.has(id)) {
+      state.expandState.childrenCollapsed.delete(id);
     } else {
-      state.collapsedIds.add(id);
+      state.expandState.childrenCollapsed.add(id);
     }
     render();
+  }
+
+  /**
+   * CR-024 §2.2: независимое переключение видимости сотрудников подразделения.
+   * Сотрудники при этом не влияют на раскрытие дочерних подразделений.
+   */
+  function toggleEmployees(id) {
+    captureViewport();
+    captureAnchor(id);
+
+    if (state.expandState.employeesExpanded.has(id)) {
+      state.expandState.employeesExpanded.delete(id);
+    } else {
+      state.expandState.employeesExpanded.add(id);
+    }
+    render();
+  }
+
+  /** CR-024 §2.1: раскрыть только непосредственные дочерние подразделения. */
+  function expandNextLevel(id) {
+    captureViewport();
+    captureAnchor(id);
+    state.expandState.childrenCollapsed.delete(id);
+    render();
+  }
+
+  /** CR-024 §2.1: раскрыть / свернуть всю ветку подразделения. */
+  function expandBranchById(id) {
+    captureViewport();
+    captureAnchor(id);
+    expandBranch(state.expandState, rootNodes[0], id);
+    render();
+  }
+
+  function collapseBranchById(id) {
+    captureViewport();
+    captureAnchor(id);
+    collapseBranch(state.expandState, rootNodes[0], id);
+    render();
+  }
+
+  /** CR-024 §2.4: развернуть / свернуть всю организационную структуру. */
+  function expandAll() {
+    captureViewport();
+    expandAllState(state.expandState, rootNodes);
+    render();
+  }
+
+  function collapseAll() {
+    captureViewport();
+    collapseAllState(state.expandState, rootNodes);
+    render();
+  }
+
+  /**
+   * CR-024 §4: раскрыть путь до сотрудника и сфокусировать его карточку.
+   * @param {string[]} departmentPathIds - id подразделений от корня до листа
+   * @param {string} focusId - id карточки для центрирования (сотрудник/департамент)
+   * @param {string} [employeesDeptId] - подразделение, чьи сотрудники раскрываются
+   */
+  function revealPath(departmentPathIds = [], focusId, employeesDeptId) {
+    const pathIds = Array.isArray(departmentPathIds)
+      ? departmentPathIds.filter(Boolean)
+      : [];
+    pathIds.forEach((id) => state.expandState.childrenCollapsed.delete(id));
+
+    // employeesDeptId === null — сотрудники не раскрываются (например, руководитель
+    // подразделения фокусируется на карточке подразделения).
+    const employeeDept =
+      employeesDeptId === undefined
+        ? pathIds.length
+          ? pathIds[pathIds.length - 1]
+          : null
+        : employeesDeptId;
+    if (employeeDept) state.expandState.employeesExpanded.add(employeeDept);
+
+    render();
+    if (focusId) setCentered(focusId);
   }
 
   render();
@@ -461,10 +576,20 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     get flatData() {
       return state.layout ? state.layout.flatData : [];
     },
+    get expandState() {
+      return state.expandState;
+    },
     fit,
     setCentered,
     render,
     toggleCollapse,
+    toggleEmployees,
+    expandNextLevel,
+    expandBranch: expandBranchById,
+    collapseBranch: collapseBranchById,
+    expandAll,
+    collapseAll,
+    revealPath,
   };
 }
 

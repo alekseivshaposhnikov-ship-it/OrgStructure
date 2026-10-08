@@ -4,6 +4,8 @@
  * Заменяет набор глобальных переменных в main.js.
  */
 
+import { createExpandState } from "../domain/expand-state.js";
+
 // CR-023 §3: в приложении остаются только два режима дизайна карточек —
 // «Текущий» (classic) и «Группировка по должности» (grouped).
 export const ALLOWED_CARD_DESIGNS = ["classic", "grouped"];
@@ -32,5 +34,8 @@ export function createAppState() {
     cardWidth: Number(localStorage.getItem("orgCardWidth")) || 350,
     viewMode: "to-be",
     isOrgChartDelegationBound: false,
+    // CR-024 §2.5: состояние раскрытия подразделений/сотрудников хранится по
+    // стабильному id и переживает перерисовки (поиск, фильтры, вакансии).
+    expandState: createExpandState(),
   };
 }

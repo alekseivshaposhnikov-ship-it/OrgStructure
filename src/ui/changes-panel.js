@@ -25,9 +25,13 @@ export function renderChangesList(scenario, onFocus) {
   const list = document.getElementById("changesList");
   const count = document.getElementById("changesCount");
 
-  if (!list || !count) return;
+  if (count) {
+    count.textContent = String(scenario.operations.length);
+  }
 
-  count.textContent = String(scenario.operations.length);
+  renderChangesBadge(scenario.operations.length);
+
+  if (!list) return;
 
   if (!scenario.operations.length) {
     list.innerHTML = `<div class="changes-list__empty">Изменений пока нет</div>`;
@@ -57,6 +61,44 @@ export function renderChangesList(scenario, onFocus) {
       onFocus?.(button.dataset.changeEntityId);
     });
   });
+}
+
+/**
+ * CR-024 §3.2: компактная кнопка «Изменения · N» и видимость панели.
+ * Если изменений нет — панель и кнопка не отображаются; если есть — кнопка
+ * со счётчиком доступна, панель открывается по нажатию.
+ * @param {number} count
+ */
+export function renderChangesBadge(count) {
+  const total = Number(count) || 0;
+  const toggle = document.getElementById("changesToggle");
+
+  if (toggle) {
+    toggle.textContent = `Изменения · ${total}`;
+    toggle.classList.toggle("hidden", total === 0);
+  }
+
+  // Последнее изменение отменено → панель автоматически закрывается (CR-024 §3.3).
+  if (total === 0) {
+    document.getElementById("changesPanel")?.classList.add("hidden");
+  }
+}
+
+/** CR-024 §3.2: открыть панель изменений справа (overlay). */
+export function openChangesPanel() {
+  document.getElementById("changesPanel")?.classList.remove("hidden");
+}
+
+/** CR-024 §3.2: закрыть панель; кнопка со счётчиком остаётся. */
+export function closeChangesPanel() {
+  document.getElementById("changesPanel")?.classList.add("hidden");
+}
+
+/** CR-024 §3.2: переключить панель изменений. */
+export function toggleChangesPanel() {
+  const panel = document.getElementById("changesPanel");
+  if (!panel) return;
+  panel.classList.toggle("hidden");
 }
 
 export function focusEntity(entityId, chart) {

@@ -12,15 +12,35 @@ import { VIEW_MODE_TITLES } from "../core/constants.js";
 import { openEmployeeDetails } from "./employee-modal.js";
 import { openContextMenu } from "./scenario-actions.js";
 import { layoutDebugConfig } from "../rendering/chart-cards.js";
+import { buildSearchIndex } from "../domain/search-index.js";
+import { initEmployeeSearch } from "./search.js";
+import { findDepartmentById } from "../core/utils/tree.js";
+import { hiddenEmployeeIds } from "../domain/expand-state.js";
+
+/**
+ * CR-024 §2.1: операции раскрытия ветки в компактном меню подразделения.
+ * Основное действие (раскрытие следующего уровня) выполняет стандартный
+ * toggle-контрол карточки, поэтому в меню дублируются только веточные операции.
+ */
+export const EXPANSION_ACTIONS = [
+  { id: "expandNextLevel", label: "Раскрыть следующий уровень" },
+  { id: "expandBranch", label: "Развернуть всю ветку" },
+  { id: "collapseBranch", label: "Свернуть всю ветку" },
+];
+
+const EXPANSION_ACTION_IDS = new Set(EXPANSION_ACTIONS.map((a) => a.id));
 
 export function initExportHandler(state) {
   document.getElementById("exportPdf")?.addEventListener("click", () => {
     const exportWithoutNames =
       document.getElementById("exportWithoutNames")?.checked;
 
+    // CR-024 §5: PDF учитывает текущее состояние раскрытия структуры.
+    const chartRoot = getChartRootNode(state);
+
     const payload = {
       // CR-013 §31: PDF использует ту же holding hierarchy, что и экран.
-      rootNodes: [getChartRootNode(state)],
+      rootNodes: [chartRoot],
       title: getExportTitle(state.selectedNode),
       subtitle: getExportSubtitle({
         viewMode: state.viewMode,
@@ -39,7 +59,7 @@ export function initExportHandler(state) {
       assistantWidth: state.cardWidth,
       assistantHeight: 96,
       // CR-023 §9: PDF-геометрия и режим (группировка) соответствуют экрану.
-      layoutOptions: buildScreenLayoutOptions(state),
+      layoutOptions: buildPdfLayoutOptions(state, chartRoot),
     };
 
     if (state.cardDesign === "compact-a4") {
@@ -49,6 +69,21 @@ export function initExportHandler(state) {
 
     exportOrgChartToPdf(payload);
   });
+}
+
+/**
+ * CR-024 §5: опции layout для PDF — как у экрана, плюс текущее состояние
+ * раскрытия подразделений и видимости сотрудников. Если пользователь выбрал
+ * другой существующий режим экспорта (ролевой PDF), геометрия карточек не
+ * меняется — учитывается только раскрытие структуры.
+ */
+export function buildPdfLayoutOptions(state, rootNode) {
+  const options = buildScreenLayoutOptions(state);
+  if (state.expandState) {
+    options.collapsedIds = state.expandState.childrenCollapsed;
+    options.hiddenEmployeeIds = hiddenEmployeeIds(state.expandState, [rootNode]);
+  }
+  return options;
 }
 
 export function getExportTitle(selectedNode) {
@@ -202,6 +237,10 @@ export function renderScreenOrgChart(state, deps = {}) {
     employeeHeight: 96,
     // CR-023 §6-7: компактная геометрия + presentation-группировка.
     ...buildScreenLayoutOptions(state),
+    // CR-024 §2.2, §2.5: пошаговое раскрытие + состояние раскрытия выше lifecycle.
+    expandState: state.expandState,
+    collapseEmployees: true,
+    employeesToggleHeight: 22,
     collapseTopLevel,
     initialCollapsedIds,
   });
@@ -224,6 +263,16 @@ export function bindOrgChartDelegatedEvents(state, deps = {}) {
   state.isOrgChartDelegationBound = true;
 
   container.addEventListener("click", (event) => {
+    // CR-024 §2.2: компактная кнопка «Сотрудники · N» на карточке подразделения
+    // независимо раскрывает/скрывает список сотрудников.
+    const employeesToggle = event.target.closest("[data-employees-toggle]");
+    if (employeesToggle) {
+      event.preventDefault();
+      event.stopPropagation();
+      state.chart?.toggleEmployees(employeesToggle.dataset.employeesToggle);
+      return;
+    }
+
     const menuButton = event.target.closest("[data-scenario-menu]");
 
     if (menuButton) {
@@ -243,11 +292,20 @@ export function bindOrgChartDelegatedEvents(state, deps = {}) {
         y: event.clientY,
         node,
         nodeType,
-        onAction: (action, targetNode) => deps.onScenarioAction?.(action, targetNode),
+        // CR-024 §2.1: веточные операции раскрытия в меню подразделения.
+        extraActions: nodeType === "department" ? EXPANSION_ACTIONS : [],
+        onAction: (action, targetNode) => {
+          if (EXPANSION_ACTION_IDS.has(action)) {
+            handleExpansionAction(state, action, nodeId);
+            return;
+          }
+          deps.onScenarioAction?.(action, targetNode);
+        },
       });
 
       return;
     }
+
 
     const assistantCard = event.target.closest("[data-assistant-id]");
     if (assistantCard) {
@@ -277,4 +335,107 @@ export function bindOrgChartDelegatedEvents(state, deps = {}) {
       openEmployeeDetails(employee);
     }
   });
+}
+
+/**
+ * CR-024 §2.1: применяет веточную операцию раскрытия к диаграмме.
+ * @param {object} state
+ * @param {string} action - expandNextLevel | expandBranch | collapseBranch
+ * @param {string} id - id подразделения
+ */
+export function handleExpansionAction(state, action, id) {
+  const chart = state.chart;
+  if (!chart || !id) return;
+
+  if (action === "expandNextLevel") chart.expandNextLevel?.(id);
+  else if (action === "expandBranch") chart.expandBranch?.(id);
+  else if (action === "collapseBranch") chart.collapseBranch?.(id);
+}
+
+/** CR-024 §2.4: глобальные кнопки «Развернуть всё» / «Свернуть всё». */
+export function initExpandControls(state) {
+  document
+    .getElementById("expandAll")
+    ?.addEventListener("click", () => state.chart?.expandAll?.());
+  document
+    .getElementById("collapseAll")
+    ?.addEventListener("click", () => state.chart?.collapseAll?.());
+}
+
+/** CR-024 §4.4: кратковременная подсветка найденной карточки. */
+export function highlightSearchCard(focusId) {
+  const container = document.getElementById("orgChart");
+  if (!container || !focusId) return;
+  const selector = `[data-employee-id="${focusId}"], [data-node-id="${focusId}"]`;
+  const card = container.querySelector(selector);
+  if (!card) return;
+
+  card.classList.add("search-hit");
+  setTimeout(() => card.classList.remove("search-hit"), 2400);
+}
+
+function focusSearchEntry(state, entry) {
+  const chart = state.chart;
+  if (!chart || !entry) return;
+  // CR-024 §4.6: группировка не разрушается — раскрывается подразделение, а
+  // строка найденного сотрудника подсвечивается по его собственному id.
+  chart.revealPath?.(
+    entry.pathIds,
+    entry.focusId,
+    entry.isManager ? null : entry.departmentId,
+  );
+  highlightSearchCard(entry.focusId);
+}
+
+/**
+ * CR-024 §4: подключает глобальный поиск к верхней панели приложения.
+ *
+ * @param {object} state
+ * @param {object} deps
+ * @param {Function} deps.getTree - () => текущее дерево (для индекса и навигации)
+ * @param {Function} [deps.renderApp] - перерисовка приложения после смены фильтра
+ * @param {object} [deps.elements] - override DOM-элементов (для тестов)
+ */
+export function initSearchControls(state, deps = {}) {
+  const { getTree, renderApp, elements } = deps;
+  let cachedTree = null;
+  let cachedIndex = null;
+
+  function getIndex() {
+    const tree = getTree ? getTree() : state.sourceTree;
+    if (tree !== cachedTree) {
+      cachedTree = tree;
+      cachedIndex = buildSearchIndex(tree || []);
+    }
+    return cachedIndex;
+  }
+
+  const controller = initEmployeeSearch({
+    getIndex,
+    getSelectedNode: () => state.selectedNode,
+    onSelect: (entry) => focusSearchEntry(state, entry),
+    onNavigate: (entry) => {
+      // CR-024 §4.5: сохранить текущий фильтр и перейти к нужной ветке.
+      const previous = state.selectedNode;
+      const tree = getTree ? getTree() : state.sourceTree;
+      const target =
+        findDepartmentById(tree || [], entry.pathIds[0]) ||
+        findDepartmentById(tree || [], entry.departmentId);
+      if (!target) return;
+
+      state.selectedNode = target;
+      renderApp?.();
+      focusSearchEntry(state, entry);
+
+      controller.setReturn("← Вернуться к фильтру", () => {
+        state.selectedNode = previous;
+        renderApp?.();
+        controller.setReturn(null, null);
+      });
+    },
+    elements,
+  });
+
+  state.searchController = controller;
+  return controller;
 }

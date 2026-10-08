@@ -38,6 +38,7 @@ export default [
         AbortSignal: "readonly",
         fetch: "readonly",
         setTimeout: "readonly",
+        clearTimeout: "readonly",
         Intl: "readonly",
         navigator: "readonly",
         FormData: "readonly",
@@ -49,6 +50,7 @@ export default [
         Node: "readonly",
         Event: "readonly",
         CustomEvent: "readonly",
+        KeyboardEvent: "readonly",
         WheelEvent: "readonly",
         XMLHttpRequest: "readonly",
         // Vitest (globals: true)

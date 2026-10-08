@@ -243,6 +243,7 @@ function renderDepartmentClassic(nd, showVacancies, viewMode) {
       ${nd.headPosition ? `<div class="chart-card__manager-position">${escapeHtml(nd.headPosition)}</div>` : ""}
       ${renderLayoutDebug(nd)}
       ${renderAssistant(nd.assistant)}
+      ${renderEmployeesToggle(nd)}
       <div class="chart-card__count ${showVacancies ? "count-with-vacancies" : ""}">
         ${getDisplayCount(nd, showVacancies)}
       </div>
@@ -425,6 +426,23 @@ function renderProject(nd) {
     <div class="chart-card__project">
       <span>Проект:</span> ${escapeHtml(project)}
     </div>
+  `;
+}
+
+/**
+ * CR-024 §2.2: компактная кнопка «Сотрудники · N» вместо колонки сотрудников.
+ * Рендерится на карточке подразделения, когда сотрудники этого подразделения
+ * свернуты. Клик раскрывает/скрывает список сотрудников (обрабатывает
+ * экранный renderer через делегирование события data-employees-toggle).
+ */
+export function renderEmployeesToggle(nd) {
+  if (!nd.employeesCollapsed || !nd.employeeCount) return "";
+
+  return `
+    <button class="chart-card__employees-toggle" type="button"
+            data-employees-toggle="${escapeHtml(nd.id)}">
+      Сотрудники · ${nd.employeeCount}
+    </button>
   `;
 }
 

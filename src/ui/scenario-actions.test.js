@@ -184,6 +184,25 @@ describe("scenario-actions (Фаза 2/5)", () => {
       expect(onAction).toHaveBeenCalledWith("addDepartment", { id: "d1" });
       expect(document.querySelector(".scenario-context-menu")).toBeNull();
     });
+
+    it("должен добавлять extraActions (CR-024 раскрытие ветки) перед сценарными действиями", () => {
+      openContextMenu({
+        x: 0,
+        y: 0,
+        node: { id: "d1" },
+        nodeType: "department",
+        extraActions: [
+          { id: "expandNextLevel", label: "Раскрыть следующий уровень" },
+          { id: "expandBranch", label: "Развернуть всю ветку" },
+        ],
+        onAction: () => {},
+      });
+
+      const buttons = [...document.querySelectorAll(".scenario-context-menu button")];
+      expect(buttons.length).toBe(8);
+      expect(buttons[0].textContent.trim()).toBe("Раскрыть следующий уровень");
+      expect(buttons[1].textContent.trim()).toBe("Развернуть всю ветку");
+    });
   });
 });
 

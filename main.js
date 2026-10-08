@@ -24,9 +24,16 @@ import {
   focusEntity,
   openCompareModal,
   closeCompareModal,
+  openChangesPanel,
+  closeChangesPanel,
 } from "./src/ui/changes-panel.js";
 import { handleScenarioAction } from "./src/ui/scenario-actions.js";
-import { initExportHandler, renderScreenOrgChart } from "./src/ui/orgchart.js";
+import {
+  initExportHandler,
+  renderScreenOrgChart,
+  initExpandControls,
+  initSearchControls,
+} from "./src/ui/orgchart.js";
 
 const SCENARIO_PANEL_COLLAPSED_KEY = "orgScenarioPanelCollapsed";
 
@@ -60,6 +67,12 @@ async function initApp() {
 
     renderApp();
     initExportHandler(state);
+    // CR-024 §2.4: глобальные операции раскрытия.
+    initExpandControls(state);
+    // CR-024 §4: глобальный поиск по всей загруженной структуре.
+    initSearchControls(state, { getTree: getCurrentTree, renderApp });
+    // CR-024 §3: панель изменений как overlay со счётчиком.
+    initChangesPanel();
 
     const showVacanciesInput = document.getElementById("showVacancies");
     if (showVacanciesInput) {
@@ -112,6 +125,16 @@ function initCardWidthControl() {
     localStorage.setItem("orgCardWidth", String(state.cardWidth));
     renderApp();
   });
+}
+
+function initChangesPanel() {
+  // CR-024 §3.2: панель по умолчанию закрыта, открывается компактной кнопкой.
+  document
+    .getElementById("changesToggle")
+    ?.addEventListener("click", openChangesPanel);
+  document
+    .getElementById("changesPanelClose")
+    ?.addEventListener("click", closeChangesPanel);
 }
 
 function initScenarioPanelToggle() {

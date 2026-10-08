@@ -26,7 +26,7 @@ import {
   openMoveForm,
 } from "./scenario-forms.js";
 
-export function openContextMenu({ x, y, node, nodeType, onAction }) {
+export function openContextMenu({ x, y, node, nodeType, onAction, extraActions = [] }) {
   closeContextMenu();
 
   const menu = document.createElement("div");
@@ -34,7 +34,9 @@ export function openContextMenu({ x, y, node, nodeType, onAction }) {
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
 
-  const actions = getContextActions(nodeType);
+  // CR-024 §2.1: компактное меню подразделения может дополняться операциями
+  // раскрытия ветки (extraActions), которые не являются сценарными изменениями.
+  const actions = [...extraActions, ...getContextActions(nodeType)];
 
   menu.innerHTML = actions
     .map(

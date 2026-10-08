@@ -72,6 +72,13 @@ const DEFAULT_OPTIONS = {
   // CR-023: presentation-группировка сотрудников с одинаковой должностью
   // внутри одного подразделения (визуальное объединение, модель не меняется).
   groupByPosition: false,
+  // CR-024 §2.2: набор id подразделений, чьи сотрудники скрыты (сотрудники
+  // управляются отдельно от раскрытия подразделений). null — все видимы
+  // (сохраняет прежнее поведение для PDF и существующих сценариев).
+  hiddenEmployeeIds: null,
+  // CR-024 §2.2: дополнительная высота карточки подразделения под компактную
+  // кнопку «Сотрудники · N», когда сотрудники свернуты.
+  employeesToggleHeight: 0,
   // CR-023: расчёт высоты карточек по фактическому содержимому (включая
   // перенос длинных должностей). По умолчанию выключено — сохраняет прежнюю
   // геометрию для существующих сценариев/тестов; приложение включает его.
@@ -359,7 +366,12 @@ function makePersonEntry(presentation, departmentNode, index) {
  */
 export function buildLayoutTree(
   rootNode,
-  { showVacancies = true, collapsedIds = null, groupByPosition = false } = {},
+  {
+    showVacancies = true,
+    collapsedIds = null,
+    groupByPosition = false,
+    hiddenEmployeeIds = null,
+  } = {},
 ) {
   // Универсальная привязка ассистентов (CR-013_fix §9, §12; CR-013_assistant §12):
   // каждый assistant является sidecar-node своего непосредственного руководителя —
@@ -528,7 +540,29 @@ export function buildLayoutTree(
 
     const presentations = buildEmployeePresentations(users, { groupByPosition });
 
-    if (presentations.length) {
+    // CR-024 §2.2: число работающих сотрудников подразделения — для компактной
+    // кнопки «Сотрудники · N». Групповые presentation-элементы считаются по
+    // числу участников, вакансии это число не увеличивают.
+    const employeesCount = presentations.reduce(
+      (sum, presentation) =>
+        sum +
+        (presentation.type === "group"
+          ? presentation.members.length
+          : presentation.data?.isVacancy
+            ? 0
+            : 1),
+      0,
+    );
+    data.employeeCount = employeesCount;
+
+    // CR-024 §2.2: сотрудники управляются отдельно от раскрытия подразделений.
+    // Если для подразделения сотрудники свернуты — колонка сотрудников не
+    // создаётся, а карточка получает компактную кнопку «Сотрудники · N».
+    const employeesHidden = Boolean(
+      hiddenEmployeeIds && hiddenEmployeeIds.has(data.id),
+    );
+
+    if (presentations.length && !employeesHidden) {
       children.push({
         type: NODE_EMPLOYEES,
         // CR-023 §10: набор визуальных элементов — отдельные сотрудники либо
@@ -537,6 +571,8 @@ export function buildLayoutTree(
           makePersonEntry(presentation, node, index),
         ),
       });
+    } else if (employeesCount > 0) {
+      data.employeesCollapsed = true;
     }
 
     (node.children || []).forEach((child) => {
@@ -736,9 +772,12 @@ function computeSizes(node, opts) {
       // CR-023-01 §5.5: при включённой диагностике высота карточки подразделения
       // увеличивается на фактическую высоту диагностической строки, чтобы она
       // размещалась под содержимым без обрезания.
+      // CR-024 §2.2: при свернутых сотрудниках — дополнительная высота под
+      // компактную кнопку «Сотрудники · N».
       node.height =
         opts.departmentHeight +
-        (opts.showLevels ? measureLayoutDebugHeight(node.data, node.width, opts.cardMetrics || CARD_METRICS) : 0);
+        (opts.showLevels ? measureLayoutDebugHeight(node.data, node.width, opts.cardMetrics || CARD_METRICS) : 0) +
+        (node.data.employeesCollapsed ? opts.employeesToggleHeight || 0 : 0);
     }
   } else if (node.type === NODE_ASSISTANT) {
     // Sidecar-карточка ассистента (CR-013_assistant §6, §9): компактный размер.
@@ -1104,6 +1143,7 @@ export function computeUnifiedLayout(rootNode, options = {}) {
     showVacancies: opts.showVacancies,
     collapsedIds: opts.collapsedIds,
     groupByPosition: opts.groupByPosition,
+    hiddenEmployeeIds: opts.hiddenEmployeeIds,
   });
 
   assignActualLevels(tree);
