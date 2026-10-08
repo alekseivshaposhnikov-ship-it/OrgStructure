@@ -263,5 +263,83 @@ describe('chart-cards.js', () => {
       expect(html).toContain('Лихачева Екатерина');
       expect(html).not.toContain('Лихачева Екатерина Олеговна');
     });
+
+    it('должен рендерить групповую карточку: должность один раз, счётчик и ФИО (CR-023 §5)', () => {
+      const html = renderNodeContent({
+        id: 'employee-group-1',
+        isGroup: true,
+        isDepartment: false,
+        isVacancy: false,
+        isAssistant: false,
+        position: 'Главный инженер проекта',
+        memberCount: 3,
+        members: [
+          { id: 'm1', displayName: 'Дрожжина Анжела', position: 'Главный инженер проекта' },
+          { id: 'm2', displayName: 'Пермяков Александр', position: 'Главный инженер проекта' },
+          { id: 'm3', displayName: 'Пинигин Илья', position: 'Главный инженер проекта' },
+        ],
+      });
+
+      expect(html).toContain('chart-card--group');
+      expect(html).toContain('Главный инженер проекта');
+      expect(html).toContain('chart-card__group-count');
+      expect(html).toContain('>3<');
+      expect(html).toContain('Дрожжина Анжела');
+      expect(html).toContain('Пермяков Александр');
+      expect(html).toContain('Пинигин Илья');
+    });
+
+    it('каждый участник группы — самостоятельный интерактивный элемент (CR-023 §5)', () => {
+      const html = renderNodeContent(
+        {
+          id: 'employee-group-1',
+          isGroup: true,
+          position: 'Специалист',
+          members: [
+            { id: 'm1', displayName: 'Петров Петр' },
+            { id: 'm2', displayName: 'Сидоров Семен' },
+          ],
+        },
+        { viewMode: 'to-be' },
+      );
+
+      expect(html).toContain('data-employee-id="m1"');
+      expect(html).toContain('data-employee-id="m2"');
+      // Меню доступно для каждого участника, а не только для первого.
+      expect(html.match(/data-scenario-menu/g)).toHaveLength(2);
+    });
+
+    it('должен рендерить групповую карточку в PDF-режиме (CR-023 §9)', () => {
+      const html = renderNodeContent(
+        {
+          id: 'employee-group-1',
+          isGroup: true,
+          position: 'Главный инженер проекта',
+          members: [
+            { id: 'm1', displayName: 'Дрожжина Анжела' },
+            { id: 'm2', displayName: 'Пермяков Александр' },
+          ],
+        },
+        { isPdfExport: true },
+      );
+
+      expect(html).toContain('chart-card--pdf-group');
+      expect(html).toContain('Дрожжина Анжела');
+      expect(html).toContain('Пермяков Александр');
+    });
+
+    it('в PDF-режиме скрывает ФИО участников группы при hideNames (CR-023 §9)', () => {
+      const html = renderNodeContent(
+        {
+          id: 'employee-group-1',
+          isGroup: true,
+          position: 'Главный инженер проекта',
+          members: [{ id: 'm1', displayName: 'Дрожжина Анжела' }],
+        },
+        { isPdfExport: true, hideNames: true },
+      );
+
+      expect(html).not.toContain('Дрожжина Анжела');
+    });
   });
 });

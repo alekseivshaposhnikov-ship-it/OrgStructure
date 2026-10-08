@@ -29,6 +29,7 @@ main.js          композиция (точка входа)
 | `utils/string.js` | `escapeHtml`, `normalizeProjects`, `formatDate`, `sanitizeFileName` |
 | `utils/tree.js` | `cloneTree`, `addLevels`, `shortPosition`, `parseSubLevel`, `findDepartmentById` |
 | `utils/position.js` | `positionWeight`, `sortUsersByPositionLevel` (сортировка по уровню должности) |
+| `utils/grouping.js` | Presentation-группировка сотрудников по должности (CR-023): `normalizePositionKey`, `buildEmployeePresentations` |
 
 ### data/
 | Модуль | Назначение |
@@ -43,8 +44,8 @@ main.js          композиция (точка входа)
 ### rendering/
 | Модуль | Назначение |
 |---|---|
-| `unified-layout.js` | Единый layout диаграммы (высоты уровней, колонки) |
-| `chart-cards.js` | HTML-карточки (classic / variant2 / variant3 / PDF-режим) |
+| `unified-layout.js` | Единый layout диаграммы (высоты уровней, колонки); presentation-группировка по должности и расчёт высот по содержимому (CR-023) |
+| `chart-cards.js` | HTML-карточки (classic / variant2 / variant3 / групповая / PDF-режим) |
 | `screen-viewport.js` | Единый viewport: zoom/pan/fit/center (CR-008_1); диапазон масштаба MIN/MAX_ZOOM_SCALE (CR-011) |
 | `tokens.js` | Палитра и сценарий-стайлы (CR-009) |
 | `svg-utils.js` | Общие SVG-хелперы: createSvgElement, appendText, truncateText |

@@ -161,6 +161,16 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
     departmentWidth = 350,
     departmentHeight = 130,
     employeeHeight = 96,
+    // CR-023 §6-7: компактная геометрия и presentation-группировка.
+    employeesHeaderHeight = 26,
+    colGap = 40,
+    rowGap = 60,
+    personGap = 8,
+    contentGap = 30,
+    paddingX = 40,
+    paddingY = 40,
+    measureContent = false,
+    groupByPosition = false,
     // CR-012: при выборе корня Холдинга дирекции верхнего уровня
     // сворачиваются по умолчанию. Применяется только к первичному рендеру.
     collapseTopLevel = false,
@@ -221,12 +231,15 @@ export function renderUnifiedScreen(rootNodes, containerSelector, options = {}) 
       employeeHeight,
       assistantWidth: departmentWidth,
       assistantHeight: employeeHeight,
-      employeesHeaderHeight: 26,
-      colGap: 40,
-      rowGap: 60,
-      personGap: 8,
-      paddingX: 40,
-      paddingY: 40,
+      employeesHeaderHeight,
+      colGap,
+      rowGap,
+      personGap,
+      contentGap,
+      paddingX,
+      paddingY,
+      measureContent,
+      groupByPosition,
       collapsedIds: state.collapsedIds,
     });
   }

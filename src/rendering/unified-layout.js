@@ -15,6 +15,8 @@
  */
 
 import { formatEmployeeDisplayName } from "../core/utils/employee.js";
+import { normalizeProjects } from "../core/utils/string.js";
+import { buildEmployeePresentations } from "../core/utils/grouping.js";
 
 const MAX_SUBLEVEL = Number.MAX_SAFE_INTEGER;
 
@@ -67,6 +69,13 @@ const DEFAULT_OPTIONS = {
   toggleGap: 14,
   paddingX: 40,
   paddingY: 40,
+  // CR-023: presentation-группировка сотрудников с одинаковой должностью
+  // внутри одного подразделения (визуальное объединение, модель не меняется).
+  groupByPosition: false,
+  // CR-023: расчёт высоты карточек по фактическому содержимому (включая
+  // перенос длинных должностей). По умолчанию выключено — сохраняет прежнюю
+  // геометрию для существующих сценариев/тестов; приложение включает его.
+  measureContent: false,
   // Ролевая presentation для PDF (CR-003-02): department-card получает
   // динамическую высоту по числу должностей. По умолчанию выключено —
   // не влияет на экран и detailed-режим.
@@ -76,6 +85,98 @@ const DEFAULT_OPTIONS = {
   rolesDepartmentRowHeight: 0,
   rolesDepartmentPadding: 0,
 };
+
+/**
+ * CR-023 §5-6: метрики компактной карточки сотрудника/группы. Единый источник
+ * для экранного/PDF-рендера и расчёта высоты в layout. Значения согласованы со
+ * стилями `.chart-card--employee` / `.chart-card--group` (style.css) и с
+ * SVG-рендером PDF (pdf-d3-export.js).
+ */
+export const CARD_METRICS = {
+  paddingX: 8,
+  paddingY: 6,
+  nameFont: 13,
+  nameLine: 16,
+  positionFont: 11,
+  positionLine: 14,
+  projectFont: 10,
+  projectLine: 13,
+  groupHeaderFont: 12,
+  groupHeaderLine: 15,
+  memberGap: 3,
+  minHeight: 44,
+};
+
+/**
+ * Приблизительная оценка числа строк текста при заданной ширине и кегле.
+ * Не требует DOM (layout не зависит от браузера). Оценка консервативна
+ * (склонна к завышению) — карточка никогда не окажется ниже содержимого.
+ *
+ * @param {string} text
+ * @param {number} maxWidth - доступная ширина контента, px
+ * @param {number} fontSize - кегль, px
+ * @param {number} [charWidthFactor=0.56] - средняя ширина символа к кеглю
+ * @returns {number}
+ */
+export function measureTextLines(text, maxWidth, fontSize, charWidthFactor = 0.56) {
+  const value = String(text || "").trim();
+  if (!value) return 0;
+
+  const charWidth = Math.max(1, fontSize * charWidthFactor);
+  const perLine = Math.max(1, Math.floor(maxWidth / charWidth));
+  return Math.max(1, Math.ceil([...value].length / perLine));
+}
+
+/** Высота одиночной карточки сотрудника/вакансии по содержимому (CR-023 §6.2). */
+export function measureEmployeeCardHeight(data, cardWidth, metrics = CARD_METRICS) {
+  const contentWidth = Math.max(40, cardWidth - metrics.paddingX * 2);
+  let height = metrics.paddingY;
+
+  height +=
+    measureTextLines(data.displayName || data.name, contentWidth, metrics.nameFont) *
+    metrics.nameLine;
+
+  if (data.position) {
+    height +=
+      metrics.memberGap +
+      measureTextLines(data.position, contentWidth, metrics.positionFont) *
+        metrics.positionLine;
+  }
+
+  const project = normalizeProjects(data.project);
+  if (project) {
+    height +=
+      metrics.memberGap +
+      measureTextLines(project, contentWidth, metrics.projectFont) * metrics.projectLine;
+  }
+
+  height += metrics.paddingY;
+  return Math.max(height, metrics.minHeight);
+}
+
+/** Высота групповой карточки: заголовок должности + строки ФИО (CR-023 §5, §6.2). */
+export function measureGroupCardHeight(data, cardWidth, metrics = CARD_METRICS) {
+  const contentWidth = Math.max(40, cardWidth - metrics.paddingX * 2);
+  // Правая часть заголовка занята счётчиком сотрудников — текст должности
+  // переносится в пределах оставшейся ширины.
+  const headerWidth = Math.max(40, contentWidth * 0.72);
+
+  let height = metrics.paddingY;
+  height +=
+    measureTextLines(data.position, headerWidth, metrics.groupHeaderFont) *
+    metrics.groupHeaderLine;
+
+  (data.members || []).forEach((member) => {
+    height +=
+      metrics.memberGap +
+      measureTextLines(member.displayName || member.name, contentWidth, metrics.nameFont) *
+        metrics.nameLine;
+  });
+
+  height += metrics.paddingY;
+  return Math.max(height, metrics.minHeight);
+}
+
 
 export function isAdministrativeAssistant(user) {
   if (!user || user.isVacancy) return false;
@@ -125,12 +226,65 @@ export function findAdministrativeAssistantInSubtree(node) {
 }
 
 /**
+ * CR-023 §5: presentation-данные сотрудника для карточки (экран/PDF).
+ * Единый источник полей; исходный объект не мутируется.
+ */
+function makeEmployeePresentationData(user) {
+  return {
+    ...user,
+    id: user.id || `user_${Math.random().toString(16).slice(2)}`,
+    name: user.full_name || user.name || "Сотрудник",
+    // CR-016 §34: presentation ФИО (Фамилия Имя), топ-3 — полное.
+    displayName: formatEmployeeDisplayName(user.full_name || user.name || "", {
+      keepFullName: Boolean(user.keepFullName),
+    }),
+    position: user.position || "",
+    isDepartment: false,
+    isVacancy: !!user.isVacancy,
+    isAssistant: false,
+  };
+}
+
+/**
+ * Строит person-элемент колонки сотрудников (CR-023 §10): одиночная карточка
+ * либо групповая карточка нескольких сотрудников с одинаковой должностью.
+ * Участники группы остаются самостоятельными интерактивными элементами и
+ * несут собственный id исходной записи (для детального просмотра и меню).
+ */
+function makePersonEntry(presentation, departmentNode, index) {
+  if (presentation.type === "group") {
+    const members = presentation.members.map((member) => ({
+      ...makeEmployeePresentationData(member),
+      isGroupMember: true,
+    }));
+
+    return {
+      type: "group",
+      members,
+      data: {
+        id: `employee-group-${departmentNode.department_guid || index}-${index}`,
+        isGroup: true,
+        isDepartment: false,
+        isVacancy: false,
+        isAssistant: false,
+        name: presentation.position,
+        position: presentation.position,
+        memberCount: members.length,
+        members,
+      },
+    };
+  }
+
+  return { type: "person", data: makeEmployeePresentationData(presentation.data) };
+}
+
+/**
  * Строит внутреннее дерево layout-модели.
  * Узел: { type, data?, persons?, children?, rawLevel?, row?, x?, y?, width?, height?, subtreeWidth? }
  */
 export function buildLayoutTree(
   rootNode,
-  { showVacancies = true, collapsedIds = null } = {},
+  { showVacancies = true, collapsedIds = null, groupByPosition = false } = {},
 ) {
   // Универсальная привязка ассистентов (CR-013_fix §9, §12; CR-013_assistant §12):
   // каждый assistant является sidecar-node своего непосредственного руководителя —
@@ -294,25 +448,16 @@ export function buildLayoutTree(
       children.push(assistantNode);
     });
 
-    if (users.length) {
+    const presentations = buildEmployeePresentations(users, { groupByPosition });
+
+    if (presentations.length) {
       children.push({
         type: NODE_EMPLOYEES,
-        persons: users.map((user) => ({
-          type: "person",
-          data: {
-            ...user,
-            id: user.id || `user_${Math.random().toString(16).slice(2)}`,
-            name: user.full_name || user.name || "Сотрудник",
-            // CR-016 §34: presentation ФИО (Фамилия Имя), топ-3 — полное.
-            displayName: formatEmployeeDisplayName(user.full_name || user.name || "", {
-              keepFullName: Boolean(user.keepFullName),
-            }),
-            position: user.position || "",
-            isDepartment: false,
-            isVacancy: !!user.isVacancy,
-            isAssistant: false,
-          },
-        })),
+        // CR-023 §10: набор визуальных элементов — отдельные сотрудники либо
+        // группы сотрудников с одинаковой должностью (presentation-этап).
+        persons: presentations.map((presentation, index) =>
+          makePersonEntry(presentation, node, index),
+        ),
       });
     }
 
@@ -525,15 +670,29 @@ function computeSizes(node, opts) {
         : baseHeight;
   } else if (node.type === NODE_EMPLOYEES) {
     node.width = opts.employeeWidth;
-    const n = node.persons.length;
-    node.height =
-      opts.employeesHeaderHeight +
-      n * opts.employeeHeight +
-      (n > 1 ? (n - 1) * opts.personGap : 0);
+    const metrics = opts.cardMetrics || CARD_METRICS;
+
     node.persons.forEach((person) => {
       person.width = opts.employeeWidth;
-      person.height = opts.employeeHeight;
+
+      if (person.type === "group") {
+        // CR-023 §5, §7: высота групповой карточки — по фактическому
+        // содержимому (заголовок должности + строки ФИО).
+        person.height = measureGroupCardHeight(person.data, opts.employeeWidth, metrics);
+      } else if (opts.measureContent) {
+        // CR-023 §6.2: высота одиночной карточки — по содержимому.
+        person.height = measureEmployeeCardHeight(person.data, opts.employeeWidth, metrics);
+      } else {
+        person.height = opts.employeeHeight;
+      }
     });
+
+    const n = node.persons.length;
+    const personsHeight = node.persons.reduce((sum, person) => sum + person.height, 0);
+    node.height =
+      opts.employeesHeaderHeight +
+      personsHeight +
+      (n > 1 ? (n - 1) * opts.personGap : 0);
   }
 
   (node.children || []).forEach((child) => computeSizes(child, opts));
@@ -816,7 +975,12 @@ function collect(tree, nodes, edges, flatData, parent) {
 
   if (tree.type === NODE_EMPLOYEES) {
     nodes.push(tree);
-    tree.persons.forEach((person) => flatData.push(person.data));
+    tree.persons.forEach((person) => {
+      flatData.push(person.data);
+      // CR-023 §5: участники групповой карточки остаются доступными для
+      // детального просмотра и контекстного меню по собственному id записи.
+      (person.members || []).forEach((member) => flatData.push(member));
+    });
     return;
   }
 
@@ -848,6 +1012,7 @@ export function computeUnifiedLayout(rootNode, options = {}) {
   const tree = buildLayoutTree(rootNode, {
     showVacancies: opts.showVacancies,
     collapsedIds: opts.collapsedIds,
+    groupByPosition: opts.groupByPosition,
   });
 
   assignActualLevels(tree);

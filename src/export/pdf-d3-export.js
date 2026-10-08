@@ -115,6 +115,8 @@ export async function exportOrgChartToPdf({
   employeeHeight,
   assistantWidth,
   assistantHeight,
+  // CR-023 §9: геометрия и режим (группировка) соответствуют экрану.
+  layoutOptions = {},
 } = {}) {
   if (!rootNodes.length) {
     alert("Нет диаграммы для экспорта");
@@ -149,10 +151,15 @@ export async function exportOrgChartToPdf({
         ...(employeeHeight != null ? { employeeHeight } : {}),
         ...(assistantWidth != null ? { assistantWidth } : {}),
         ...(assistantHeight != null ? { assistantHeight } : {}),
+        // CR-023 §9: компактная геометрия и presentation-группировка из экрана.
+        ...layoutOptions,
         // Ролевой режим (CR-003-02 §9, §19): высота department-card зависит
         // от числа уникальных должностей, а не числа сотрудников.
         ...(employeeMode === "roles" ? PDF_ROLES_LAYOUT_OPTIONS : {}),
       });
+
+      const employeesHeaderHeight =
+        layoutOptions.employeesHeaderHeight ?? PDF_LAYOUT_OPTIONS.employeesHeaderHeight;
 
       const svg = renderUnifiedLayoutToPdf(layout, {
         title,
@@ -161,6 +168,7 @@ export async function exportOrgChartToPdf({
         hideNames,
         showVacancies,
         employeeMode,
+        employeesHeaderHeight,
       });
 
       await renderSvgToPdf({ svg, fileName: sanitizeFileName(title) });
@@ -451,6 +459,7 @@ export function renderUnifiedLayoutToPdf(
     hideNames = false,
     showVacancies = true,
     employeeMode = hideNames ? "roles" : "detailed",
+    employeesHeaderHeight = PDF_LAYOUT_OPTIONS.employeesHeaderHeight,
   } = {},
 ) {
   // В ролевом режиме page-fit использует фактический bounding box визуально
@@ -491,7 +500,12 @@ export function renderUnifiedLayoutToPdf(
   });
 
   layout.nodes.forEach((node) => {
-    drawPdfNode(diagram, node, { hideNames, showVacancies, employeeMode });
+    drawPdfNode(diagram, node, {
+      hideNames,
+      showVacancies,
+      employeeMode,
+      employeesHeaderHeight,
+    });
   });
 
   if (SHOW_PDF_LAYOUT_DEBUG) {
@@ -1019,8 +1033,10 @@ function drawPdfEmployeesColumn(diagram, node, opts) {
 }
 
 function drawDetailedPersonCards(group, node, opts) {
-  const gap = computePersonGap(node);
-  let cursorY = PDF_LAYOUT_OPTIONS.employeesHeaderHeight;
+  const headerHeight =
+    opts.employeesHeaderHeight ?? PDF_LAYOUT_OPTIONS.employeesHeaderHeight;
+  const gap = computePersonGap(node, headerHeight);
+  let cursorY = headerHeight;
 
   node.persons.forEach((person) => {
     const personGroup = createSvgElement("g", {
@@ -1028,7 +1044,14 @@ function drawDetailedPersonCards(group, node, opts) {
       "data-node-id": person.data.id,
     });
 
-    drawPdfPersonCard(personGroup, person, opts.hideNames);
+    // CR-023 §9: групповая карточка экспортируется как единая карточка
+    // с должностью и списком ФИО.
+    if (person.type === "group") {
+      drawPdfGroupCard(personGroup, person, opts.hideNames);
+    } else {
+      drawPdfPersonCard(personGroup, person, opts.hideNames);
+    }
+
     group.appendChild(personGroup);
     cursorY += person.height + gap;
   });
@@ -1087,14 +1110,82 @@ function drawPdfPersonCard(group, person, hideNames) {
 }
 
 /**
+ * CR-023 §5, §9: групповая карточка в PDF — должность со счётчиком и список
+ * ФИО сотрудников. Высота рассчитана в layout (measureGroupCardHeight) и
+ * учитывает перенос длинной должности; все ФИО присутствуют в PDF.
+ */
+function drawPdfGroupCard(group, person, hideNames) {
+  const { data } = person;
+  const members = Array.isArray(data.members) ? data.members : [];
+
+  group.appendChild(
+    createSvgElement("rect", {
+      x: 0,
+      y: 0,
+      width: person.width,
+      height: person.height,
+      rx: 8,
+      ry: 8,
+      fill: "#ffffff",
+      stroke: COLORS.border,
+      "stroke-width": 1.5,
+    }),
+  );
+
+  const headerMaxWidth = person.width - 44;
+
+  appendText(group, String(members.length), {
+    x: person.width - 12,
+    y: 16,
+    size: 12,
+    weight: 700,
+    fill: COLORS.blue,
+    anchor: "end",
+  });
+
+  appendWrappedText(group, data.position || "", {
+    x: 10,
+    y: 15,
+    maxWidth: headerMaxWidth,
+    lineHeight: 15,
+    maxLines: 3,
+    size: 12,
+    weight: 700,
+    fill: COLORS.text,
+  });
+
+  const headerLines = Math.max(
+    1,
+    wrapText(String(data.position || ""), headerMaxWidth, 12, 3).length,
+  );
+
+  if (hideNames) return;
+
+  let y = 6 + headerLines * 15 + 3 + 12;
+  members.forEach((member) => {
+    const name = member.displayName || member.full_name || member.name || "Сотрудник";
+    appendWrappedText(group, name, {
+      x: 10,
+      y,
+      maxWidth: person.width - 20,
+      lineHeight: 16,
+      maxLines: 2,
+      size: 13,
+      weight: 600,
+      fill: COLORS.text,
+    });
+    y += 16 + 3;
+  });
+}
+
+/**
  * Вычисляет вертикальный зазор между карточками внутри employee-колонки
  * из готовой высоты колонки layout (не пересчитывая layout).
  */
-function computePersonGap(node) {
+function computePersonGap(node, headerHeight = PDF_LAYOUT_OPTIONS.employeesHeaderHeight) {
   const n = node.persons.length;
   if (n <= 1) return 0;
 
-  const headerHeight = PDF_LAYOUT_OPTIONS.employeesHeaderHeight;
   const totalCards = node.persons.reduce((sum, person) => sum + (person.height || 0), 0);
   const contentHeight = Math.max(node.height - headerHeight, totalCards);
 

@@ -37,6 +37,8 @@ export function initExportHandler(state) {
       employeeHeight: 96,
       assistantWidth: state.cardWidth,
       assistantHeight: 96,
+      // CR-023 §9: PDF-геометрия и режим (группировка) соответствуют экрану.
+      layoutOptions: buildScreenLayoutOptions(state),
     };
 
     if (state.cardDesign === "compact-a4") {
@@ -78,7 +80,36 @@ export function getDepartmentNodeHeight(data, cardDesign) {
   if (cardDesign === "variant2") return 176 + assistantExtraHeight;
   if (cardDesign === "variant3") return 158 + assistantExtraHeight;
 
-  return 130 + assistantExtraHeight;
+  // CR-023 §6: компактная карточка подразделения (отступы уменьшены,
+  // длинное название переносится внутри фиксированной высоты).
+  return 104 + assistantExtraHeight;
+}
+
+/**
+ * CR-023 §6-7: компактная геометрия схемы — единый источник для экранного
+ * рендера и PDF. Уменьшает внутренние/внешние отступы и расстояния между
+ * карточками и подразделениями; включает расчёт высот по содержимому.
+ */
+export const COMPACT_LAYOUT_OPTIONS = {
+  employeesHeaderHeight: 22,
+  colGap: 24,
+  rowGap: 32,
+  contentGap: 18,
+  personGap: 6,
+  paddingX: 24,
+  paddingY: 24,
+  measureContent: true,
+};
+
+/**
+ * Опции layout для текущего состояния приложения (CR-023 §3).
+ * Значение дизайна «Группировка по должности» включает presentation-группировку.
+ */
+export function buildScreenLayoutOptions(state) {
+  return {
+    ...COMPACT_LAYOUT_OPTIONS,
+    groupByPosition: state.cardDesign === "grouped",
+  };
 }
 
 /**
@@ -161,6 +192,8 @@ export function renderScreenOrgChart(state, deps = {}) {
     departmentWidth: state.cardWidth,
     departmentHeight: getDepartmentNodeHeight({ isDepartment: true }, state.cardDesign),
     employeeHeight: 96,
+    // CR-023 §6-7: компактная геометрия + presentation-группировка.
+    ...buildScreenLayoutOptions(state),
     collapseTopLevel,
     initialCollapsedIds,
   });

@@ -184,7 +184,7 @@ button:hover {
 
 .chart-card {
   height: 100%;
-  border-radius: 12px;
+  border-radius: 10px;
   font-family: var(--font-base), 'Segoe UI', 'Arial', sans-serif;
   text-align: center;
   box-shadow: var(--shadow-card);
@@ -192,54 +192,57 @@ button:hover {
   background: var(--color-surface);
 }
 
-/* Текущий дизайн */
+/* Текущий дизайн (CR-023 §6: компактные отступы и типографика) */
 
 .chart-card--department {
   position: relative;
-  padding: 16px 16px 32px 16px;
+  padding: 12px 12px 24px 12px;
   border: 2px solid var(--color-primary);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
 }
 
 .chart-card--employee {
-  padding: 12px;
+  padding: 6px 8px;
   border: 2px solid var(--color-primary);
   background: var(--color-surface);
   cursor: pointer;
 }
 
 .chart-card--vacancy {
-  padding: 12px;
+  padding: 6px 8px;
   border: 1px solid var(--color-light-blue);
   background: #EAF5FF;
 }
 
 .chart-card__title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 16px;
   color: var(--color-text);
   word-break: break-word;
 }
 
 .chart-card__manager {
-  margin-top: 6px;
-  font-size: 12px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 14px;
   color: var(--color-muted);
 }
 
 .chart-card__manager-position,
 .chart-card__position {
-  margin-top: 2px;
-  font-size: 12px;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 14px;
   color: #667085;
 }
 
 .chart-card__count {
   position: absolute;
-  right: 16px;
-  bottom: 8px;
-  font-size: 14px;
+  right: 12px;
+  bottom: 6px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--color-text);
 }
@@ -298,17 +301,17 @@ button:hover {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 8px;
+  padding: 6px;
   border: 1px dashed #cbd5e1;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #f8fafc;
   box-sizing: border-box;
 }
 
 .employees-column__header {
   flex: 0 0 auto;
-  padding: 4px 6px 8px;
-  font-size: 11px;
+  padding: 2px 4px 4px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -320,7 +323,7 @@ button:hover {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   overflow: visible;
 }
 
@@ -947,13 +950,13 @@ body {
 }
 
 .chart-card__project {
-  margin-top: 6px;
-  padding: 4px 6px;
+  margin-top: 3px;
+  padding: 3px 5px;
   border-radius: 6px;
   background: #f2f4f7;
   color: #344054;
   font-size: 10px;
-  line-height: 1.25;
+  line-height: 13px;
   word-break: break-word;
 }
 
@@ -1034,8 +1037,8 @@ body {
 .chart-card--employee,
 .chart-card--vacancy,
 .chart-card--assistant {
-  padding-left: 16px;
-  padding-right: 16px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .chart-card__title,
@@ -1058,6 +1061,83 @@ body {
 .pdf-export-hide-names .chart-card__assistant-name,
 .pdf-export-hide-names .chart-card--employee .chart-card__title {
   display: none !important;
+}
+
+/* CR-023 §5: групповая карточка — несколько сотрудников одной должности */
+
+.chart-card--group {
+  text-align: left;
+  cursor: default;
+}
+
+.chart-card__group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.chart-card__group-position {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 15px;
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.chart-card__group-count {
+  flex: 0 0 auto;
+  min-width: 16px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: var(--color-primary);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.chart-card__group-members {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.chart-card__group-member {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 20px 1px 2px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.chart-card__group-member:hover {
+  background: #f2f4f7;
+}
+
+.chart-card__group-member-name {
+  word-break: break-word;
+}
+
+.chart-card__group-member .scenario-badge {
+  position: static;
+  padding: 0 5px;
+  font-size: 9px;
+}
+
+.chart-card__group-member .chart-card__menu {
+  top: 50%;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  font-size: 13px;
 }
 
 /* Добавьте этот блок в конец style.css */

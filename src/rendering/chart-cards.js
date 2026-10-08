@@ -4,9 +4,10 @@ import { normalizeAssistantLabel } from "./unified-layout.js";
 
 /**
  * Единый флаг диагностики уровней (CR-010 §3).
- * После завершения отладки достаточно: layoutDebugConfig.enabled = false.
+ * CR-023 §6.5: в обычном пользовательском режиме технические подписи скрыты;
+ * диагностика доступна только при явном включении (layoutDebugConfig.enabled = true).
  */
-export const layoutDebugConfig = { enabled: true };
+export const layoutDebugConfig = { enabled: false };
 
 /**
  * Возвращает строку диагностики уровней (без HTML) для card renderers.
@@ -55,6 +56,14 @@ export function renderNodeContent(nd, options = {}) {
 
   if (nd.isHoldingExecutive) {
     return renderHoldingExecutive(nd, viewMode);
+  }
+
+  // CR-023 §5: групповая карточка — несколько сотрудников одной должности
+  // внутри подразделения (остаётся продолжением существующего дизайна).
+  if (nd.isGroup) {
+    return isPdfExport
+      ? renderEmployeeGroupPdf(nd, hideNames)
+      : renderEmployeeGroup(nd, viewMode);
   }
 
   if (nd.isDepartment) {
@@ -302,6 +311,68 @@ function renderEmployee(nd, viewMode) {
       ${nd.position ? `<div class="chart-card__position">${escapeHtml(nd.position)}</div>` : ""}
       ${renderLayoutDebug(nd)}
       ${renderProject(nd)}
+    </div>
+  `;
+}
+
+/**
+ * Групповая карточка (CR-023 §5): должность показана один раз со счётчиком,
+ * ФИО сотрудников перечислены строками. Каждый сотрудник остаётся отдельным
+ * интерактивным элементом (данные для клика/меню — собственный id записи).
+ */
+function renderEmployeeGroup(nd, viewMode) {
+  const members = Array.isArray(nd.members) ? nd.members : [];
+
+  const memberHtml = members
+    .map(
+      (member) => `
+      <div class="chart-card__group-member"
+           data-employee-id="${escapeHtml(member.id || "")}"
+           data-node-id="${escapeHtml(member.id || "")}"
+           data-node-type="employee">
+        ${renderScenarioBadge(member)}
+        <span class="chart-card__group-member-name">${escapeHtml(
+          member.displayName || member.name || "Сотрудник",
+        )}</span>
+        ${renderMenuButton(viewMode)}
+      </div>`,
+    )
+    .join("");
+
+  return `
+    <div class="chart-card chart-card--employee chart-card--group ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee-group">
+      <div class="chart-card__group-header">
+        <span class="chart-card__group-position">${escapeHtml(nd.position || "")}</span>
+        <span class="chart-card__group-count">${members.length}</span>
+      </div>
+      <div class="chart-card__group-members">${memberHtml}</div>
+    </div>
+  `;
+}
+
+function renderEmployeeGroupPdf(nd, hideNames) {
+  const members = Array.isArray(nd.members) ? nd.members : [];
+
+  const names = hideNames
+    ? ""
+    : members
+        .map(
+          (member) =>
+            `<div class="chart-card-pdf__group-member">${escapeHtml(
+              member.displayName || member.name || "Сотрудник",
+            )}</div>`,
+        )
+        .join("");
+
+  return `
+    <div class="chart-card chart-card--pdf chart-card--pdf-employee chart-card--pdf-group ${getScenarioClass(nd)}"
+         data-node-id="${escapeHtml(nd.id)}"
+         data-node-type="employee-group">
+      <div class="chart-card-pdf__eyebrow">Группа · ${members.length}</div>
+      ${nd.position ? `<div class="chart-card-pdf__position">${escapeHtml(nd.position)}</div>` : ""}
+      ${names}
     </div>
   `;
 }

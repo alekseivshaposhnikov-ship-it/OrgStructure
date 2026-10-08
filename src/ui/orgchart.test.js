@@ -59,7 +59,7 @@ describe("orgchart (Фаза 2)", () => {
     });
 
     it("должен учитывать дизайн карточек", () => {
-      expect(getDepartmentNodeHeight({ isDepartment: true }, "classic")).toBe(130);
+      expect(getDepartmentNodeHeight({ isDepartment: true }, "classic")).toBe(104);
       expect(getDepartmentNodeHeight({ isDepartment: true }, "variant2")).toBe(176);
       expect(getDepartmentNodeHeight({ isDepartment: true }, "variant3")).toBe(158);
     });
@@ -67,7 +67,7 @@ describe("orgchart (Фаза 2)", () => {
     it("должен добавлять высоту ассистента", () => {
       expect(
         getDepartmentNodeHeight({ isDepartment: true, assistant: {} }, "classic"),
-      ).toBe(130 + 44);
+      ).toBe(104 + 44);
     });
   });
 

@@ -1042,3 +1042,60 @@ describe("PDF export: высота карточки по названию (CR-00
     expect(deptNode.height).toBeGreaterThan(70);
   });
 });
+
+describe("PDF export: группировка по должности (CR-023 §9)", () => {
+  function groupRoot() {
+    return dept("root", "Дирекция по развитию", {
+      manager: "Винник Лев Арнольдович",
+      managerPosition: "Директор по развитию",
+      managerSubLevel: 2,
+      users: [
+        user("g1", "Дрожжина Анжела Петровна", {
+          position: "Главный инженер проекта",
+          subLevel: 6,
+        }),
+        user("g2", "Пермяков Александр Игоревич", {
+          position: "Главный инженер проекта",
+          subLevel: 6,
+        }),
+        user("g3", "Пинигин Илья Сергеевич", {
+          position: "Главный инженер проекта",
+          subLevel: 6,
+        }),
+      ],
+    });
+  }
+
+  it("объединяет одинаковые должности в одну карточку и содержит все ФИО", () => {
+    const layout = buildPdfLayout(groupRoot(), {
+      groupByPosition: true,
+      measureContent: true,
+    });
+    const svg = renderUnifiedLayoutToPdf(layout, {});
+    const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
+
+    // Должность показана один раз + счётчик сотрудников.
+    expect(texts.some((t) => t.includes("Главный инженер проекта"))).toBe(true);
+    expect(texts.some((t) => t === "3")).toBe(true);
+
+    // Все сотрудники присутствуют в PDF.
+    expect(texts.some((t) => t.includes("Дрожжина"))).toBe(true);
+    expect(texts.some((t) => t.includes("Пермяков"))).toBe(true);
+    expect(texts.some((t) => t.includes("Пинигин"))).toBe(true);
+  });
+
+  it("ролевой режим не выводит групповых карточек сотрудников", () => {
+    const rolesRoot = prepareRolesTree(groupRoot(), true, {
+      departmentWidth: PDF_LAYOUT_OPTIONS.departmentWidth,
+    });
+    const layout = buildPdfLayout(rolesRoot, {
+      ...PDF_ROLES_LAYOUT_OPTIONS,
+      groupByPosition: true,
+    });
+    const svg = renderUnifiedLayoutToPdf(layout, { employeeMode: "roles" });
+    const texts = Array.from(svg.querySelectorAll("text")).map((t) => t.textContent || "");
+
+    expect(texts.some((t) => t.includes("Дрожжина"))).toBe(false);
+    expect(texts.some((t) => t.includes("Пермяков"))).toBe(false);
+  });
+});

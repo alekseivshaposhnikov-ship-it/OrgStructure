@@ -362,7 +362,11 @@ describe('compact-a4-svg-renderer', () => {
     expect(svg.querySelector('.compact-a4__viewport-layer')).toBeNull();
   });
 
-  it('должен выводить диагностику уровней в карточке подразделения (CR-010)', () => {
+  it('должен выводить диагностику уровней в карточке подразделения (CR-010)', async () => {
+    // CR-023 §6.5: диагностика уровней доступна только при явном включении.
+    const { layoutDebugConfig } = await import('../chart-cards.js');
+    layoutDebugConfig.enabled = true;
+
     const layoutResult = {
       flat: [
         {
@@ -397,5 +401,7 @@ describe('compact-a4-svg-renderer', () => {
     const texts = Array.from(svg.querySelectorAll('text')).map((t) => t.textContent || '');
     const hasDebug = texts.some((t) => t.includes('s:4') && t.includes('l:4') && t.includes('r:1'));
     expect(hasDebug).toBe(true);
+
+    layoutDebugConfig.enabled = false;
   });
 });
